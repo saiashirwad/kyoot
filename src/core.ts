@@ -138,56 +138,26 @@ export function stepAll(k: AnyKyoot): unknown {
         });
       }
       case "handler": {
+        // First encounter builds the clauses; resumptions reuse them so any
+        // closed-over state survives suspension.
+        const handler =
+          currentNode.clauses !== undefined
+            ? currentNode
+            : { ...currentNode, clauses: invoke(currentNode.make) };
+        const clauses = handler.clauses!;
         let inner: unknown;
         try {
-          inner = stepAll(currentNode.self);
+          inner = stepAll(handler.self);
         } catch (e) {
-          const { onDefect } = currentNode;
+          const { onDefect } = clauses;
           if (e instanceof DefectError && onDefect !== undefined) {
             current = invoke(() => onDefect(e.defect));
             break;
           }
           if (!(e instanceof EscapedOp)) throw e;
-          if (e.key === currentNode.effectKey) {
-            const handler = currentNode;
-            current = invoke(() =>
-              currentNode.onOp(
-                e.payload,
-                (v) => new KyootImpl({ ...handler, _tag: "handler", self: e.resume(v) }),
-              ),
-            );
-            break;
-          }
-          throw new EscapedOp(
-            e.key,
-            e.payload,
-            (v) => new KyootImpl({ ...currentNode, self: e.resume(v) }),
-          );
-        }
-        current = invoke(() => currentNode.onSuccess(inner));
-        break;
-      }
-      case "stateful-handler": {
-        const handler = currentNode.initialized
-          ? currentNode
-          : { ...currentNode, state: invoke(currentNode.init), initialized: true };
-        let inner: unknown;
-        try {
-          inner = stepAll(handler.self);
-        } catch (e) {
-          const { onDefect } = handler;
-          if (e instanceof DefectError && onDefect !== undefined) {
-            current = invoke(() => onDefect(e.defect, handler.state));
-            break;
-          }
-          if (!(e instanceof EscapedOp)) throw e;
           if (e.key === handler.effectKey) {
             current = invoke(() =>
-              handler.onOp(
-                handler.state,
-                e.payload,
-                (v) => new KyootImpl({ ...handler, _tag: "stateful-handler", self: e.resume(v) }),
-              ),
+              clauses.onOp(e.payload, (v) => new KyootImpl({ ...handler, self: e.resume(v) })),
             );
             break;
           }
@@ -197,7 +167,7 @@ export function stepAll(k: AnyKyoot): unknown {
             (v) => new KyootImpl({ ...handler, self: e.resume(v) }),
           );
         }
-        current = invoke(() => handler.onSuccess(inner, handler.state));
+        current = invoke(() => clauses.onSuccess(inner));
         break;
       }
     }

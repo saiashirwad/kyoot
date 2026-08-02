@@ -5,7 +5,13 @@ export type AnyKyoot = Kyoot<any, any>;
 
 export type OnOp = (payload: any, resume: (v: any) => AnyKyoot) => AnyKyoot;
 
-export type StatefulOnOp = (state: unknown, payload: any, resume: (v: any) => AnyKyoot) => AnyKyoot;
+// A handler's behavior. `make` produces these fresh per execution, so any
+// state a handler needs is just variables closed over by its clauses.
+export type HandlerClauses = {
+  readonly onOp: OnOp;
+  readonly onSuccess: (a: any) => AnyKyoot;
+  readonly onDefect?: (d: unknown) => AnyKyoot;
+};
 
 export type Continuation = (v: any) => AnyKyoot;
 
@@ -22,20 +28,10 @@ export type RuntimeNode =
       readonly _tag: "handler";
       readonly effectKey: PropertyKey;
       readonly self: AnyKyoot;
-      readonly onOp: OnOp;
-      readonly onSuccess: (a: any) => AnyKyoot;
-      readonly onDefect?: (d: unknown) => AnyKyoot;
-    }
-  | {
-      readonly _tag: "stateful-handler";
-      readonly effectKey: PropertyKey;
-      readonly self: AnyKyoot;
-      readonly init: () => unknown;
-      readonly state: unknown;
-      readonly initialized: boolean;
-      readonly onOp: StatefulOnOp;
-      readonly onSuccess: (a: any, state: unknown) => AnyKyoot;
-      readonly onDefect?: (d: unknown, state: unknown) => AnyKyoot;
+      readonly make: () => HandlerClauses;
+      // Set by the interpreter on first encounter; resumptions reuse it so
+      // closure state survives suspension.
+      readonly clauses?: HandlerClauses;
     }
   | { readonly _tag: "gen"; readonly factory: () => Generator<AnyKyoot, any, unknown> }
   | {

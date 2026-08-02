@@ -1,5 +1,5 @@
 import { invoke, makeOp, succeed } from "../core.ts";
-import { makeStatefulHandler } from "../handler.ts";
+import { makeHandler } from "../handler.ts";
 import type { AnyKyoot, Kyoot } from "../model.ts";
 import type { Row, Simplify } from "../types.ts";
 
@@ -11,10 +11,6 @@ type VarOp<V> =
   | { readonly kind: "get" }
   | { readonly kind: "set"; readonly value: V }
   | { readonly kind: "update"; readonly f: (value: V) => V };
-
-type VarState<V> = {
-  value: V;
-};
 
 const keys = new Map<string, symbol>();
 
@@ -47,23 +43,27 @@ export function Tag<V>() {
         return <A, S extends Row & VarRow<Id, V>>(
           k: Kyoot<A, S>,
         ): Kyoot<[A, V], Simplify<Omit<S, `var/${Id}`>>> =>
-          makeStatefulHandler<VarState<V>>({
+          makeHandler({
             effectKey,
             self: k as AnyKyoot,
-            init: () => ({ value: initial }),
-            onOp: (state, op: VarOp<V>, resume) => {
-              switch (op.kind) {
-                case "get":
-                  return resume(state.value);
-                case "set":
-                  state.value = op.value;
-                  return resume(undefined);
-                case "update":
-                  state.value = invoke(() => op.f(state.value));
-                  return resume(undefined);
-              }
+            make: () => {
+              let value = initial;
+              return {
+                onOp: (op: VarOp<V>, resume) => {
+                  switch (op.kind) {
+                    case "get":
+                      return resume(value);
+                    case "set":
+                      value = op.value;
+                      return resume(undefined);
+                    case "update":
+                      value = invoke(() => op.f(value));
+                      return resume(undefined);
+                  }
+                },
+                onSuccess: (a) => succeed([a, value]),
+              };
             },
-            onSuccess: (a, state) => succeed([a, state.value]),
           }) as Kyoot<[A, V], Simplify<Omit<S, `var/${Id}`>>>;
       }
     };

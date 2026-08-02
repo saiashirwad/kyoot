@@ -13,18 +13,21 @@ export function value<E>(e: E): Kyoot<void, { emit: E }> {
 export function run() {
   return <A, S extends Row & { emit: unknown }>(
     k: Kyoot<A, S>,
-  ): Kyoot<[A, S["emit"][]], Simplify<Omit<S, "emit">>> => {
-    const acc: unknown[] = [];
-    return makeHandler({
+  ): Kyoot<[A, S["emit"][]], Simplify<Omit<S, "emit">>> =>
+    makeHandler({
       effectKey: "emit",
       self: k as AnyKyoot,
-      onOp: (e, resume) => {
-        acc.push(e);
-        return resume(undefined);
+      make: () => {
+        const acc: unknown[] = [];
+        return {
+          onOp: (e, resume) => {
+            acc.push(e);
+            return resume(undefined);
+          },
+          onSuccess: (a) => succeed([a, acc]),
+        };
       },
-      onSuccess: (a) => succeed([a, acc]),
     }) as Kyoot<[A, S["emit"][]], Simplify<Omit<S, "emit">>>;
-  };
 }
 
 // Consume values as they happen.
@@ -33,11 +36,13 @@ export function forEach<E>(f: (e: E) => void) {
     makeHandler({
       effectKey: "emit",
       self: k as AnyKyoot,
-      onOp: (e, resume) => {
-        f(e as E);
-        return resume(undefined);
-      },
-      onSuccess: (a) => succeed(a),
+      make: () => ({
+        onOp: (e, resume) => {
+          f(e as E);
+          return resume(undefined);
+        },
+        onSuccess: (a) => succeed(a),
+      }),
     }) as Kyoot<A, Simplify<Omit<S, "emit">>>;
 }
 
@@ -48,7 +53,9 @@ export function discard() {
     makeHandler({
       effectKey: "emit",
       self: k as AnyKyoot,
-      onOp: (_e, resume) => resume(undefined),
-      onSuccess: (a) => succeed(a),
+      make: () => ({
+        onOp: (_e, resume) => resume(undefined),
+        onSuccess: (a) => succeed(a),
+      }),
     }) as Kyoot<A, Simplify<Omit<S, "emit">>>;
 }

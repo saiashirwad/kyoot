@@ -60,10 +60,7 @@ export const checkout = (order: Order, card: Card) =>
     const total = yield* Total.get();
     const chargeId = yield* payments.charge(total, card);
     return { orderId: order.id, chargeId, totalCents: total };
-  }).pipe(
-    Total.run(0),
-    Emit.forEach((x) => x),
-  );
+  }).pipe(Total.run(0));
 
 export const productionEdge = (
   order: Order,
@@ -74,6 +71,7 @@ export const productionEdge = (
     checkout(order, card).pipe(
       Env.provide("inventory", deps.inventory),
       Env.provide("payments", deps.payments),
+      Emit.forEach(deps.publish),
       Abort.run(),
       Sync.run(),
     ),
@@ -87,6 +85,7 @@ export const testEdge = (
   checkout(order, card).pipe(
     Env.provide("inventory", deps.inventory),
     Env.provide("payments", deps.payments),
+    Emit.discard(),
     Abort.orThrow(),
     Sync.run(),
     Kyoot.runSync,

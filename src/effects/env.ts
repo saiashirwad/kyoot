@@ -22,7 +22,9 @@ export function provide<N extends string, T>(name: N, impl: T) {
     makeHandler({
       effectKey,
       self: k as AnyKyoot,
-      onOp: (_payload, resume) => resume(impl),
-      onSuccess: (a) => succeed(a),
+      make: () => ({
+        onOp: (_payload, resume) => resume(impl),
+        onSuccess: (a) => succeed(a),
+      }),
     }) as Kyoot<A, Simplify<Omit<S, `env/${N}`>>>;
 }

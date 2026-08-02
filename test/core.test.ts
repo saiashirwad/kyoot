@@ -81,11 +81,13 @@ test("one-shot law: a handler that resumes twice produces a defect", () => {
   const k = makeHandler({
     effectKey: "myfx",
     self: makeOp("myfx", undefined),
-    onOp: (_p, resume) => {
-      resume(1);
-      return resume(2);
-    },
-    onSuccess: (a) => succeed(a),
+    make: () => ({
+      onOp: (_p, resume) => {
+        resume(1);
+        return resume(2);
+      },
+      onSuccess: (a) => succeed(a),
+    }),
   });
   assert.throws(
     () => Kyoot.runSync(k as never),
@@ -100,8 +102,10 @@ test("a handler that resumes zero times short-circuits", () => {
       yield* makeOp("myfx", undefined);
       return "unreachable";
     }).map(() => "also unreachable"),
-    onOp: () => succeed("short"),
-    onSuccess: (a) => succeed(a),
+    make: () => ({
+      onOp: () => succeed("short"),
+      onSuccess: (a) => succeed(a),
+    }),
   });
   assert.equal(Kyoot.runSync(k as never), "short");
 });

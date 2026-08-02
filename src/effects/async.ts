@@ -118,6 +118,28 @@ export function race<A, S1 extends Row, S2 extends Row>(
   }) as Kyoot<A, Simplify<Merge<Merge<S1, S2>, { async: true }>>>;
 }
 
+export function all<A, S extends Row>(
+  ks: ReadonlyArray<Kyoot<A, S> & AsyncOnly<S>>,
+): Kyoot<ReadonlyArray<A>, Simplify<Merge<S, { async: true }>>> {
+  return asyncOp({
+    execute: (rt) => {
+      const fibers = ks.map((k) => rt.spawn(k as AnyKyoot));
+      return Promise.all(fibers.map((f) => f.promise)).then(
+        (results) => results,
+        (e: unknown) =>
+          Promise.allSettled(
+            fibers.map((f) => {
+              f.interrupt();
+              return f.promise;
+            }),
+          ).then(() => {
+            throw e;
+          }),
+      ) as Promise<ReadonlyArray<A>>;
+    },
+  }) as Kyoot<ReadonlyArray<A>, Simplify<Merge<S, { async: true }>>>;
+}
+
 export class TimeoutError extends Error {
   readonly _tag = "TimeoutError";
   readonly ms: number;

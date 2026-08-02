@@ -142,6 +142,68 @@ test("structured concurrency: a completed parent interrupts its children", async
   assert.deepEqual(events, ["release"]);
 });
 
+test("all: results come back in input order, not completion order", async () => {
+  const slow = Async.sleep(20).map(() => "slow");
+  const fast = Async.sleep(5).map(() => "fast");
+  assert.deepEqual(await Kyoot.runPromise(Async.all([slow, fast])), ["slow", "fast"]);
+});
+
+test("all: branches run concurrently", async () => {
+  const events: string[] = [];
+  const branch = (tag: string, ms: number) =>
+    Kyoot.gen(function* () {
+      events.push(`start ${tag}`);
+      yield* Async.sleep(ms);
+      events.push(`end ${tag}`);
+    });
+  await Kyoot.runPromise(Async.all([branch("a", 20), branch("b", 10)]));
+  assert.deepEqual(events, ["start a", "start b", "end b", "end a"]);
+});
+
+test("all: empty array resolves immediately", async () => {
+  assert.deepEqual(await Kyoot.runPromise(Async.all([])), []);
+});
+
+test("all: first failure interrupts the rest and runs their finalizers", async () => {
+  const events: string[] = [];
+  const boom = new Error("boom");
+  const slow = Kyoot.gen(function* () {
+    yield* Resource.acquire(
+      () => "conn",
+      () => events.push("release"),
+    );
+    yield* Async.sleep(10_000);
+    return "unreachable";
+  }).pipe(Resource.run());
+  const failing = Async.sleep(5).map(() => {
+    throw boom;
+  });
+  await assert.rejects(Kyoot.runPromise(Async.all([slow, failing])), (e) => e === boom);
+  assert.deepEqual(events, ["release"]);
+});
+
+test("all: interrupting the parent interrupts every branch", async () => {
+  const events: string[] = [];
+  const branch = (tag: string) =>
+    Kyoot.gen(function* () {
+      yield* Resource.acquire(
+        () => tag,
+        () => events.push(`release ${tag}`),
+      );
+      yield* Async.sleep(10_000);
+    }).pipe(Resource.run());
+  const prog = Kyoot.gen(function* () {
+    const fiber = yield* Async.fork(Async.all([branch("a"), branch("b")]));
+    yield* Async.sleep(10);
+    yield* fiber.interrupt;
+    return yield* fiber.await;
+  });
+  const r = await Kyoot.runPromise(prog);
+  assert.equal(r.ok, false);
+  assert.ok(Result.isErr(r) && r.cause._tag === "Interrupted");
+  assert.deepEqual(events.sort(), ["release a", "release b"]);
+});
+
 test("race interrupts the loser and runs its finalizers", async () => {
   const events: string[] = [];
   const slow = Kyoot.gen(function* () {

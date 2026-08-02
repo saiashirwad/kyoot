@@ -195,4 +195,10 @@ declare const needsAbort: KyoT<number, { async: true; abort: Error }>;
 // @ts-expect-error
 Async.fork(needsAbort);
 
+const allNums = Async.all([asyncProg, asyncProg]);
+type _AllNums = Expect<Equal<typeof allNums, KyoT<readonly number[], { async: true }>>>;
+
+// @ts-expect-error
+Async.all([needsAbort]);
+
 export {};

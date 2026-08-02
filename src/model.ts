@@ -26,7 +26,7 @@ export type RuntimeNode =
     }
   | { readonly _tag: "gen"; readonly factory: () => Generator<AnyKyoot, any, unknown> }
   | {
-      readonly _tag: "gencont";
+      readonly _tag: "gen-cont";
       readonly gen: Generator<AnyKyoot, any, unknown>;
       readonly input: unknown;
     };

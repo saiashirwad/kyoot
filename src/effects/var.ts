@@ -9,10 +9,8 @@ import type { Row, Simplify } from "../types.ts";
 // carries no state. The reverse order wraps the failure in [_, state], so
 // state survives failure.
 
-type GetVar = { readonly kind: "get" };
-
 type VarOp =
-  | GetVar
+  | { readonly kind: "get" }
   | { readonly kind: "set"; readonly value: unknown }
   | { readonly kind: "update"; readonly f: (v: any) => unknown };
 

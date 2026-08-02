@@ -46,7 +46,7 @@ export const makeOp = (key: string, payload: unknown, kont?: (v: any) => AnyKyoo
   new KyootImpl({ _tag: "op", effectKey: key, payload, continuation: kont ?? ((v) => succeed(v)) });
 
 const makeGenCont = (gen: Generator<AnyKyoot, any, unknown>, input: unknown): AnyKyoot =>
-  new KyootImpl({ _tag: "gencont", gen, input });
+  new KyootImpl({ _tag: "gen-cont", gen, input });
 
 export class DefectError {
   readonly _tag = "DefectError";
@@ -111,13 +111,13 @@ export function stepAll(k: AnyKyoot): unknown {
         current = makeGenCont(invoke(currentNode.factory), undefined);
         break;
       }
-      case "gencont": {
+      case "gen-cont": {
         const { gen } = currentNode;
         const step = invoke(() => gen.next(currentNode.input));
         if (step.done === true) {
           current = succeed(step.value);
         } else {
-          continuations.push((input) => new KyootImpl({ _tag: "gencont", gen, input }));
+          continuations.push((input) => makeGenCont(gen, input));
           current = step.value;
         }
         break;

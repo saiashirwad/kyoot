@@ -2,17 +2,19 @@
   "name": "kyo-ts",
   "version": "0.1.0",
   "description": "A minimal TypeScript core for the Kyo effect model",
+  "license": "MIT",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
   },
   "scripts": {
+    "format": "oxfmt --write .",
     "typecheck": "tsc -p tsconfig.json",
     "test": "node --test test/*.test.ts"
   },
-  "license": "MIT",
   "devDependencies": {
     "@types/node": "^26.1.2",
+    "oxfmt": "^0.61.0",
     "typescript": "^7.0.2"
   }
 }

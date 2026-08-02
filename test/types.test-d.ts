@@ -1,4 +1,4 @@
-import { Abort, Async, Choice, Emit, Env, Kyoot, Sync, Var } from "../src/index.ts";
+import { Abort, Async, Choice, Emit, Env, Kyoot, Resource, Sync, Var } from "../src/index.ts";
 import type { Kyoot as KyoT, Merge, Result } from "../src/index.ts";
 
 class Count extends Var.Tag<number>()("Count") {}
@@ -178,6 +178,18 @@ type _Picks = Expect<Equal<typeof picks, KyoT<number, { choice: true }>>>;
 
 const afterChoice = picks.pipe(Choice.run());
 type _AfterChoice = Expect<Equal<typeof afterChoice, KyoT<number[]>>>;
+
+const withConn = Kyoot.gen(function* () {
+  const conn = yield* Resource.acquire(
+    () => "conn",
+    () => {},
+  );
+  return conn.length;
+});
+type _WithConn = Expect<Equal<typeof withConn, KyoT<number, { resource: true }>>>;
+
+const afterResource = withConn.pipe(Resource.run());
+type _AfterResource = Expect<Equal<typeof afterResource, KyoT<number>>>;
 
 declare const needsAbort: KyoT<number, { async: true; abort: Error }>;
 // @ts-expect-error

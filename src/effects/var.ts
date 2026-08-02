@@ -52,7 +52,7 @@ export function Tag<V>() {
               }
             },
             onSuccess: (a, value) => succeed([a, value]),
-          }) as Kyoot<[A, V], Simplify<Omit<S, `var/${Id}`>>>;
+          });
       }
     };
   };

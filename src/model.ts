@@ -33,13 +33,15 @@ export type RuntimeNode =
       readonly onOp: OnOp;
       readonly onSuccess: (a: any, state: any) => AnyKyoot;
       readonly onDefect?: (d: unknown, state: any) => AnyKyoot;
+      readonly onInterrupt?: (state: any) => void;
     }
   | {
       readonly _tag: "gen";
       readonly factory: () => Generator<AnyKyoot, any, unknown>;
       readonly trace: Trace | null;
       readonly cache: GenCache;
-    };
+    }
+  | { readonly _tag: "raise"; readonly error: unknown };
 
 export const NodeSym: unique symbol = Symbol("kyoot.node");
 

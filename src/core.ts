@@ -59,14 +59,30 @@ export class EscapedOp {
   readonly key: PropertyKey;
   readonly payload: unknown;
   readonly resume: (v: any) => AnyKyoot;
-  constructor(key: PropertyKey, payload: unknown, resume: (v: any) => AnyKyoot) {
+  readonly resumeError: (err: unknown) => AnyKyoot;
+  constructor(
+    key: PropertyKey,
+    payload: unknown,
+    resume: (v: any) => AnyKyoot,
+    resumeError: (err: unknown) => AnyKyoot,
+  ) {
     this.key = key;
     this.payload = payload;
     this.resume = resume;
+    this.resumeError = resumeError;
   }
 }
 
-const isControl = (e: unknown) => e instanceof DefectError || e instanceof EscapedOp;
+export class InterruptedError extends Error {
+  readonly _tag = "InterruptedError";
+  constructor(message = "fiber interrupted") {
+    super(message);
+    this.name = "InterruptedError";
+  }
+}
+
+const isControl = (e: unknown) =>
+  e instanceof DefectError || e instanceof EscapedOp || e instanceof InterruptedError;
 
 export function invoke<T>(f: () => T): T {
   try {
@@ -144,13 +160,21 @@ export function stepAll(k: AnyKyoot): unknown {
       }
       case "op": {
         const captured = continuations.splice(0);
-        throw new EscapedOp(currentNode.effectKey, currentNode.payload, (v) => {
-          let resumed = invoke(() => currentNode.continuation(v));
+        const wrap = (inner: AnyKyoot): AnyKyoot => {
           for (let i = captured.length - 1; i >= 0; i--) {
-            resumed = new KyootImpl({ _tag: "map", self: resumed, mapper: captured[i]! });
+            inner = new KyootImpl({ _tag: "map", self: inner, mapper: captured[i]! });
           }
-          return resumed;
-        });
+          return inner;
+        };
+        throw new EscapedOp(
+          currentNode.effectKey,
+          currentNode.payload,
+          (v) => wrap(invoke(() => currentNode.continuation(v))),
+          (err) => wrap(new KyootImpl({ _tag: "raise", error: err })),
+        );
+      }
+      case "raise": {
+        throw currentNode.error;
       }
       case "handler": {
         const handler = currentNode;
@@ -158,6 +182,14 @@ export function stepAll(k: AnyKyoot): unknown {
         try {
           inner = stepAll(handler.self);
         } catch (e) {
+          if (e instanceof InterruptedError) {
+            if (handler.onInterrupt !== undefined) {
+              try {
+                invoke(() => handler.onInterrupt!(handler.state));
+              } catch {}
+            }
+            throw e;
+          }
           const { onDefect } = handler;
           if (e instanceof DefectError && onDefect !== undefined) {
             current = invoke(() => onDefect(e.defect, handler.state));
@@ -183,6 +215,7 @@ export function stepAll(k: AnyKyoot): unknown {
             e.key,
             e.payload,
             (v) => new KyootImpl({ ...handler, self: e.resume(v) }),
+            (err) => new KyootImpl({ ...handler, self: e.resumeError(err) }),
           );
         }
         current = invoke(() => handler.onSuccess(inner, handler.state));

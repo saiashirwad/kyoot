@@ -4,9 +4,9 @@ const program = Kyoot.gen(function* () {
   yield* Emit.value("started");
   yield* Emit.value("finished");
   return "done";
-}).pipe(Emit.run());
+});
 
-const [result, events] = Kyoot.runSync(program);
+const [result, events] = Kyoot.runSync(program.pipe(Emit.run()));
 
 console.log(result);
 console.log(events);

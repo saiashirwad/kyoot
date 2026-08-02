@@ -46,5 +46,6 @@ export function run() {
         } catch {}
         throw new DefectError(d);
       },
+      onInterrupt: runFinalizers,
     }) as Kyoot<A, Simplify<Omit<S, "resource">>>;
 }

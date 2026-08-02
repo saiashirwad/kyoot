@@ -13,6 +13,7 @@ export function makeHandler<State = undefined>(spec: {
   readonly onOp: (payload: any, resume: Resume, state: State) => AnyKyoot;
   readonly onSuccess: (a: any, state: State) => AnyKyoot;
   readonly onDefect?: (d: unknown, state: State) => AnyKyoot;
+  readonly onInterrupt?: (state: State) => void;
 }): AnyKyoot {
   return new KyootImpl({
     _tag: "handler",
@@ -22,5 +23,6 @@ export function makeHandler<State = undefined>(spec: {
     onOp: spec.onOp as OnOp,
     onSuccess: spec.onSuccess as (a: any, state: any) => AnyKyoot,
     onDefect: spec.onDefect as ((d: unknown, state: any) => AnyKyoot) | undefined,
+    onInterrupt: spec.onInterrupt as ((state: any) => void) | undefined,
   });
 }

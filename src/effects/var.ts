@@ -46,7 +46,7 @@ export function run<V>(init: V) {
             return resume(undefined);
         }
       },
-      onPure: (a) => succeed([a, state]),
+      onSuccess: (a) => succeed([a, state]),
     }) as Kyoot<[A, V], Simplify<Omit<S, "var">>>;
   };
 }

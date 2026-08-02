@@ -83,7 +83,7 @@ test("one-shot law: a handler that resumes twice produces a defect", () => {
       resume(1);
       return resume(2);
     },
-    onPure: (a) => succeed(a),
+    onSuccess: (a) => succeed(a),
   });
   assert.throws(
     () => Kyoot.runSync(k as never),
@@ -99,7 +99,7 @@ test("a handler that resumes zero times short-circuits", () => {
       return "unreachable";
     }).map(() => "also unreachable"),
     onOp: () => succeed("short"),
-    onPure: (a) => succeed(a),
+    onSuccess: (a) => succeed(a),
   });
   assert.equal(Kyoot.runSync(k as never), "short");
 });

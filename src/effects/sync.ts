@@ -14,6 +14,6 @@ export function run() {
       effectKey: "sync",
       self: k,
       onOp: (f, resume) => resume(invoke(f)),
-      onPure: (a) => succeed(a),
+      onSuccess: (a) => succeed(a),
     });
 }

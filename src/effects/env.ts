@@ -23,6 +23,6 @@ export function provide<N extends string, T>(name: N, impl: T) {
       effectKey,
       self: k as AnyKyoot,
       onOp: (_payload, resume) => resume(impl),
-      onPure: (a) => succeed(a),
+      onSuccess: (a) => succeed(a),
     }) as Kyoot<A, Simplify<Omit<S, `env/${N}`>>>;
 }

@@ -22,7 +22,7 @@ export function run() {
         acc.push(e);
         return resume(undefined);
       },
-      onPure: (a) => succeed([a, acc]),
+      onSuccess: (a) => succeed([a, acc]),
     }) as Kyoot<[A, S["emit"][]], Simplify<Omit<S, "emit">>>;
   };
 }
@@ -37,7 +37,7 @@ export function forEach<E>(f: (e: E) => void) {
         f(e as E);
         return resume(undefined);
       },
-      onPure: (a) => succeed(a),
+      onSuccess: (a) => succeed(a),
     }) as Kyoot<A, Simplify<Omit<S, "emit">>>;
 }
 
@@ -49,6 +49,6 @@ export function discard() {
       effectKey: "emit",
       self: k as AnyKyoot,
       onOp: (_e, resume) => resume(undefined),
-      onPure: (a) => succeed(a),
+      onSuccess: (a) => succeed(a),
     }) as Kyoot<A, Simplify<Omit<S, "emit">>>;
 }

@@ -21,14 +21,14 @@ export type RuntimeNode =
       readonly effectKey: string;
       readonly self: AnyKyoot;
       readonly onOp: OnOp;
-      readonly onPure: (a: any) => AnyKyoot;
+      readonly onSuccess: (a: any) => AnyKyoot;
       readonly onDefect?: (d: unknown) => AnyKyoot;
     }
   | { readonly _tag: "gen"; readonly factory: () => Generator<AnyKyoot, any, unknown> }
   | {
       readonly _tag: "gen-cont";
       readonly gen: Generator<AnyKyoot, any, unknown>;
-      readonly input: unknown;
+      readonly nextInput: unknown;
     };
 
 export const NodeSym: unique symbol = Symbol("kyoot.node");

@@ -21,7 +21,7 @@ export function run() {
       effectKey: "abort",
       self: k as AnyKyoot,
       onOp: (e) => succeed(Result.fail(e)),
-      onPure: (a) => succeed(Result.ok(a)),
+      onSuccess: (a) => succeed(Result.ok(a)),
       onDefect: (d) => succeed(Result.defect(d)),
     }) as Kyoot<Result<S["abort"], A>, Simplify<Omit<S, "abort">>>;
 }
@@ -36,7 +36,7 @@ export function catchAll<E, A2, S2 extends Row>(f: (e: E) => Kyoot<A2, S2>) {
       effectKey: "abort",
       self: k as AnyKyoot,
       onOp: (e) => f(e) as AnyKyoot,
-      onPure: (a) => succeed(a),
+      onSuccess: (a) => succeed(a),
     }) as Kyoot<A | A2, Simplify<Merge<Omit<S, "abort">, S2>>>;
 }
 
@@ -51,6 +51,6 @@ export function orThrow() {
       onOp: (e) => {
         throw new DefectError(e);
       },
-      onPure: (a) => succeed(a),
+      onSuccess: (a) => succeed(a),
     }) as Kyoot<A, Simplify<Omit<S, "abort">>>;
 }

@@ -42,7 +42,7 @@ export const isKyoot = (value: unknown): value is AnyKyoot => value instanceof K
 
 export const succeed = (value: unknown): AnyKyoot => new KyootImpl({ _tag: "pure", value });
 
-export const makeOp = (key: string, payload: unknown, kont?: (v: any) => AnyKyoot) =>
+export const makeOp = (key: PropertyKey, payload: unknown, kont?: (v: any) => AnyKyoot) =>
   new KyootImpl({ _tag: "op", effectKey: key, payload, continuation: kont ?? ((v) => succeed(v)) });
 
 const makeGenCont = (gen: Generator<AnyKyoot, any, unknown>, input: unknown): AnyKyoot =>
@@ -58,10 +58,10 @@ export class DefectError {
 
 export class EscapedOp {
   readonly _tag = "EscapedOp";
-  readonly key: string;
+  readonly key: PropertyKey;
   readonly payload: unknown;
   readonly resume: (v: any) => AnyKyoot;
-  constructor(key: string, payload: unknown, resume: (v: any) => AnyKyoot) {
+  constructor(key: PropertyKey, payload: unknown, resume: (v: any) => AnyKyoot) {
     this.key = key;
     this.payload = payload;
     this.resume = resume;
@@ -165,6 +165,39 @@ export function stepAll(k: AnyKyoot): unknown {
           );
         }
         current = invoke(() => currentNode.onSuccess(inner));
+        break;
+      }
+      case "stateful-handler": {
+        const handler = currentNode.initialized
+          ? currentNode
+          : { ...currentNode, state: invoke(currentNode.init), initialized: true };
+        let inner: unknown;
+        try {
+          inner = stepAll(handler.self);
+        } catch (e) {
+          const { onDefect } = handler;
+          if (e instanceof DefectError && onDefect !== undefined) {
+            current = invoke(() => onDefect(e.defect, handler.state));
+            break;
+          }
+          if (!(e instanceof EscapedOp)) throw e;
+          if (e.key === handler.effectKey) {
+            current = invoke(() =>
+              handler.onOp(
+                handler.state,
+                e.payload,
+                (v) => new KyootImpl({ ...handler, _tag: "stateful-handler", self: e.resume(v) }),
+              ),
+            );
+            break;
+          }
+          throw new EscapedOp(
+            e.key,
+            e.payload,
+            (v) => new KyootImpl({ ...handler, self: e.resume(v) }),
+          );
+        }
+        current = invoke(() => handler.onSuccess(inner, handler.state));
         break;
       }
     }

@@ -39,6 +39,8 @@ export interface Payments {
 export const Inventory = Env.service<Inventory>()("inventory");
 export const Payments = Env.service<Payments>()("payments");
 
+class Total extends Var.Tag<number>()("Total") {}
+
 export interface Receipt {
   readonly orderId: string;
   readonly chargeId: string;
@@ -53,13 +55,13 @@ export const checkout = (order: Order, card: Card) =>
       const ok = yield* inventory.reserve(item.sku, item.qty);
       if (!ok) yield* Abort.fail(new OutOfStock(item.sku));
       yield* Emit.value<OrderEvent>({ type: "reserved", sku: item.sku });
-      yield* Var.update<number>((t) => t + item.priceCents * item.qty);
+      yield* Total.update((t) => t + item.priceCents * item.qty);
     }
-    const total = yield* Var.get<number>();
+    const total = yield* Total.get();
     const chargeId = yield* payments.charge(total, card);
     return { orderId: order.id, chargeId, totalCents: total };
   }).pipe(
-    Var.run(0),
+    Total.run(0),
     Emit.forEach((x) => x),
   );
 

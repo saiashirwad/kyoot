@@ -2,6 +2,8 @@
 import { Abort, Async, Emit, Env, Kyoot, Sync, Var } from "../src/index.ts";
 import type { Kyoot as KyoT, Merge, Result } from "../src/index.ts";
 
+class Count extends Var.Tag<number>()("Count") {}
+
 type Expect<T extends true> = T;
 type Equal<A, B> =
   (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
@@ -36,33 +38,33 @@ type _TwoAborts = Expect<Equal<typeof twoAborts, KyoT<number, { abort: ErrA | Er
 // --- gen: rows accumulate across effects ------------------------------------
 
 const multi = Kyoot.gen(function* () {
-  yield* Var.set(1);
+  yield* Count.set(1);
   yield* Emit.value("e");
   yield* Sync.defer(() => 1);
   yield* Abort.fail(new Error("x"));
   return "done";
 });
 type _Multi = Expect<
-  Equal<typeof multi, KyoT<string, { var: number; emit: string; sync: true; abort: Error }>>
+  Equal<typeof multi, KyoT<string, { "var/Count": number; emit: string; sync: true; abort: Error }>>
 >;
 
 // --- handler elimination removes exactly its key ----------------------------
 
-declare const prog: KyoT<number, { abort: Error; var: number; emit: string }>;
+declare const prog: KyoT<number, { abort: Error; "var/Count": number; emit: string }>;
 
 const afterAbort = prog.pipe(Abort.run());
 type _AfterAbort = Expect<
-  Equal<typeof afterAbort, KyoT<Result<Error, number>, { var: number; emit: string }>>
+  Equal<typeof afterAbort, KyoT<Result<Error, number>, { "var/Count": number; emit: string }>>
 >;
 
-const afterVar = prog.pipe(Var.run(0));
+const afterVar = prog.pipe(Count.run(0));
 type _AfterVar = Expect<
   Equal<typeof afterVar, KyoT<[number, number], { abort: Error; emit: string }>>
 >;
 
 const afterEmit = prog.pipe(Emit.run());
 type _AfterEmit = Expect<
-  Equal<typeof afterEmit, KyoT<[number, string[]], { abort: Error; var: number }>>
+  Equal<typeof afterEmit, KyoT<[number, string[]], { abort: Error; "var/Count": number }>>
 >;
 
 // --- runSync only accepts an empty row --------------------------------------
@@ -100,7 +102,7 @@ const d0 = Kyoot.gen(function* () {
 });
 const d1 = Kyoot.gen(function* () {
   const a = yield* d0;
-  yield* Var.set(a);
+  yield* Count.set(a);
   return a + 1;
 });
 const d2 = Kyoot.gen(function* () {
@@ -125,7 +127,7 @@ const d5 = Kyoot.gen(function* () {
 });
 const d6 = Kyoot.gen(function* () {
   const a = yield* d5;
-  yield* Var.update<number>((v) => v + 1);
+  yield* Count.update((v) => v + 1);
   return a + 1;
 });
 const d7 = Kyoot.gen(function* () {
@@ -153,14 +155,20 @@ type _Deep = Expect<
     typeof d10,
     KyoT<
       number,
-      { var: number; emit: string | number; sync: true; abort: string | TypeError; async: true }
+      {
+        "var/Count": number;
+        emit: string | number;
+        sync: true;
+        abort: string | TypeError;
+        async: true;
+      }
     >
   >
 >;
 
 // --- the full pipeline at the edge ------------------------------------------
 
-const atTheEdge = d10.pipe(Var.run(0), Emit.discard(), Sync.run(), Abort.run());
+const atTheEdge = d10.pipe(Count.run(0), Emit.discard(), Sync.run(), Abort.run());
 // @ts-expect-error — async is still pending, runSync must not compile
 Kyoot.runSync(atTheEdge);
 

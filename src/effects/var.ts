@@ -1,52 +1,71 @@
 import { invoke, makeOp, succeed } from "../core.ts";
-import { makeHandler } from "../handler.ts";
+import { makeStatefulHandler } from "../handler.ts";
 import type { AnyKyoot, Kyoot } from "../model.ts";
 import type { Row, Simplify } from "../types.ts";
 
-// Var — local state. `run` returns [A, finalState]. Handler order is
-// semantics: `Var.run` before `Abort.run` (pipe order) gives transactional
-// state — a short-circuiting abort discards the Var frame, so the failure
-// carries no state. The reverse order wraps the failure in [_, state], so
-// state survives failure.
+type VarRow<Id extends string, V> = {
+  [K in `var/${Id}`]: V;
+};
 
-type VarOp =
+type VarOp<V> =
   | { readonly kind: "get" }
-  | { readonly kind: "set"; readonly value: unknown }
-  | { readonly kind: "update"; readonly f: (v: any) => unknown };
+  | { readonly kind: "set"; readonly value: V }
+  | { readonly kind: "update"; readonly f: (value: V) => V };
 
-export function get<V>(): Kyoot<V, { var: V }> {
-  return makeOp("var", { kind: "get" }) as Kyoot<V, { var: V }>;
-}
+type VarState<V> = {
+  value: V;
+};
 
-export function set<V>(v: V): Kyoot<void, { var: V }> {
-  return makeOp("var", { kind: "set", value: v } satisfies VarOp) as Kyoot<void, { var: V }>;
-}
+const keys = new Map<string, symbol>();
 
-export function update<V>(f: (v: V) => V): Kyoot<void, { var: V }> {
-  return makeOp("var", { kind: "update", f } satisfies VarOp) as Kyoot<void, { var: V }>;
-}
+const keyFor = (id: string): symbol => {
+  const existing = keys.get(id);
+  if (existing !== undefined) return existing;
+  const key = Symbol(`kyoot.var/${id}`);
+  keys.set(id, key);
+  return key;
+};
 
-export function run<V>(init: V) {
-  return <A, S extends Row & { var: V }>(
-    k: Kyoot<A, S>,
-  ): Kyoot<[A, V], Simplify<Omit<S, "var">>> => {
-    let state = init;
-    return makeHandler({
-      effectKey: "var",
-      self: k as AnyKyoot,
-      onOp: (op: VarOp, resume) => {
-        switch (op.kind) {
-          case "get":
-            return resume(state);
-          case "set":
-            state = op.value as V;
-            return resume(undefined);
-          case "update":
-            state = invoke(() => op.f(state)) as V;
-            return resume(undefined);
-        }
-      },
-      onSuccess: (a) => succeed([a, state]),
-    }) as Kyoot<[A, V], Simplify<Omit<S, "var">>>;
+export function Tag<V>() {
+  return function <const Id extends string>(id: Id) {
+    const effectKey = keyFor(id);
+
+    return class {
+      static get(): Kyoot<V, VarRow<Id, V>> {
+        return makeOp(effectKey, { kind: "get" }) as Kyoot<V, VarRow<Id, V>>;
+      }
+
+      static set(value: V): Kyoot<void, VarRow<Id, V>> {
+        return makeOp(effectKey, { kind: "set", value }) as Kyoot<void, VarRow<Id, V>>;
+      }
+
+      static update(f: (value: V) => V): Kyoot<void, VarRow<Id, V>> {
+        return makeOp(effectKey, { kind: "update", f }) as Kyoot<void, VarRow<Id, V>>;
+      }
+
+      static run(initial: V) {
+        return <A, S extends Row & VarRow<Id, V>>(
+          k: Kyoot<A, S>,
+        ): Kyoot<[A, V], Simplify<Omit<S, `var/${Id}`>>> =>
+          makeStatefulHandler<VarState<V>>({
+            effectKey,
+            self: k as AnyKyoot,
+            init: () => ({ value: initial }),
+            onOp: (state, op: VarOp<V>, resume) => {
+              switch (op.kind) {
+                case "get":
+                  return resume(state.value);
+                case "set":
+                  state.value = op.value;
+                  return resume(undefined);
+                case "update":
+                  state.value = invoke(() => op.f(state.value));
+                  return resume(undefined);
+              }
+            },
+            onSuccess: (a, state) => succeed([a, state.value]),
+          }) as Kyoot<[A, V], Simplify<Omit<S, `var/${Id}`>>>;
+      }
+    };
   };
 }

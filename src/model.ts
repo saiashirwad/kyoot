@@ -5,24 +5,37 @@ export type AnyKyoot = Kyoot<any, any>;
 
 export type OnOp = (payload: any, resume: (v: any) => AnyKyoot) => AnyKyoot;
 
+export type StatefulOnOp = (state: unknown, payload: any, resume: (v: any) => AnyKyoot) => AnyKyoot;
+
 export type Continuation = (v: any) => AnyKyoot;
 
 export type RuntimeNode =
   | { readonly _tag: "pure"; readonly value: unknown }
   | {
       readonly _tag: "op";
-      readonly effectKey: string;
+      readonly effectKey: PropertyKey;
       readonly payload: unknown;
       readonly continuation: Continuation;
     }
   | { readonly _tag: "map"; readonly self: AnyKyoot; readonly mapper: (a: any) => any }
   | {
       readonly _tag: "handler";
-      readonly effectKey: string;
+      readonly effectKey: PropertyKey;
       readonly self: AnyKyoot;
       readonly onOp: OnOp;
       readonly onSuccess: (a: any) => AnyKyoot;
       readonly onDefect?: (d: unknown) => AnyKyoot;
+    }
+  | {
+      readonly _tag: "stateful-handler";
+      readonly effectKey: PropertyKey;
+      readonly self: AnyKyoot;
+      readonly init: () => unknown;
+      readonly state: unknown;
+      readonly initialized: boolean;
+      readonly onOp: StatefulOnOp;
+      readonly onSuccess: (a: any, state: unknown) => AnyKyoot;
+      readonly onDefect?: (d: unknown, state: unknown) => AnyKyoot;
     }
   | { readonly _tag: "gen"; readonly factory: () => Generator<AnyKyoot, any, unknown> }
   | {

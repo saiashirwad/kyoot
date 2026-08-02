@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Emit, Env, Kyoot, Sync, Var } from "../src/index.ts";
 
+class Count extends Var.Tag<number>()("Count") {}
+class Retries extends Var.Tag<number>()("Retries") {}
+
 test("Env: provide answers the service key", () => {
   interface Greeter {
     greet(name: string): string;
@@ -29,11 +32,50 @@ test("Env: multiple services get distinct keys", () => {
 
 test("Var: get/set/update", () => {
   const prog = Kyoot.gen(function* () {
-    yield* Var.set(1);
-    yield* Var.update<number>((v) => v + 1);
-    return yield* Var.get<number>();
+    yield* Count.set(1);
+    yield* Count.update((v) => v + 1);
+    return yield* Count.get();
   });
-  assert.deepEqual(Kyoot.runSync(prog.pipe(Var.run(0))), [2, 2]);
+  assert.deepEqual(Kyoot.runSync(prog.pipe(Count.run(0))), [2, 2]);
+});
+
+test("Var: same-typed tags stay independent", () => {
+  const prog = Kyoot.gen(function* () {
+    yield* Count.update((value) => value + 1);
+    yield* Retries.update((value) => value + 2);
+    return {
+      count: yield* Count.get(),
+      retries: yield* Retries.get(),
+    };
+  }).pipe(Retries.run(10), Count.run(0));
+
+  assert.deepEqual(Kyoot.runSync(prog), [[{ count: 1, retries: 12 }, 12], 1]);
+});
+
+test("Var: nested scopes shadow and restore", () => {
+  const inner = Kyoot.gen(function* () {
+    yield* Count.set(100);
+    return yield* Count.get();
+  }).pipe(Count.run(100));
+
+  const outer = Kyoot.gen(function* () {
+    const before = yield* Count.get();
+    const nested = yield* inner;
+    const after = yield* Count.get();
+    return { before, nested, after };
+  }).pipe(Count.run(0));
+
+  assert.deepEqual(Kyoot.runSync(outer), [{ before: 0, nested: [100, 100], after: 0 }, 0]);
+});
+
+test("Var: each execution gets a fresh state frame", () => {
+  const prog = Kyoot.gen(function* () {
+    yield* Count.update((value) => value + 1);
+    return yield* Count.get();
+  }).pipe(Count.run(0));
+
+  assert.deepEqual(Kyoot.runSync(prog), [1, 1]);
+  assert.deepEqual(Kyoot.runSync(prog), [1, 1]);
 });
 
 test("Emit.run collects everything emitted", () => {

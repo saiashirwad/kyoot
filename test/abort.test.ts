@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Abort, Kyoot, Result, Var } from "../src/index.ts";
 
+class Total extends Var.Tag<number>()("Total") {}
+
 test("Abort.run: success becomes Result.ok", () => {
   const prog = Kyoot.gen(function* () {
     if (false) yield* Abort.fail("never"); // keeps `abort` in the row without failing
@@ -59,21 +61,21 @@ test("Abort.orThrow throws the error value at the edge", () => {
 
 test("handler order: Var before Abort is transactional — failure carries no state", () => {
   const prog = Kyoot.gen(function* () {
-    yield* Var.update<number>((t) => t + 10);
+    yield* Total.update((t) => t + 10);
     yield* Abort.fail("out of stock");
     return "unreachable";
   });
-  const r = Kyoot.runSync(prog.pipe(Var.run(0), Abort.run()));
+  const r = Kyoot.runSync(prog.pipe(Total.run(0), Abort.run()));
   assert.equal(r.ok, false); // just the failure — the [A, state] pair is gone
 });
 
 test("handler order: Abort before Var — state survives failure", () => {
   const prog = Kyoot.gen(function* () {
-    yield* Var.update<number>((t) => t + 10);
+    yield* Total.update((t) => t + 10);
     yield* Abort.fail("out of stock");
     return "unreachable";
   });
-  const [r, state] = Kyoot.runSync(prog.pipe(Abort.run(), Var.run(0)));
+  const [r, state] = Kyoot.runSync(prog.pipe(Abort.run(), Total.run(0)));
   assert.equal(r.ok, false);
   assert.equal(state, 10); // the update survived
 });

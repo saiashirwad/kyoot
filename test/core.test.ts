@@ -4,6 +4,8 @@ import { invoke, makeOp, succeed } from "../src/core.ts";
 import { makeHandler } from "../src/handler.ts";
 import { Kyoot, Var } from "../src/index.ts";
 
+class Count extends Var.Tag<number>()("Count") {}
+
 test("map auto-flattens a returned Kyo", () => {
   const n = Kyoot.runSync(Kyoot.succeed(1).map((x) => Kyoot.succeed(x + 1)));
   assert.equal(n, 2);
@@ -37,10 +39,10 @@ test("gen: yield* plain values and sub-computations", () => {
 
 test("gen with an effect, handled", () => {
   const prog = Kyoot.gen(function* () {
-    yield* Var.set(5);
-    const v = yield* Var.get<number>();
+    yield* Count.set(5);
+    const v = yield* Count.get();
     return v * 2;
-  }).pipe(Var.run(0));
+  }).pipe(Count.run(0));
   assert.deepEqual(Kyoot.runSync(prog), [10, 5]);
 });
 

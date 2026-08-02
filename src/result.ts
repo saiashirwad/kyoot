@@ -1,6 +1,3 @@
-// Result + mini-cause. A pocket-sized version of Effect's Cause:
-// Fail (typed error) | Defect (thrown, never a typed failure)
-// | Both (parallel failures compose) | Interrupted (tier-2 slot).
 export type Cause<E> =
   | { readonly _tag: "Fail"; readonly error: E }
   | { readonly _tag: "Defect"; readonly defect: unknown }

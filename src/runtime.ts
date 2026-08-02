@@ -7,7 +7,7 @@ export function runSync<A>(k: Kyoot<A, {}>): A {
   } catch (e) {
     if (e instanceof DefectError) throw e.defect;
     if (e instanceof EscapedOp) {
-      throw new Error(`runSync encountered unhandled effect '${e.key}'`);
+      throw new Error(`runSync encountered unhandled effect '${String(e.key)}'`);
     }
     throw e;
   }
@@ -49,7 +49,7 @@ export function runPromise<A>(k: AnyKyoot): Promise<A> {
   return (asyncDrive(k as AnyKyoot, rt) as Promise<A>).catch((e: unknown): never => {
     if (e instanceof DefectError) throw e.defect;
     if (e instanceof EscapedOp) {
-      throw new Error(`runPromise encountered unhandled effect '${e.key}'`);
+      throw new Error(`runPromise encountered unhandled effect '${String(e.key)}'`);
     }
     throw e;
   });

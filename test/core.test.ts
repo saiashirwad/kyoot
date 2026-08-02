@@ -77,22 +77,20 @@ test("runSync on an unhandled effect fails loudly at runtime", () => {
   );
 });
 
-test("one-shot law: a handler that resumes twice produces a defect", () => {
+test("multi-shot: a handler may resume a continuation more than once", () => {
   const k = makeHandler({
     effectKey: "myfx",
-    self: makeOp("myfx", undefined),
-    make: () => ({
-      onOp: (_p, resume) => {
-        resume(1);
-        return resume(2);
-      },
-      onSuccess: (a) => succeed(a),
+    self: Kyoot.gen(function* () {
+      const v = yield* makeOp("myfx", undefined);
+      return (v as number) * 10;
     }),
+    onOp: (_p, resume) => {
+      resume(1);
+      return resume(2);
+    },
+    onSuccess: (a) => succeed(a),
   });
-  assert.throws(
-    () => Kyoot.runSync(k as never),
-    (e: unknown) => e instanceof Error && e.message.includes("resumed twice"),
-  );
+  assert.equal(Kyoot.runSync(k as never), 20);
 });
 
 test("a handler that resumes zero times short-circuits", () => {
@@ -102,10 +100,8 @@ test("a handler that resumes zero times short-circuits", () => {
       yield* makeOp("myfx", undefined);
       return "unreachable";
     }).map(() => "also unreachable"),
-    make: () => ({
-      onOp: () => succeed("short"),
-      onSuccess: (a) => succeed(a),
-    }),
+    onOp: () => succeed("short"),
+    onSuccess: (a) => succeed(a),
   });
   assert.equal(Kyoot.runSync(k as never), "short");
 });

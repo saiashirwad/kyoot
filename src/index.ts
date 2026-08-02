@@ -17,6 +17,7 @@ export type { RowsOf } from "./model.ts";
 
 export * as Abort from "./effects/abort.ts";
 export * as Async from "./effects/async.ts";
+export * as Choice from "./effects/choice.ts";
 export * as Emit from "./effects/emit.ts";
 export * as Env from "./effects/env.ts";
 export * as Sync from "./effects/sync.ts";

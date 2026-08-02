@@ -1,5 +1,5 @@
 // Type-level tests. Checked by `tsc --noEmit`, never executed.
-import { Abort, Async, Emit, Env, Kyoot, Sync, Var } from "../src/index.ts";
+import { Abort, Async, Choice, Emit, Env, Kyoot, Sync, Var } from "../src/index.ts";
 import type { Kyoot as KyoT, Merge, Result } from "../src/index.ts";
 
 class Count extends Var.Tag<number>()("Count") {}
@@ -192,6 +192,17 @@ const provided = usesInventory.pipe(
   Env.provide("inventory", { reserve: () => Sync.defer(() => true) }),
 );
 type _Provided = Expect<Equal<typeof provided, KyoT<boolean, { sync: true }>>>;
+
+// --- Choice: branches collapse into one array --------------------------------
+
+const picks = Kyoot.gen(function* () {
+  const x = yield* Choice.get([1, 2]);
+  return x * 10;
+});
+type _Picks = Expect<Equal<typeof picks, KyoT<number, { choice: true }>>>;
+
+const afterChoice = picks.pipe(Choice.run());
+type _AfterChoice = Expect<Equal<typeof afterChoice, KyoT<number[]>>>;
 
 // --- fork/race require handled-down-to-async inputs --------------------------
 

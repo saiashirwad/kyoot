@@ -13,9 +13,7 @@ export function run() {
     makeHandler({
       effectKey: "sync",
       self: k,
-      make: () => ({
-        onOp: (f, resume) => resume(invoke(f)),
-        onSuccess: (a) => succeed(a),
-      }),
+      onOp: (f, resume) => resume(invoke(f)),
+      onSuccess: (a) => succeed(a),
     });
 }

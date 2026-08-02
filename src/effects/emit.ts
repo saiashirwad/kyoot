@@ -14,19 +14,12 @@ export function run() {
   return <A, S extends Row & { emit: unknown }>(
     k: Kyoot<A, S>,
   ): Kyoot<[A, S["emit"][]], Simplify<Omit<S, "emit">>> =>
-    makeHandler({
+    makeHandler<unknown[]>({
       effectKey: "emit",
       self: k as AnyKyoot,
-      make: () => {
-        const acc: unknown[] = [];
-        return {
-          onOp: (e, resume) => {
-            acc.push(e);
-            return resume(undefined);
-          },
-          onSuccess: (a) => succeed([a, acc]),
-        };
-      },
+      state: [],
+      onOp: (e, resume, acc) => resume(undefined, [...acc, e]),
+      onSuccess: (a, acc) => succeed([a, acc]),
     }) as Kyoot<[A, S["emit"][]], Simplify<Omit<S, "emit">>>;
 }
 
@@ -36,13 +29,11 @@ export function forEach<E>(f: (e: E) => void) {
     makeHandler({
       effectKey: "emit",
       self: k as AnyKyoot,
-      make: () => ({
-        onOp: (e, resume) => {
-          f(e as E);
-          return resume(undefined);
-        },
-        onSuccess: (a) => succeed(a),
-      }),
+      onOp: (e, resume) => {
+        f(e as E);
+        return resume(undefined);
+      },
+      onSuccess: (a) => succeed(a),
     }) as Kyoot<A, Simplify<Omit<S, "emit">>>;
 }
 
@@ -53,9 +44,7 @@ export function discard() {
     makeHandler({
       effectKey: "emit",
       self: k as AnyKyoot,
-      make: () => ({
-        onOp: (_e, resume) => resume(undefined),
-        onSuccess: (a) => succeed(a),
-      }),
+      onOp: (_e, resume) => resume(undefined),
+      onSuccess: (a) => succeed(a),
     }) as Kyoot<A, Simplify<Omit<S, "emit">>>;
 }

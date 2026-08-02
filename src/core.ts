@@ -1,14 +1,14 @@
-import { nodeSym, type AnyKyoot, type Kyoot, type Node } from "./model.ts";
+import { NodeSym, type AnyKyoot, type Kyoot, type RuntimeNode } from "./model.ts";
 import { pipeArguments } from "./pipe.ts";
 import type { Row } from "./types.ts";
 
 export type { AnyKyoot, Kyoot, OnOp } from "./model.ts";
 
 export class KyootImpl<A, S extends Row = {}> implements Kyoot<A, S> {
-  readonly [nodeSym]: Node;
+  readonly [NodeSym]: RuntimeNode;
 
-  constructor(node: Node) {
-    this[nodeSym] = node;
+  constructor(node: RuntimeNode) {
+    this[NodeSym] = node;
   }
 
   map(f: (a: any) => any): AnyKyoot {
@@ -38,6 +38,9 @@ export const succeed = (value: unknown): AnyKyoot => new KyootImpl({ _tag: "pure
 
 export const makeOp = (key: string, payload: unknown, kont?: (v: any) => AnyKyoot) =>
   new KyootImpl({ _tag: "op", key, payload, kont: kont ?? ((v) => succeed(v)) });
+
+const makeGenCont = (gen: Generator<AnyKyoot, any, unknown>, input: unknown): AnyKyoot =>
+  new KyootImpl({ _tag: "gencont", gen, input });
 
 export class DefectError {
   readonly _tag = "DefectError";
@@ -79,36 +82,38 @@ export async function invokeAsync<T>(f: () => Promise<T>): Promise<T> {
   }
 }
 
+type Kont = (v: any) => AnyKyoot;
+
 export function stepAll(k: AnyKyoot): unknown {
-  const konts: Array<(v: any) => AnyKyoot> = [];
+  const konts: Array<Kont> = [];
   let current: AnyKyoot = k;
 
   while (true) {
-    const node = current[nodeSym];
-    switch (node._tag) {
+    const currentNode = current[NodeSym];
+    switch (currentNode._tag) {
       case "pure": {
         const f = konts.pop();
-        if (f === undefined) return node.value;
-        const out = invoke(() => f(node.value));
+        if (f === undefined) return currentNode.value;
+        const out = invoke(() => f(currentNode.value));
         current = isKyoot(out) ? out : succeed(out);
         break;
       }
       case "map": {
-        konts.push(node.f);
-        current = node.self;
+        konts.push(currentNode.f);
+        current = currentNode.self;
         break;
       }
       case "gen": {
-        const it = invoke(node.f);
-        current = new KyootImpl({ _tag: "gencont", it, input: undefined });
+        current = makeGenCont(invoke(currentNode.f), undefined);
         break;
       }
       case "gencont": {
-        const step = invoke(() => node.it.next(node.input));
+        const { gen } = currentNode;
+        const step = invoke(() => gen.next(currentNode.input));
         if (step.done === true) {
           current = succeed(step.value);
         } else {
-          konts.push((v) => new KyootImpl({ _tag: "gencont", it: node.it, input: v }));
+          konts.push((input) => new KyootImpl({ _tag: "gencont", gen, input }));
           current = step.value;
         }
         break;
@@ -116,46 +121,47 @@ export function stepAll(k: AnyKyoot): unknown {
       case "op": {
         const captured = konts.splice(0);
         let used = false;
-        const resume = (v: any): AnyKyoot => {
+        throw new EscapedOp(currentNode.key, currentNode.payload, (v) => {
           if (used) {
             throw new DefectError(new Error("continuation resumed twice (one-shot law)"));
           }
           used = true;
-          let n = invoke(() => node.kont(v));
+          let resumed = invoke(() => currentNode.kont(v));
           for (let i = captured.length - 1; i >= 0; i--) {
-            n = new KyootImpl({ _tag: "map", self: n, f: captured[i]! });
+            resumed = new KyootImpl({ _tag: "map", self: resumed, f: captured[i]! });
           }
-          return n;
-        };
-        throw new EscapedOp(node.key, node.payload, resume);
+          return resumed;
+        });
       }
       case "handler": {
         let inner: unknown;
         try {
-          inner = stepAll(node.self);
+          inner = stepAll(currentNode.self);
         } catch (e) {
-          if (e instanceof DefectError && node.onDefect !== undefined) {
-            const onDefect = node.onDefect;
+          const { onDefect } = currentNode;
+          if (e instanceof DefectError && onDefect !== undefined) {
             current = invoke(() => onDefect(e.defect));
             break;
           }
           if (!(e instanceof EscapedOp)) throw e;
-          if (e.key === node.key) {
-            const h = node;
-            const onOp = h.onOp;
+          if (e.key === currentNode.key) {
+            const handler = currentNode;
             current = invoke(() =>
-              onOp(e.payload, (v) => new KyootImpl({ ...h, _tag: "handler", self: e.resume(v) })),
+              currentNode.onOp(
+                e.payload,
+                (v) => new KyootImpl({ ...handler, _tag: "handler", self: e.resume(v) }),
+              ),
             );
             break;
           }
-          const h = node;
+          const h = currentNode;
           throw new EscapedOp(
             e.key,
             e.payload,
             (v) => new KyootImpl({ ...h, _tag: "handler", self: e.resume(v) }),
           );
         }
-        current = invoke(() => node.onPure(inner));
+        current = invoke(() => currentNode.onPure(inner));
         break;
       }
     }

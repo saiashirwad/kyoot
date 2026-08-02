@@ -5,7 +5,7 @@ export type AnyKyoot = Kyoot<any, any>;
 
 export type OnOp = (payload: any, resume: (v: any) => AnyKyoot) => AnyKyoot;
 
-export type Node =
+export type RuntimeNode =
   | { readonly _tag: "pure"; readonly value: unknown }
   | {
       readonly _tag: "op";
@@ -25,16 +25,16 @@ export type Node =
   | { readonly _tag: "gen"; readonly f: () => Generator<AnyKyoot, any, unknown> }
   | {
       readonly _tag: "gencont";
-      readonly it: Generator<AnyKyoot, any, unknown>;
+      readonly gen: Generator<AnyKyoot, any, unknown>;
       readonly input: unknown;
     };
 
-export const nodeSym: unique symbol = Symbol("kyoot.node");
+export const NodeSym: unique symbol = Symbol("kyoot.node");
 
 export interface Kyoot<A, S extends Row = {}> extends Pipeable {
   readonly _?: (s: S) => void;
 
-  readonly [nodeSym]: Node;
+  readonly [NodeSym]: RuntimeNode;
 
   map<B, S2 extends Row = {}>(f: (a: A) => B | Kyoot<B, S2>): Kyoot<B, Simplify<Merge<S, S2>>>;
 

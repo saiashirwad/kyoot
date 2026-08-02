@@ -1,4 +1,5 @@
 import type { Merge, Row, Simplify } from "./types.ts";
+import type { Pipeable } from "./pipe.ts";
 
 export type AnyKyoot = Kyoot<any, any>;
 
@@ -30,43 +31,12 @@ type Node =
 
 const nodeSym: unique symbol = Symbol("kyoot.node");
 
-export interface Kyoot<A, S extends Row = {}> {
+export interface Kyoot<A, S extends Row = {}> extends Pipeable {
   readonly _?: (s: S) => void;
 
   readonly [nodeSym]: Node;
 
   map<B, S2 extends Row = {}>(f: (a: A) => B | Kyoot<B, S2>): Kyoot<B, Simplify<Merge<S, S2>>>;
-
-  readonly pipe: {
-    <B>(ab: (a: Kyoot<A, S>) => B): B;
-    <B, C>(ab: (a: Kyoot<A, S>) => B, bc: (b: B) => C): C;
-    <B, C, D>(ab: (a: Kyoot<A, S>) => B, bc: (b: B) => C, cd: (c: C) => D): D;
-    <B, C, D, E>(ab: (a: Kyoot<A, S>) => B, bc: (b: B) => C, cd: (c: C) => D, de: (d: D) => E): E;
-    <B, C, D, E, F>(
-      ab: (a: Kyoot<A, S>) => B,
-      bc: (b: B) => C,
-      cd: (c: C) => D,
-      de: (d: D) => E,
-      ef: (e: E) => F,
-    ): F;
-    <B, C, D, E, F, G>(
-      ab: (a: Kyoot<A, S>) => B,
-      bc: (b: B) => C,
-      cd: (c: C) => D,
-      de: (d: D) => E,
-      ef: (e: E) => F,
-      fg: (f: F) => G,
-    ): G;
-    <B, C, D, E, F, G, H>(
-      ab: (a: Kyoot<A, S>) => B,
-      bc: (b: B) => C,
-      cd: (c: C) => D,
-      de: (d: D) => E,
-      ef: (e: E) => F,
-      fg: (f: F) => G,
-      gh: (g: G) => H,
-    ): H;
-  };
 
   [Symbol.iterator](): Iterator<Kyoot<unknown, S>, A, unknown>;
 }
@@ -183,9 +153,6 @@ export function stepAll(k: AnyKyoot): unknown {
         break;
       }
       case "op": {
-        // Reify the remaining computation: the op's own continuation plus
-        // the pending map/gen continuations, in order. One-shot by law —
-        // a handler resumes zero times or one time, never twice.
         const captured = konts.splice(0);
         let used = false;
         const resume = (v: any): AnyKyoot => {
@@ -213,9 +180,6 @@ export function stepAll(k: AnyKyoot): unknown {
           }
           if (!(e instanceof EscapedOp)) throw e;
           if (e.key === node.key) {
-            // Intercept. Resumption re-enters this handler frame, so further
-            // ops for this key are intercepted again; not resuming
-            // short-circuits (onPure never sees the result).
             const h = node;
             const onOp = h.onOp;
             current = callUser(() =>
@@ -223,8 +187,6 @@ export function stepAll(k: AnyKyoot): unknown {
             );
             break;
           }
-          // Not ours: propagate outward, but wrap the resumption so it
-          // passes back through this frame.
           const h = node;
           throw new EscapedOp(
             e.key,
@@ -239,19 +201,10 @@ export function stepAll(k: AnyKyoot): unknown {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Edges.
-// ---------------------------------------------------------------------------
-
 export function succeed<A>(a: A): Kyoot<A> {
   return new KyootImpl({ _tag: "pure", value: a });
 }
 
-// runSync only accepts an empty effect row — checked in the types.
-// (The doc's `Kyo<A, S> & Empty<S>` spelling works too, but routing
-// inference through the intersection makes contextual instantiation of the
-// pipeline upstream fall back to constraints; the plain `Kyo<A, {}>`
-// parameter infers cleanly and rejects the same programs.)
 export function runSync<A>(k: Kyoot<A, {}>): A {
   try {
     return stepAll(k as AnyKyoot) as A;
@@ -264,8 +217,6 @@ export function runSync<A>(k: Kyoot<A, {}>): A {
   }
 }
 
-// The async runtime handed to async ops at the edge. `signal` exists from
-// day one so tier-2 interruption does not break effect signatures.
 export interface AsyncRuntime {
   readonly signal: AbortSignal;
   spawn(k: AnyKyoot): { readonly promise: Promise<unknown> };

@@ -6,6 +6,7 @@ import type { Row } from "./types.ts";
 export { runPromise, runSync, succeed } from "./core.ts";
 export { gen } from "./gen.ts";
 export type { AsyncOp, AsyncRuntime } from "./core.ts";
+export type { Pipeable } from "./pipe.ts";
 export type { HandlerSpec } from "./handler.ts";
 export { makeHandler } from "./handler.ts";
 export { Cause, Result } from "./result.ts";

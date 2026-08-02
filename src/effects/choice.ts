@@ -17,12 +17,10 @@ export function run() {
       onOp: (options: readonly unknown[], resume) => {
         let branches: AnyKyoot = succeed([]);
         for (const option of options) {
-          branches = branches.map((results: unknown[]) =>
-            resume(option).map((sub: unknown[]) => [...results, ...sub]),
-          );
+          branches = branches.map((results) => resume(option).map((sub) => [...results, ...sub]));
         }
         return branches;
       },
       onSuccess: (a) => succeed([a]),
-    }) as Kyoot<A[], Simplify<Omit<S, "choice">>>;
+    });
 }

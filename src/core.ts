@@ -135,11 +135,10 @@ export function stepAll(k: AnyKyoot): unknown {
           inputs.push(undefined);
           inputs.reverse();
         }
-        const g = gen;
         let step!: IteratorResult<AnyKyoot, unknown>;
         for (let i = 0; i < inputs.length; i++) {
           const input = inputs[i];
-          step = invoke(() => g.next(input));
+          step = invoke(() => gen.next(input));
           if (step.done === true && i < inputs.length - 1) {
             throw new DefectError(
               new Error("generator replay diverged — generator bodies must be pure between yields"),
@@ -149,7 +148,7 @@ export function stepAll(k: AnyKyoot): unknown {
         if (step.done === true) {
           current = succeed(step.value);
         } else {
-          const point: GenCache = { live: g };
+          const point: GenCache = { live: gen };
           continuations.push(
             (input) =>
               new KyootImpl({ _tag: "gen", factory, trace: { input, prev: trace }, cache: point }),

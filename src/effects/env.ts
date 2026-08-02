@@ -1,22 +1,31 @@
 import { makeOp, succeed } from "../core.ts";
 import { makeHandler } from "../handler.ts";
-import type { AnyKyoot, Kyoot } from "../model.ts";
+import type { Kyoot } from "../model.ts";
 import type { Row, Simplify } from "../types.ts";
 
-export function service<T>() {
-  return <N extends string>(name: N): Kyoot<T, { [K in `env/${N}`]: T }> =>
-    makeOp(`env/${name}`, undefined) as Kyoot<T, { [K in `env/${N}`]: T }>;
-}
+type EnvRow<Id extends string, E> = {
+  [K in `env/${Id}`]: E;
+};
 
-export function provide<N extends string, T>(name: N, impl: T) {
-  const effectKey = `env/${name}`;
-  return <A, S extends Row & { [K in `env/${N}`]: unknown }>(
-    k: Kyoot<A, S> & (T extends S[`env/${N}`] ? unknown : never),
-  ): Kyoot<A, Simplify<Omit<S, `env/${N}`>>> =>
-    makeHandler({
-      effectKey,
-      self: k as AnyKyoot,
-      onOp: (_payload, resume) => resume(impl),
-      onSuccess: (a) => succeed(a),
-    }) as Kyoot<A, Simplify<Omit<S, `env/${N}`>>>;
+export function Tag<E>() {
+  return function <const Id extends string>(id: Id) {
+    const effectKey = `env/${id}`;
+    return class {
+      static service(): Kyoot<E, EnvRow<Id, E>> {
+        return makeOp(effectKey, undefined) as any;
+      }
+
+      static provide(impl: E) {
+        return <A, S extends Row & EnvRow<Id, E>>(
+          k: Kyoot<A, S>,
+        ): Kyoot<[A, E], Simplify<Omit<S, `env/${Id}`>>> =>
+          makeHandler({
+            effectKey,
+            self: k,
+            onOp: (_, resume) => resume(impl),
+            onSuccess: (a) => succeed(a),
+          });
+      }
+    };
+  };
 }

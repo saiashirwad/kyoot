@@ -59,7 +59,6 @@ test("production edge: out of stock is a typed failure, transactional state", as
   assert.ok(Result.isErr(r));
   const cause = Result.isErr(r) && r.cause;
   assert.ok(cause && cause._tag === "Fail" && cause.error instanceof OutOfStock);
-  // transactional: Var ran before Abort, so the failure is not wrapped in [A, state]
   assert.equal(Array.isArray(r), false);
 });
 

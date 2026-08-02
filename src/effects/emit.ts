@@ -3,13 +3,10 @@ import { makeHandler } from "../handler.ts";
 import type { AnyKyoot, Kyoot } from "../model.ts";
 import type { Row, Simplify } from "../types.ts";
 
-// Emit — streaming values out of a computation.
-
 export function value<E>(e: E): Kyoot<void, { emit: E }> {
   return makeOp("emit", e) as Kyoot<void, { emit: E }>;
 }
 
-// Collect everything emitted: [A, emitted[]].
 export function run() {
   return <A, S extends Row & { emit: unknown }>(
     k: Kyoot<A, S>,
@@ -23,7 +20,6 @@ export function run() {
     }) as Kyoot<[A, S["emit"][]], Simplify<Omit<S, "emit">>>;
 }
 
-// Consume values as they happen.
 export function forEach<E>(f: (e: E) => void) {
   return <A, S extends Row & { emit: E }>(k: Kyoot<A, S>): Kyoot<A, Simplify<Omit<S, "emit">>> =>
     makeHandler({

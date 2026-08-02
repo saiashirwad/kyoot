@@ -107,12 +107,6 @@ export function stepAll(k: AnyKyoot): unknown {
       }
       case "gen": {
         const { factory, trace, cache } = currentNode;
-        // First resumption of this suspension point claims the live
-        // generator and feeds it one answer. Any later resumption finds it
-        // gone and rebuilds the position: fresh generator, replay every
-        // recorded answer, ignore the intermediate yields. Replay is what
-        // makes continuations multi-shot — and why generator bodies must
-        // be pure between yields.
         let gen = cache.live;
         let inputs: unknown[];
         if (gen !== null) {

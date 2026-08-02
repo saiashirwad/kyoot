@@ -1,4 +1,3 @@
-// Type-level tests. Checked by `tsc --noEmit`, never executed.
 import { Abort, Async, Choice, Emit, Env, Kyoot, Sync, Var } from "../src/index.ts";
 import type { Kyoot as KyoT, Merge, Result } from "../src/index.ts";
 
@@ -8,18 +7,12 @@ type Expect<T extends true> = T;
 type Equal<A, B> =
   (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
 
-// --- Merge forces a canonical form -----------------------------------------
-
 type _Merge = Expect<
   Equal<
     Merge<{ abort: TypeError }, { abort: RangeError; var: number }>,
     { abort: TypeError | RangeError; var: number }
   >
 >;
-
-// --- gen: two abort sources land in one slot as a union ---------------------
-// (payloads must be structurally distinct — TS cannot tell TypeError and
-// RangeError apart, they have the same shape)
 
 class ErrA {
   readonly a = "a";
@@ -35,8 +28,6 @@ const twoAborts = Kyoot.gen(function* () {
 });
 type _TwoAborts = Expect<Equal<typeof twoAborts, KyoT<number, { abort: ErrA | ErrB }>>>;
 
-// --- gen: rows accumulate across effects ------------------------------------
-
 const multi = Kyoot.gen(function* () {
   yield* Count.set(1);
   yield* Emit.value("e");
@@ -47,8 +38,6 @@ const multi = Kyoot.gen(function* () {
 type _Multi = Expect<
   Equal<typeof multi, KyoT<string, { "var/Count": number; emit: string; sync: true; abort: Error }>>
 >;
-
-// --- handler elimination removes exactly its key ----------------------------
 
 declare const prog: KyoT<number, { abort: Error; "var/Count": number; emit: string }>;
 
@@ -67,35 +56,27 @@ type _AfterEmit = Expect<
   Equal<typeof afterEmit, KyoT<[number, string[]], { abort: Error; "var/Count": number }>>
 >;
 
-// --- runSync only accepts an empty row --------------------------------------
-
 declare const pending: KyoT<number, { abort: Error }>;
 declare const handled: KyoT<number>;
 
-// @ts-expect-error — non-empty row does not compile
+// @ts-expect-error
 Kyoot.runSync(pending);
 
 Kyoot.runSync(handled);
-
-// --- runPromise accepts at most `async` -------------------------------------
 
 declare const asyncProg: KyoT<number, { async: true }>;
 
 Kyoot.runPromise(asyncProg);
 Kyoot.runPromise(handled);
 
-// @ts-expect-error — a pending non-async effect does not compile
+// @ts-expect-error
 Kyoot.runPromise(pending);
-
-// --- map auto-flatten merges rows -------------------------------------------
 
 const flattened = handled.map((n) => Abort.fail(new Error()).map(() => n + 1));
 type _Flattened = Expect<Equal<typeof flattened, KyoT<number, { abort: Error }>>>;
 
 const plainMap = handled.map((n) => n + 1);
 type _PlainMap = Expect<Equal<typeof plainMap, KyoT<number>>>;
-
-// --- 10+ deep composition still infers --------------------------------------
 
 const d0 = Kyoot.gen(function* () {
   return 0;
@@ -166,15 +147,11 @@ type _Deep = Expect<
   >
 >;
 
-// --- the full pipeline at the edge ------------------------------------------
-
 const atTheEdge = d10.pipe(Count.run(0), Emit.discard(), Sync.run(), Abort.run());
-// @ts-expect-error — async is still pending, runSync must not compile
+// @ts-expect-error
 Kyoot.runSync(atTheEdge);
 
 Kyoot.runPromise(atTheEdge);
-
-// --- Env template-literal keys ----------------------------------------------
 
 interface Inventory {
   reserve(sku: string, qty: number): KyoT<boolean, { sync: true }>;
@@ -193,8 +170,6 @@ const provided = usesInventory.pipe(
 );
 type _Provided = Expect<Equal<typeof provided, KyoT<boolean, { sync: true }>>>;
 
-// --- Choice: branches collapse into one array --------------------------------
-
 const picks = Kyoot.gen(function* () {
   const x = yield* Choice.get([1, 2]);
   return x * 10;
@@ -204,10 +179,8 @@ type _Picks = Expect<Equal<typeof picks, KyoT<number, { choice: true }>>>;
 const afterChoice = picks.pipe(Choice.run());
 type _AfterChoice = Expect<Equal<typeof afterChoice, KyoT<number[]>>>;
 
-// --- fork/race require handled-down-to-async inputs --------------------------
-
 declare const needsAbort: KyoT<number, { async: true; abort: Error }>;
-// @ts-expect-error — a fiber is an independent loop; outer handlers can't see its ops
+// @ts-expect-error
 Async.fork(needsAbort);
 
 export {};

@@ -6,10 +6,6 @@ export type Handler<K extends PropertyKey, In, Out> = <A, S extends Row & { [P i
   k: Kyoot<A, S>,
 ) => Kyoot<Out, Omit<S, K>>;
 
-// The one way to build a handler. State lives on the node and never
-// mutates: `resume(v)` keeps it, `resume(v, next)` replaces it, and each
-// call to resume is an independent branch with its own state from there on.
-// Stateless handlers omit `state` and ignore the last parameter.
 export function makeHandler<State = undefined>(spec: {
   readonly effectKey: PropertyKey;
   readonly self: AnyKyoot;

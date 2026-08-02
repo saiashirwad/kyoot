@@ -3,10 +3,6 @@ import { makeHandler } from "../handler.ts";
 import type { AnyKyoot, Kyoot } from "../model.ts";
 import type { Row, Simplify } from "../types.ts";
 
-// Env — dependencies. Each service gets a distinct key via a
-// template-literal key from its name ('env/inventory'), and `provide` is a
-// handler answering that one key. No Layer graph, no memoization.
-
 export function service<T>() {
   return <N extends string>(name: N): Kyoot<T, { [K in `env/${N}`]: T }> =>
     makeOp(`env/${name}`, undefined) as Kyoot<T, { [K in `env/${N}`]: T }>;
@@ -14,8 +10,6 @@ export function service<T>() {
 
 export function provide<N extends string, T>(name: N, impl: T) {
   const effectKey = `env/${name}`;
-  // The impl must be assignable to the service type named in the row
-  // (checked via the intersection witness, evaluated once S is inferred).
   return <A, S extends Row & { [K in `env/${N}`]: unknown }>(
     k: Kyoot<A, S> & (T extends S[`env/${N}`] ? unknown : never),
   ): Kyoot<A, Simplify<Omit<S, `env/${N}`>>> =>

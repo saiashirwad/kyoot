@@ -6,7 +6,7 @@ class Total extends Var.Tag<number>()("Total") {}
 
 test("Abort.run: success becomes Result.ok", () => {
   const prog = Kyoot.gen(function* () {
-    if (false) yield* Abort.fail("never"); // keeps `abort` in the row without failing
+    if (false) yield* Abort.fail("never");
     return 42;
   });
   const r = Kyoot.runSync(prog.pipe(Abort.run()));
@@ -66,7 +66,7 @@ test("handler order: Var before Abort is transactional — failure carries no st
     return "unreachable";
   });
   const r = Kyoot.runSync(prog.pipe(Total.run(0), Abort.run()));
-  assert.equal(r.ok, false); // just the failure — the [A, state] pair is gone
+  assert.equal(r.ok, false);
 });
 
 test("handler order: Abort before Var — state survives failure", () => {
@@ -77,5 +77,5 @@ test("handler order: Abort before Var — state survives failure", () => {
   });
   const [r, state] = Kyoot.runSync(prog.pipe(Abort.run(), Total.run(0)));
   assert.equal(r.ok, false);
-  assert.equal(state, 10); // the update survived
+  assert.equal(state, 10);
 });

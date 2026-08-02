@@ -38,3 +38,11 @@ export interface Pipeable {
     gh: (g: G) => H,
   ): H;
 }
+
+type AnyPipeFn = (value: any) => any;
+
+export function pipeArguments(self: unknown, fns: readonly AnyPipeFn[]): any {
+  let value: any = self;
+  for (const fn of fns) value = fn(value);
+  return value;
+}

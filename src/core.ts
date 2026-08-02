@@ -1,5 +1,5 @@
 import type { Merge, Row, Simplify } from "./types.ts";
-import type { Pipeable } from "./pipe.ts";
+import { pipeArguments, type Pipeable } from "./pipe.ts";
 
 export type AnyKyoot = Kyoot<any, any>;
 
@@ -53,9 +53,7 @@ export class KyootImpl<A, S extends Row = {}> implements Kyoot<A, S> {
   }
 
   pipe(...fns: Array<(x: any) => any>) {
-    let x: any = this;
-    for (const f of fns) x = f(x);
-    return x;
+    return pipeArguments(this, fns);
   }
 
   [Symbol.iterator]() {

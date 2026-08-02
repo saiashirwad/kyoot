@@ -36,8 +36,8 @@ export interface Payments {
   charge(totalCents: number, card: Card): KyootT<string, { sync: true; abort: PaymentDeclined }>;
 }
 
-export const Inventory = Env.service<Inventory>()("inventory");
-export const Payments = Env.service<Payments>()("payments");
+export class Inventory extends Env.Tag<Inventory>()("inventory") {}
+export class Payments extends Env.Tag<Payments>()("payments") {}
 
 class Total extends Var.Tag<number>()("Total") {}
 
@@ -49,8 +49,8 @@ export interface Receipt {
 
 export const checkout = (order: Order, card: Card) =>
   Kyoot.gen(function* () {
-    const inventory = yield* Inventory;
-    const payments = yield* Payments;
+    const inventory = yield* Inventory.service();
+    const payments = yield* Payments.service();
     for (const item of order.items) {
       const ok = yield* inventory.reserve(item.sku, item.qty);
       if (!ok) yield* Abort.fail(new OutOfStock(item.sku));
@@ -69,8 +69,8 @@ export const productionEdge = (
 ) =>
   Kyoot.runPromise(
     checkout(order, card).pipe(
-      Env.provide("inventory", deps.inventory),
-      Env.provide("payments", deps.payments),
+      Inventory.provide(deps.inventory),
+      Payments.provide(deps.payments),
       Emit.forEach(deps.publish),
       Abort.run(),
       Sync.run(),
@@ -81,10 +81,10 @@ export const testEdge = (
   order: Order,
   card: Card,
   deps: { inventory: Inventory; payments: Payments },
-): [Receipt, number] =>
+) =>
   checkout(order, card).pipe(
-    Env.provide("inventory", deps.inventory),
-    Env.provide("payments", deps.payments),
+    Inventory.provide(deps.inventory),
+    Payments.provide(deps.payments),
     Emit.discard(),
     Abort.orThrow(),
     Sync.run(),

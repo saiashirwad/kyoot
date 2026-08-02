@@ -9,24 +9,24 @@ test("Env: provide answers the service key", () => {
   interface Greeter {
     greet(name: string): string;
   }
-  const Greeter = Env.service<Greeter>()("greeter");
+  class Greeter extends Env.Tag<Greeter>()("greeter") {}
   const prog = Kyoot.gen(function* () {
-    const g = yield* Greeter;
+    const g = yield* Greeter.service();
     return g.greet("kyo");
   });
-  const r = Kyoot.runSync(prog.pipe(Env.provide("greeter", { greet: (n: string) => `hi ${n}` })));
+  const r = Kyoot.runSync(prog.pipe(Greeter.provide({ greet: (n: string) => `hi ${n}` })));
   assert.equal(r, "hi kyo");
 });
 
 test("Env: multiple services get distinct keys", () => {
-  const A = Env.service<{ a: number }>()("a");
-  const B = Env.service<{ b: number }>()("b");
+  class A extends Env.Tag<{ a: number }>()("a") {}
+  class B extends Env.Tag<{ b: number }>()("b") {}
   const prog = Kyoot.gen(function* () {
-    const { a } = yield* A;
-    const { b } = yield* B;
+    const { a } = yield* A.service();
+    const { b } = yield* B.service();
     return a + b;
   });
-  const r = Kyoot.runSync(prog.pipe(Env.provide("a", { a: 1 }), Env.provide("b", { b: 2 })));
+  const r = Kyoot.runSync(prog.pipe(A.provide({ a: 1 }), B.provide({ b: 2 })));
   assert.equal(r, 3);
 });
 

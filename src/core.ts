@@ -1,4 +1,10 @@
-import { NodeSym, type AnyKyoot, type Kyoot, type RuntimeNode } from "./model.ts";
+import {
+  NodeSym,
+  type AnyKyoot,
+  type Continuation,
+  type Kyoot,
+  type RuntimeNode,
+} from "./model.ts";
 import { pipeArguments } from "./pipe.ts";
 import type { Row } from "./types.ts";
 
@@ -11,8 +17,8 @@ export class KyootImpl<A, S extends Row = {}> implements Kyoot<A, S> {
     this[NodeSym] = node;
   }
 
-  map(f: (a: any) => any): AnyKyoot {
-    return new KyootImpl({ _tag: "map", self: this as AnyKyoot, f });
+  map(mapper: (a: any) => any): AnyKyoot {
+    return new KyootImpl({ _tag: "map", self: this as AnyKyoot, mapper });
   }
 
   pipe(...fns: Array<(x: any) => any>) {
@@ -37,7 +43,7 @@ export const isKyoot = (value: unknown): value is AnyKyoot => value instanceof K
 export const succeed = (value: unknown): AnyKyoot => new KyootImpl({ _tag: "pure", value });
 
 export const makeOp = (key: string, payload: unknown, kont?: (v: any) => AnyKyoot) =>
-  new KyootImpl({ _tag: "op", key, payload, kont: kont ?? ((v) => succeed(v)) });
+  new KyootImpl({ _tag: "op", effectKey: key, payload, continuation: kont ?? ((v) => succeed(v)) });
 
 const makeGenCont = (gen: Generator<AnyKyoot, any, unknown>, input: unknown): AnyKyoot =>
   new KyootImpl({ _tag: "gencont", gen, input });
@@ -82,29 +88,27 @@ export async function invokeAsync<T>(f: () => Promise<T>): Promise<T> {
   }
 }
 
-type Kont = (v: any) => AnyKyoot;
-
 export function stepAll(k: AnyKyoot): unknown {
-  const konts: Array<Kont> = [];
+  const continuations: Array<Continuation> = [];
   let current: AnyKyoot = k;
 
   while (true) {
     const currentNode = current[NodeSym];
     switch (currentNode._tag) {
       case "pure": {
-        const f = konts.pop();
+        const f = continuations.pop();
         if (f === undefined) return currentNode.value;
         const out = invoke(() => f(currentNode.value));
         current = isKyoot(out) ? out : succeed(out);
         break;
       }
       case "map": {
-        konts.push(currentNode.f);
+        continuations.push(currentNode.mapper);
         current = currentNode.self;
         break;
       }
       case "gen": {
-        current = makeGenCont(invoke(currentNode.f), undefined);
+        current = makeGenCont(invoke(currentNode.factory), undefined);
         break;
       }
       case "gencont": {
@@ -113,22 +117,22 @@ export function stepAll(k: AnyKyoot): unknown {
         if (step.done === true) {
           current = succeed(step.value);
         } else {
-          konts.push((input) => new KyootImpl({ _tag: "gencont", gen, input }));
+          continuations.push((input) => new KyootImpl({ _tag: "gencont", gen, input }));
           current = step.value;
         }
         break;
       }
       case "op": {
-        const captured = konts.splice(0);
+        const captured = continuations.splice(0);
         let used = false;
-        throw new EscapedOp(currentNode.key, currentNode.payload, (v) => {
+        throw new EscapedOp(currentNode.effectKey, currentNode.payload, (v) => {
           if (used) {
             throw new DefectError(new Error("continuation resumed twice (one-shot law)"));
           }
           used = true;
-          let resumed = invoke(() => currentNode.kont(v));
+          let resumed = invoke(() => currentNode.continuation(v));
           for (let i = captured.length - 1; i >= 0; i--) {
-            resumed = new KyootImpl({ _tag: "map", self: resumed, f: captured[i]! });
+            resumed = new KyootImpl({ _tag: "map", self: resumed, mapper: captured[i]! });
           }
           return resumed;
         });
@@ -144,7 +148,7 @@ export function stepAll(k: AnyKyoot): unknown {
             break;
           }
           if (!(e instanceof EscapedOp)) throw e;
-          if (e.key === currentNode.key) {
+          if (e.key === currentNode.effectKey) {
             const handler = currentNode;
             current = invoke(() =>
               currentNode.onOp(

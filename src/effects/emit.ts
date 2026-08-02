@@ -16,7 +16,7 @@ export function run() {
   ): Kyoot<[A, S["emit"][]], Simplify<Omit<S, "emit">>> => {
     const acc: unknown[] = [];
     return makeHandler({
-      key: "emit",
+      effectKey: "emit",
       self: k as AnyKyoot,
       onOp: (e, resume) => {
         acc.push(e);
@@ -31,7 +31,7 @@ export function run() {
 export function forEach<E>(f: (e: E) => void) {
   return <A, S extends Row & { emit: E }>(k: Kyoot<A, S>): Kyoot<A, Simplify<Omit<S, "emit">>> =>
     makeHandler({
-      key: "emit",
+      effectKey: "emit",
       self: k as AnyKyoot,
       onOp: (e, resume) => {
         f(e as E);
@@ -46,7 +46,7 @@ export function discard() {
     k: Kyoot<A, S>,
   ): Kyoot<A, Simplify<Omit<S, "emit">>> =>
     makeHandler({
-      key: "emit",
+      effectKey: "emit",
       self: k as AnyKyoot,
       onOp: (_e, resume) => resume(undefined),
       onPure: (a) => succeed(a),

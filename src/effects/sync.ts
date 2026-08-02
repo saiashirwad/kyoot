@@ -11,7 +11,7 @@ export function run() {
     k: Kyoot<A, S>,
   ): Kyoot<A, Simplify<Omit<S, "sync">>> =>
     makeHandler({
-      key: "sync",
+      effectKey: "sync",
       self: k,
       onOp: (f, resume) => resume(invoke(f)),
       onPure: (a) => succeed(a),

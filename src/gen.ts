@@ -5,5 +5,5 @@ import type { MergeAll, Simplify } from "./types.ts";
 export function gen<A, Y extends AnyKyoot>(
   f: () => Generator<Y, A, unknown>,
 ): Kyoot<A, Simplify<MergeAll<RowsOf<Y>>>> {
-  return new KyootImpl({ _tag: "gen", f });
+  return new KyootImpl({ _tag: "gen", factory: f });
 }

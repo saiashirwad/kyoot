@@ -18,7 +18,7 @@ export function run() {
     k: Kyoot<A, S>,
   ): Kyoot<Result<S["abort"], A>, Simplify<Omit<S, "abort">>> =>
     makeHandler({
-      key: "abort",
+      effectKey: "abort",
       self: k as AnyKyoot,
       onOp: (e) => succeed(Result.fail(e)),
       onPure: (a) => succeed(Result.ok(a)),
@@ -33,7 +33,7 @@ export function catchAll<E, A2, S2 extends Row>(f: (e: E) => Kyoot<A2, S2>) {
     k: Kyoot<A, S>,
   ): Kyoot<A | A2, Simplify<Merge<Omit<S, "abort">, S2>>> =>
     makeHandler({
-      key: "abort",
+      effectKey: "abort",
       self: k as AnyKyoot,
       onOp: (e) => f(e) as AnyKyoot,
       onPure: (a) => succeed(a),
@@ -46,7 +46,7 @@ export function orThrow() {
     k: Kyoot<A, S>,
   ): Kyoot<A, Simplify<Omit<S, "abort">>> =>
     makeHandler({
-      key: "abort",
+      effectKey: "abort",
       self: k as AnyKyoot,
       onOp: (e) => {
         throw new DefectError(e);

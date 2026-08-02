@@ -77,7 +77,7 @@ test("runSync on an unhandled effect fails loudly at runtime", () => {
 
 test("one-shot law: a handler that resumes twice produces a defect", () => {
   const k = makeHandler({
-    key: "myfx",
+    effectKey: "myfx",
     self: makeOp("myfx", undefined),
     onOp: (_p, resume) => {
       resume(1);
@@ -93,7 +93,7 @@ test("one-shot law: a handler that resumes twice produces a defect", () => {
 
 test("a handler that resumes zero times short-circuits", () => {
   const k = makeHandler({
-    key: "myfx",
+    effectKey: "myfx",
     self: Kyoot.gen(function* () {
       yield* makeOp("myfx", undefined);
       return "unreachable";

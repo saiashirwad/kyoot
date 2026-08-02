@@ -13,14 +13,14 @@ export function service<T>() {
 }
 
 export function provide<N extends string, T>(name: N, impl: T) {
-  const key = `env/${name}`;
+  const effectKey = `env/${name}`;
   // The impl must be assignable to the service type named in the row
   // (checked via the intersection witness, evaluated once S is inferred).
   return <A, S extends Row & { [K in `env/${N}`]: unknown }>(
     k: Kyoot<A, S> & (T extends S[`env/${N}`] ? unknown : never),
   ): Kyoot<A, Simplify<Omit<S, `env/${N}`>>> =>
     makeHandler({
-      key,
+      effectKey,
       self: k as AnyKyoot,
       onOp: (_payload, resume) => resume(impl),
       onPure: (a) => succeed(a),

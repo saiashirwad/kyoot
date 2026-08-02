@@ -9,7 +9,7 @@ export { runPromise, runSync } from "./runtime.ts";
 export { gen } from "./gen.ts";
 export type { AsyncOp, AsyncRuntime } from "./runtime.ts";
 export type { Pipeable } from "./pipe.ts";
-export type { Handler, HandlerSpec } from "./handler.ts";
+export type { Handler } from "./handler.ts";
 export { makeHandler } from "./handler.ts";
 export { Cause, Result } from "./result.ts";
 export type { AsyncOnly, Empty, Merge, MergeAll, Row, Simplify } from "./types.ts";

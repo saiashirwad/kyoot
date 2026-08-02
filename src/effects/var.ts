@@ -34,7 +34,7 @@ export function run<V>(init: V) {
   ): Kyoot<[A, V], Simplify<Omit<S, "var">>> => {
     let state = init;
     return makeHandler({
-      key: "var",
+      effectKey: "var",
       self: k as AnyKyoot,
       onOp: (op: VarOp, resume) => {
         switch (op.kind) {

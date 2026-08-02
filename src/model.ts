@@ -5,24 +5,26 @@ export type AnyKyoot = Kyoot<any, any>;
 
 export type OnOp = (payload: any, resume: (v: any) => AnyKyoot) => AnyKyoot;
 
+export type Continuation = (v: any) => AnyKyoot;
+
 export type RuntimeNode =
   | { readonly _tag: "pure"; readonly value: unknown }
   | {
       readonly _tag: "op";
-      readonly key: string;
+      readonly effectKey: string;
       readonly payload: unknown;
-      readonly kont: (v: any) => AnyKyoot;
+      readonly continuation: Continuation;
     }
-  | { readonly _tag: "map"; readonly self: AnyKyoot; readonly f: (a: any) => any }
+  | { readonly _tag: "map"; readonly self: AnyKyoot; readonly mapper: (a: any) => any }
   | {
       readonly _tag: "handler";
-      readonly key: string;
+      readonly effectKey: string;
       readonly self: AnyKyoot;
       readonly onOp: OnOp;
       readonly onPure: (a: any) => AnyKyoot;
       readonly onDefect?: (d: unknown) => AnyKyoot;
     }
-  | { readonly _tag: "gen"; readonly f: () => Generator<AnyKyoot, any, unknown> }
+  | { readonly _tag: "gen"; readonly factory: () => Generator<AnyKyoot, any, unknown> }
   | {
       readonly _tag: "gencont";
       readonly gen: Generator<AnyKyoot, any, unknown>;

@@ -1,16 +1,19 @@
-import { runPromise, runSync, succeed } from "./core.ts";
+import { succeed } from "./core.ts";
 import { gen } from "./gen.ts";
-import type { Kyoot as KyootType } from "./core.ts";
+import type { Kyoot as KyootType } from "./model.ts";
+import { runPromise, runSync } from "./runtime.ts";
 import type { Row } from "./types.ts";
 
-export { runPromise, runSync, succeed } from "./core.ts";
+export { succeed } from "./core.ts";
+export { runPromise, runSync } from "./runtime.ts";
 export { gen } from "./gen.ts";
-export type { AsyncOp, AsyncRuntime } from "./core.ts";
+export type { AsyncOp, AsyncRuntime } from "./runtime.ts";
 export type { Pipeable } from "./pipe.ts";
-export type { HandlerSpec } from "./handler.ts";
+export type { Handler, HandlerSpec } from "./handler.ts";
 export { makeHandler } from "./handler.ts";
 export { Cause, Result } from "./result.ts";
-export type { AsyncOnly, Empty, Handler, Merge, MergeAll, Row, RowsOf, Simplify } from "./types.ts";
+export type { AsyncOnly, Empty, Merge, MergeAll, Row, Simplify } from "./types.ts";
+export type { RowsOf } from "./model.ts";
 
 export * as Abort from "./effects/abort.ts";
 export * as Async from "./effects/async.ts";

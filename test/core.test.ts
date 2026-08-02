@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { callUser, opKyoot, pureKyoot } from "../src/core.ts";
+import { invoke, makeOp, succeed } from "../src/core.ts";
 import { makeHandler } from "../src/handler.ts";
 import { Kyoot, Var } from "../src/index.ts";
 
@@ -68,7 +68,7 @@ test("a throw inside a gen body is a defect", () => {
 });
 
 test("runSync on an unhandled effect fails loudly at runtime", () => {
-  const k = opKyoot("nope", undefined);
+  const k = makeOp("nope", undefined);
   assert.throws(
     () => Kyoot.runSync(k as never),
     (e: unknown) => e instanceof Error && e.message.includes("unhandled effect 'nope'"),
@@ -78,12 +78,12 @@ test("runSync on an unhandled effect fails loudly at runtime", () => {
 test("one-shot law: a handler that resumes twice produces a defect", () => {
   const k = makeHandler({
     key: "myfx",
-    self: opKyoot("myfx", undefined),
+    self: makeOp("myfx", undefined),
     onOp: (_p, resume) => {
       resume(1);
       return resume(2);
     },
-    onPure: (a) => pureKyoot(a),
+    onPure: (a) => succeed(a),
   });
   assert.throws(
     () => Kyoot.runSync(k as never),
@@ -95,18 +95,18 @@ test("a handler that resumes zero times short-circuits", () => {
   const k = makeHandler({
     key: "myfx",
     self: Kyoot.gen(function* () {
-      yield* opKyoot("myfx", undefined);
+      yield* makeOp("myfx", undefined);
       return "unreachable";
     }).map(() => "also unreachable"),
-    onOp: () => pureKyoot("short"),
-    onPure: (a) => pureKyoot(a),
+    onOp: () => succeed("short"),
+    onPure: (a) => succeed(a),
   });
   assert.equal(Kyoot.runSync(k as never), "short");
 });
 
 test("callUser passes control exceptions through untouched", () => {
   assert.equal(
-    callUser(() => 42),
+    invoke(() => 42),
     42,
   );
 });

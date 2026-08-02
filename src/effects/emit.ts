@@ -1,11 +1,12 @@
-import { opKyoot, pureKyoot, type AnyKyoot, type Kyoot } from "../core.ts";
+import { makeOp, succeed } from "../core.ts";
 import { makeHandler } from "../handler.ts";
+import type { AnyKyoot, Kyoot } from "../model.ts";
 import type { Row, Simplify } from "../types.ts";
 
 // Emit — streaming values out of a computation.
 
 export function value<E>(e: E): Kyoot<void, { emit: E }> {
-  return opKyoot("emit", e) as Kyoot<void, { emit: E }>;
+  return makeOp("emit", e) as Kyoot<void, { emit: E }>;
 }
 
 // Collect everything emitted: [A, emitted[]].
@@ -21,7 +22,7 @@ export function run() {
         acc.push(e);
         return resume(undefined);
       },
-      onPure: (a) => pureKyoot([a, acc]),
+      onPure: (a) => succeed([a, acc]),
     }) as Kyoot<[A, S["emit"][]], Simplify<Omit<S, "emit">>>;
   };
 }
@@ -36,7 +37,7 @@ export function forEach<E>(f: (e: E) => void) {
         f(e as E);
         return resume(undefined);
       },
-      onPure: (a) => pureKyoot(a),
+      onPure: (a) => succeed(a),
     }) as Kyoot<A, Simplify<Omit<S, "emit">>>;
 }
 
@@ -48,6 +49,6 @@ export function discard() {
       key: "emit",
       self: k as AnyKyoot,
       onOp: (_e, resume) => resume(undefined),
-      onPure: (a) => pureKyoot(a),
+      onPure: (a) => succeed(a),
     }) as Kyoot<A, Simplify<Omit<S, "emit">>>;
 }

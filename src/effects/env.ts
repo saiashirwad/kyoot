@@ -1,5 +1,6 @@
-import { opKyoot, pureKyoot, type AnyKyoot, type Kyoot } from "../core.ts";
+import { makeOp, succeed } from "../core.ts";
 import { makeHandler } from "../handler.ts";
+import type { AnyKyoot, Kyoot } from "../model.ts";
 import type { Row, Simplify } from "../types.ts";
 
 // Env — dependencies. Each service gets a distinct key via a
@@ -8,7 +9,7 @@ import type { Row, Simplify } from "../types.ts";
 
 export function service<T>() {
   return <N extends string>(name: N): Kyoot<T, { [K in `env/${N}`]: T }> =>
-    opKyoot(`env/${name}`, undefined) as Kyoot<T, { [K in `env/${N}`]: T }>;
+    makeOp(`env/${name}`, undefined) as Kyoot<T, { [K in `env/${N}`]: T }>;
 }
 
 export function provide<N extends string, T>(name: N, impl: T) {
@@ -22,6 +23,6 @@ export function provide<N extends string, T>(name: N, impl: T) {
       key,
       self: k as AnyKyoot,
       onOp: (_payload, resume) => resume(impl),
-      onPure: (a) => pureKyoot(a),
+      onPure: (a) => succeed(a),
     }) as Kyoot<A, Simplify<Omit<S, `env/${N}`>>>;
 }

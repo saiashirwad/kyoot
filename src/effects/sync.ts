@@ -1,9 +1,10 @@
-import { callUser, opKyoot, pureKyoot, type Kyoot } from "../core.ts";
+import { invoke, makeOp, succeed } from "../core.ts";
 import { makeHandler } from "../handler.ts";
+import type { Kyoot } from "../model.ts";
 import type { Row, Simplify } from "../types.ts";
 
 export const defer = <A>(f: () => A): Kyoot<A, { sync: true }> =>
-  opKyoot("sync", f) as Kyoot<A, { sync: true }>;
+  makeOp("sync", f) as Kyoot<A, { sync: true }>;
 
 export function run() {
   return <A, S extends Row & { sync: unknown }>(
@@ -12,7 +13,7 @@ export function run() {
     makeHandler({
       key: "sync",
       self: k,
-      onOp: (f, resume) => resume(callUser(f)),
-      onPure: (a) => pureKyoot(a),
+      onOp: (f, resume) => resume(invoke(f)),
+      onPure: (a) => succeed(a),
     });
 }

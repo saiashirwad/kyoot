@@ -1,6 +1,8 @@
-import { opKyoot, pureKyoot, type AnyKyoot, type AsyncOp, type Kyoot } from "../core.ts";
+import { makeOp, succeed } from "../core.ts";
 import { fail as abortFail } from "./abort.ts";
 import { Result } from "../result.ts";
+import type { AnyKyoot, Kyoot } from "../model.ts";
+import type { AsyncOp } from "../runtime.ts";
 import type { AsyncOnly, Merge, Row, Simplify } from "../types.ts";
 
 // Async — the concurrency slot. The fiber layer lives entirely here; sync
@@ -14,7 +16,7 @@ import type { AsyncOnly, Merge, Row, Simplify } from "../types.ts";
 // every async effect.
 
 function asyncOp(op: AsyncOp, kont?: (v: any) => AnyKyoot): Kyoot<any, { async: true }> {
-  return opKyoot("async", op, kont) as Kyoot<any, { async: true }>;
+  return makeOp("async", op, kont) as Kyoot<any, { async: true }>;
 }
 
 export function suspend<A>(
@@ -124,6 +126,6 @@ export function timeout<A, S extends Row>(
           new Promise<typeof TIMEOUT>((resolve) => setTimeout(resolve, ms, TIMEOUT)),
         ]),
     },
-    (r) => (r === TIMEOUT ? (abortFail(new TimeoutError(ms)) as AnyKyoot) : pureKyoot(r)),
+    (r) => (r === TIMEOUT ? (abortFail(new TimeoutError(ms)) as AnyKyoot) : succeed(r)),
   ) as Kyoot<A, Simplify<Merge<S, { async: true; abort: TimeoutError }>>>;
 }

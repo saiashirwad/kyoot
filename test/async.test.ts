@@ -66,6 +66,17 @@ test("timeout: a fast computation wins", async () => {
   assert.equal(r, "quick");
 });
 
+test("timeout inside a gen resumes the surrounding computation", async () => {
+  const prog = Kyoot.gen(function* () {
+    const r = yield* Async.timeout(
+      50,
+      Async.sleep(5).map(() => "quick"),
+    ).pipe(Abort.run());
+    return r.ok ? `${r.value} again` : "failed";
+  });
+  assert.equal(await Kyoot.runPromise(prog), "quick again");
+});
+
 test("runPromise surfaces defects as rejections", async () => {
   const boom = new Error("boom");
   const k = Kyoot.gen(function* () {

@@ -20,9 +20,9 @@ export function makeHandler<State = undefined>(spec: {
     effectKey: spec.effectKey,
     self: spec.self,
     state: spec.state,
-    onOp: spec.onOp as OnOp,
-    onSuccess: spec.onSuccess as (a: any, state: any) => AnyKyoot,
-    onDefect: spec.onDefect as ((d: unknown, state: any) => AnyKyoot) | undefined,
-    onInterrupt: spec.onInterrupt as ((state: any) => void) | undefined,
+    onOp: spec.onOp,
+    onSuccess: spec.onSuccess,
+    onDefect: spec.onDefect,
+    onInterrupt: spec.onInterrupt,
   });
 }

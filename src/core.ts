@@ -211,11 +211,18 @@ export function stepAll(k: AnyKyoot): unknown {
             );
             break;
           }
+          const captured = continuations.splice(0);
+          const wrap = (inner: AnyKyoot): AnyKyoot => {
+            for (let i = captured.length - 1; i >= 0; i--) {
+              inner = new KyootImpl({ _tag: "map", self: inner, mapper: captured[i]! });
+            }
+            return inner;
+          };
           throw new EscapedOp(
             e.key,
             e.payload,
-            (v) => new KyootImpl({ ...handler, self: e.resume(v) }),
-            (err) => new KyootImpl({ ...handler, self: e.resumeError(err) }),
+            (v) => wrap(new KyootImpl({ ...handler, self: e.resume(v) })),
+            (err) => wrap(new KyootImpl({ ...handler, self: e.resumeError(err) })),
           );
         }
         current = invoke(() => handler.onSuccess(inner, handler.state));

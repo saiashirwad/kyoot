@@ -112,3 +112,23 @@ test("callUser passes control exceptions through untouched", () => {
     42,
   );
 });
+
+test("an op escaping a yielded handler node keeps the outer continuation", () => {
+  const inner = makeHandler({
+    effectKey: "inner",
+    self: makeOp("outer", undefined),
+    onOp: () => succeed("nope"),
+    onSuccess: (a) => succeed(a),
+  });
+  const prog = Kyoot.gen(function* () {
+    const v = yield* inner;
+    return `${v} continued`;
+  });
+  const k = makeHandler({
+    effectKey: "outer",
+    self: prog,
+    onOp: (_p, resume) => resume("handled"),
+    onSuccess: (a) => succeed(a),
+  });
+  assert.equal(Kyoot.runSync(k as never), "handled continued");
+});

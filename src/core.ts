@@ -154,11 +154,10 @@ export function stepAll(k: AnyKyoot): unknown {
             );
             break;
           }
-          const h = currentNode;
           throw new EscapedOp(
             e.key,
             e.payload,
-            (v) => new KyootImpl({ ...h, _tag: "handler", self: e.resume(v) }),
+            (v) => new KyootImpl({ ...currentNode, self: e.resume(v) }),
           );
         }
         current = invoke(() => currentNode.onPure(inner));

@@ -117,7 +117,7 @@ export function timeout<A, S extends Row>(
   ms: number,
   k: Kyoot<A, S> & AsyncOnly<S>,
 ): Kyoot<A, Simplify<Merge<S, { async: true; abort: TimeoutError }>>> {
-  const TIMEOUT: unique symbol = Symbol("kyo.timeout");
+  const TIMEOUT: unique symbol = Symbol("kyoot.timeout");
   return asyncOp(
     {
       execute: (rt) =>

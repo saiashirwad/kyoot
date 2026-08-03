@@ -8,7 +8,7 @@ export function value<E>(e: E): Kyoot<void, { emit: E }> {
 }
 
 export function run() {
-  return <A, S extends Row & { emit: unknown }>(
+  return <A, S extends Row & { emit?: unknown } = {}>(
     k: Kyoot<A, S>,
   ): Kyoot<[A, S["emit"][]], Simplify<Omit<S, "emit">>> =>
     makeHandler<unknown[]>({
@@ -21,7 +21,9 @@ export function run() {
 }
 
 export function forEach<E>(f: (e: E) => void) {
-  return <A, S extends Row & { emit: E }>(k: Kyoot<A, S>): Kyoot<A, Simplify<Omit<S, "emit">>> =>
+  return <A, S extends Row & { emit?: E } = {}>(
+    k: Kyoot<A, S>,
+  ): Kyoot<A, Simplify<Omit<S, "emit">>> =>
     makeHandler({
       effectKey: "emit",
       self: k as AnyKyoot,
@@ -34,7 +36,7 @@ export function forEach<E>(f: (e: E) => void) {
 }
 
 export function discard() {
-  return <A, S extends Row & { emit: unknown }>(
+  return <A, S extends Row & { emit?: unknown } = {}>(
     k: Kyoot<A, S>,
   ): Kyoot<A, Simplify<Omit<S, "emit">>> =>
     makeHandler({

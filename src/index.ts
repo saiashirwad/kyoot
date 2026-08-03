@@ -11,7 +11,7 @@ export type { AsyncOp, AsyncRuntime, FiberHandle } from "./runtime.ts";
 export type { Pipeable } from "./pipe.ts";
 export { makeHandler } from "./handler.ts";
 export { Cause, Result } from "./result.ts";
-export type { AsyncOnly, Empty, Merge, MergeAll, Row, Simplify } from "./types.ts";
+export type { AsyncOnly, Empty, Merge, MergeAll, Only, Row, Simplify, Unhandled } from "./types.ts";
 export type { RowsOf } from "./model.ts";
 
 export * as Async from "./effects/async.ts";

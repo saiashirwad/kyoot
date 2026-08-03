@@ -25,7 +25,7 @@ const runFinalizers = (finalizers: readonly Finalizer[]): void => {
 };
 
 export function run() {
-  return <A, S extends Row & { resource: unknown }>(
+  return <A, S extends Row & { resource?: unknown } = {}>(
     k: Kyoot<A, S>,
   ): Kyoot<A, Simplify<Omit<S, "resource">>> =>
     makeHandler<Finalizer[]>({

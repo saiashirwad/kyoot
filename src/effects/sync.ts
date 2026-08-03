@@ -7,7 +7,7 @@ export const defer = <A>(f: () => A): Kyoot<A, { sync: true }> =>
   makeOp("sync", f) as Kyoot<A, { sync: true }>;
 
 export function run() {
-  return <A, S extends Row & { sync: unknown }>(
+  return <A, S extends Row & { sync?: unknown } = {}>(
     k: Kyoot<A, S>,
   ): Kyoot<A, Simplify<Omit<S, "sync">>> =>
     makeHandler({

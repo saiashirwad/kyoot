@@ -122,9 +122,11 @@ export function race<A, S1 extends Row, S2 extends Row>(
   }) as Kyoot<A, Simplify<Merge<Merge<S1, S2>, { async: true }>>>;
 }
 
-export function all<A, S extends Row>(
+export function all(ks: []): Kyoot<readonly [], { async: true }>;
+export function all<A, S extends Row = {}>(
   ks: ReadonlyArray<Kyoot<A, S> & AsyncOnly<S>>,
-): Kyoot<ReadonlyArray<A>, Simplify<Merge<S, { async: true }>>> {
+): Kyoot<ReadonlyArray<A>, Simplify<Merge<S, { async: true }>>>;
+export function all(ks: ReadonlyArray<AnyKyoot>): AnyKyoot {
   return asyncOp({
     execute: (rt) => {
       const fibers = ks.map((k) => rt.spawn(k as AnyKyoot));
@@ -139,9 +141,9 @@ export function all<A, S extends Row>(
           ).then(() => {
             throw e;
           }),
-      ) as Promise<ReadonlyArray<A>>;
+      ) as Promise<ReadonlyArray<unknown>>;
     },
-  }) as Kyoot<ReadonlyArray<A>, Simplify<Merge<S, { async: true }>>>;
+  }) as AnyKyoot;
 }
 
 export class TimeoutError extends Error {

@@ -20,7 +20,7 @@ export function Tag<E>() {
       }
 
       static provide(impl: E) {
-        return <A, S extends Row & EnvRow<Id, E>>(
+        return <A, S extends Row & Partial<EnvRow<Id, E>> = {}>(
           k: Kyoot<A, S>,
         ): Kyoot<A, Simplify<Omit<S, `env/${Id}`>>> =>
           makeHandler({

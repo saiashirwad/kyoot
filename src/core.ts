@@ -41,7 +41,7 @@ export class KyootImpl<A, S extends Row = {}> implements Kyoot<A, S> {
 
 export const isKyoot = (value: unknown): value is AnyKyoot => value instanceof KyootImpl;
 
-export const succeed = (value: unknown): AnyKyoot => new KyootImpl({ _tag: "pure", value });
+export const succeed = <A>(value: A): Kyoot<A, {}> => new KyootImpl({ _tag: "pure", value });
 
 export const makeOp = (key: PropertyKey, payload: unknown, kont?: (v: any) => AnyKyoot) =>
   new KyootImpl({ _tag: "op", effectKey: key, payload, continuation: kont ?? ((v) => succeed(v)) });

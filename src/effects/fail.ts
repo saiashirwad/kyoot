@@ -9,7 +9,7 @@ export function fail<E>(e: E): Kyoot<never, { fail: E }> {
 }
 
 export function run() {
-  return <A, S extends Row & { fail: unknown }>(
+  return <A, S extends Row & { fail?: unknown } = {}>(
     k: Kyoot<A, S>,
   ): Kyoot<Result<S["fail"], A>, Simplify<Omit<S, "fail">>> =>
     makeHandler({
@@ -22,7 +22,7 @@ export function run() {
 }
 
 export function catchAll<E, A2, S2 extends Row>(f: (e: E) => Kyoot<A2, S2>) {
-  return <A, S extends Row & { fail: E }>(
+  return <A, S extends Row & { fail?: E } = {}>(
     k: Kyoot<A, S>,
   ): Kyoot<A | A2, Simplify<Merge<Omit<S, "fail">, S2>>> =>
     makeHandler({
@@ -34,7 +34,7 @@ export function catchAll<E, A2, S2 extends Row>(f: (e: E) => Kyoot<A2, S2>) {
 }
 
 export function orThrow() {
-  return <A, S extends Row & { fail: unknown }>(
+  return <A, S extends Row & { fail?: unknown } = {}>(
     k: Kyoot<A, S>,
   ): Kyoot<A, Simplify<Omit<S, "fail">>> =>
     makeHandler({

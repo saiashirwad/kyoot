@@ -31,7 +31,7 @@ export function Tag<V>() {
       }
 
       static run(initial: V) {
-        return <A, S extends Row & VarRow<Id, V>>(
+        return <A, S extends Row & Partial<VarRow<Id, V>> = {}>(
           k: Kyoot<A, S>,
         ): Kyoot<[A, V], Simplify<Omit<S, `var/${Id}`>>> =>
           makeHandler<V>({

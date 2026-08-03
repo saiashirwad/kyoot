@@ -1,7 +1,8 @@
 import { DefectError, EscapedOp, InterruptedError, invokeAsync, stepAll } from "./core.ts";
 import type { AnyKyoot, Kyoot } from "./model.ts";
+import type { Only, Row } from "./types.ts";
 
-export function runSync<A>(k: Kyoot<A, {}>): A {
+export function runSync<A, S extends Row>(k: Kyoot<A, S> & Only<S>): A {
   try {
     return stepAll(k as AnyKyoot) as A;
   } catch (e) {
@@ -93,8 +94,7 @@ export function asyncDrive(k: AnyKyoot, parent: AsyncRuntime): FiberHandle {
   return { promise, interrupt: () => controller.abort() };
 }
 
-export function runPromise<A>(k: Kyoot<A, {}>): Promise<A>;
-export function runPromise<A>(k: Kyoot<A, { async: true }>): Promise<A>;
+export function runPromise<A, S extends Row>(k: Kyoot<A, S> & Only<S, "async">): Promise<A>;
 export function runPromise<A>(k: AnyKyoot): Promise<A> {
   const seed: AsyncRuntime = {
     signal: new AbortController().signal,

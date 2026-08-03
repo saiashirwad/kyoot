@@ -8,7 +8,7 @@ export function get<E>(options: readonly E[]): Kyoot<E, { choice: true }> {
 }
 
 export function run() {
-  return <A, S extends Row & { choice: unknown }>(
+  return <A, S extends Row & { choice?: unknown } = {}>(
     k: Kyoot<A, S>,
   ): Kyoot<A[], Simplify<Omit<S, "choice">>> =>
     makeHandler({

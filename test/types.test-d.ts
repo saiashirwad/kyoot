@@ -30,6 +30,9 @@ type _mixedValue = Expect<Equal<typeof mixed extends KyootT<infer A, any> ? A : 
 // @ts-expect-error runSync rejects async rows
 Kyoot.runSync(Async.sleep(1));
 
+// @ts-expect-error runSync names every unhandled key: Unhandled<"fail" | "async" | "sync">
+Kyoot.runSync(mixed);
+
 const syncProg = Sync.defer(() => 1);
 // @ts-expect-error runSync requires an empty row
 Kyoot.runSync(syncProg);

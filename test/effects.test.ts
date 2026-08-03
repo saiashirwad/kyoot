@@ -18,6 +18,19 @@ test("Env: provide answers the service key", () => {
   assert.equal(r, "hi kyo");
 });
 
+test("Env: tags yield directly", () => {
+  interface Greeter {
+    greet(name: string): string;
+  }
+  class Greeter extends Env.Tag<Greeter>()("greeter") {}
+  const prog = Kyoot.gen(function* () {
+    const g = yield* Greeter;
+    return g.greet("kyo");
+  });
+  const r = Kyoot.runSync(prog.pipe(Greeter.provide({ greet: (n: string) => `hi ${n}` })));
+  assert.equal(r, "hi kyo");
+});
+
 test("Env: multiple services get distinct keys", () => {
   class A extends Env.Tag<{ a: number }>()("a") {}
   class B extends Env.Tag<{ b: number }>()("b") {}

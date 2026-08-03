@@ -1,5 +1,5 @@
 import { InterruptedError, makeOp, succeed } from "../core.ts";
-import { fail as abortFail } from "./abort.ts";
+import { fail } from "./fail.ts";
 import { Cause, Result } from "../result.ts";
 import type { AnyKyoot, Kyoot } from "../model.ts";
 import type { AsyncOp } from "../runtime.ts";
@@ -19,6 +19,10 @@ export function suspend<A>(
   f: (resume: (a: A) => void, signal: AbortSignal) => void,
 ): Kyoot<A, { async: true }> {
   return asyncOp({ execute: (rt) => new Promise<A>((resolve) => f(resolve, rt.signal)) });
+}
+
+export function fromPromise<A>(f: (signal: AbortSignal) => Promise<A>): Kyoot<A, { async: true }> {
+  return asyncOp({ execute: (rt) => f(rt.signal) });
 }
 
 export function sleep(ms: number): Kyoot<void, { async: true }> {
@@ -152,11 +156,11 @@ export class TimeoutError extends Error {
 }
 
 // Race k against the clock; on timeout the computation fails with a typed
-// TimeoutError in the `abort` slot.
+// TimeoutError in the `fail` slot.
 export function timeout<A, S extends Row>(
   ms: number,
   k: Kyoot<A, S> & AsyncOnly<S>,
-): Kyoot<A, Simplify<Merge<S, { async: true; abort: TimeoutError }>>> {
+): Kyoot<A, Simplify<Merge<S, { async: true; fail: TimeoutError }>>> {
   const TIMEOUT: unique symbol = Symbol("kyoot.timeout");
   return asyncOp(
     {
@@ -182,6 +186,6 @@ export function timeout<A, S extends Row>(
         ) as Promise<unknown>;
       },
     },
-    (r) => (r === TIMEOUT ? (abortFail(new TimeoutError(ms)) as AnyKyoot) : succeed(r)),
-  ) as Kyoot<A, Simplify<Merge<S, { async: true; abort: TimeoutError }>>>;
+    (r) => (r === TIMEOUT ? (fail(new TimeoutError(ms)) as AnyKyoot) : succeed(r)),
+  ) as Kyoot<A, Simplify<Merge<S, { async: true; fail: TimeoutError }>>>;
 }

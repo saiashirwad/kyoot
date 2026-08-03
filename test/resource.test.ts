@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Abort, Choice, Kyoot, Resource } from "../src/index.ts";
+import { Fail, Choice, Kyoot, Resource } from "../src/index.ts";
 
 test("Resource: release runs on success", () => {
   const events: string[] = [];
@@ -36,16 +36,16 @@ test("Resource: finalizers run in LIFO order", () => {
   assert.deepEqual(events, ["release b", "release a"]);
 });
 
-test("Resource: release runs on typed failure (Resource outside Abort)", () => {
+test("Resource: release runs on typed failure (Resource outside Fail)", () => {
   const events: string[] = [];
   const prog = Kyoot.gen(function* () {
     yield* Resource.acquire(
       () => "conn",
       () => events.push("release"),
     );
-    yield* Abort.fail("boom");
+    yield* Fail.fail("boom");
     return "unreachable";
-  }).pipe(Abort.run(), Resource.run());
+  }).pipe(Fail.run(), Resource.run());
   assert.deepEqual(Kyoot.runSync(prog), { ok: false, cause: { _tag: "Fail", error: "boom" } });
   assert.deepEqual(events, ["release"]);
 });

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Abort, Async, InterruptedError, Kyoot, Resource, Result } from "../src/index.ts";
+import { Fail, Async, InterruptedError, Kyoot, Resource, Result } from "../src/index.ts";
 
 test("suspend resolves through runPromise", async () => {
   const r = await Kyoot.runPromise(Async.suspend<number>((resume) => resume(42)));
@@ -49,7 +49,7 @@ test("race: first to complete wins", async () => {
 });
 
 test("timeout: a slow computation fails with a typed TimeoutError", async () => {
-  const r = await Kyoot.runPromise(Async.timeout(5, Async.sleep(50)).pipe(Abort.run()));
+  const r = await Kyoot.runPromise(Async.timeout(5, Async.sleep(50)).pipe(Fail.run()));
   assert.equal(r.ok, false);
   assert.ok(
     Result.isErr(r) && r.cause._tag === "Fail" && r.cause.error instanceof Async.TimeoutError,
@@ -61,7 +61,7 @@ test("timeout: a fast computation wins", async () => {
     Async.timeout(
       50,
       Async.sleep(5).map(() => "quick"),
-    ).pipe(Abort.orThrow()),
+    ).pipe(Fail.orThrow()),
   );
   assert.equal(r, "quick");
 });
@@ -71,7 +71,7 @@ test("timeout inside a gen resumes the surrounding computation", async () => {
     const r = yield* Async.timeout(
       50,
       Async.sleep(5).map(() => "quick"),
-    ).pipe(Abort.run());
+    ).pipe(Fail.run());
     return r.ok ? `${r.value} again` : "failed";
   });
   assert.equal(await Kyoot.runPromise(prog), "quick again");
@@ -87,10 +87,10 @@ test("runPromise surfaces defects as rejections", async () => {
 });
 
 test("runPromise on an unhandled non-async effect rejects loudly", async () => {
-  const k = Abort.fail("still pending");
+  const k = Fail.fail("still pending");
   await assert.rejects(
     Kyoot.runPromise(k as never),
-    (e: unknown) => e instanceof Error && e.message.includes("unhandled effect 'abort'"),
+    (e: unknown) => e instanceof Error && e.message.includes("unhandled effect 'fail'"),
   );
 });
 
@@ -230,7 +230,7 @@ test("timeout interrupts the branch and runs its finalizers", async () => {
     yield* Async.sleep(10_000);
     return "unreachable";
   }).pipe(Resource.run());
-  const r = await Kyoot.runPromise(Async.timeout(5, slow).pipe(Abort.run()));
+  const r = await Kyoot.runPromise(Async.timeout(5, slow).pipe(Fail.run()));
   assert.equal(r.ok, false);
   assert.deepEqual(events, ["release"]);
 });

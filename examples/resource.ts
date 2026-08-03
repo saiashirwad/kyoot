@@ -1,4 +1,4 @@
-import { Abort, Kyoot, Resource } from "../src/index.ts";
+import { Fail, Kyoot, Resource } from "../src/index.ts";
 
 const connection = (name: string) =>
   Resource.acquire(
@@ -14,10 +14,8 @@ const etl = (fail: boolean) =>
     const source = yield* connection("source");
     const target = yield* connection("target");
     console.log(`copy ${source.name} -> ${target.name}`);
-    if (fail) yield* Abort.fail("disk full");
+    if (fail) yield* Fail.fail("disk full");
     return "done";
   });
 
-console.log(Kyoot.runSync(etl(false).pipe(Abort.run(), Resource.run())));
-
-console.log(Kyoot.runSync(etl(true).pipe(Abort.run(), Resource.run())));
+console.log(Kyoot.runSync(etl(true).pipe(Fail.run(), Resource.run())));

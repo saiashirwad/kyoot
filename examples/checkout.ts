@@ -1,4 +1,4 @@
-import { Abort, Emit, Env, Kyoot, Sync, Var } from "../src/index.ts";
+import { Emit, Env, Fail, Kyoot, Sync, Var } from "../src/index.ts";
 import type { Kyoot as KyootT } from "../src/index.ts";
 
 export class OutOfStock {
@@ -33,7 +33,7 @@ export interface Inventory {
 }
 
 export interface Payments {
-  charge(totalCents: number, card: Card): KyootT<string, { sync: true; abort: PaymentDeclined }>;
+  charge(totalCents: number, card: Card): KyootT<string, { sync: true; fail: PaymentDeclined }>;
 }
 
 export class Inventory extends Env.Tag<Inventory>()("inventory") {}
@@ -53,7 +53,7 @@ export const checkout = (order: Order, card: Card) =>
     const payments = yield* Payments.service();
     for (const item of order.items) {
       const ok = yield* inventory.reserve(item.sku, item.qty);
-      if (!ok) yield* Abort.fail(new OutOfStock(item.sku));
+      if (!ok) yield* Fail.fail(new OutOfStock(item.sku));
       yield* Emit.value<OrderEvent>({ type: "reserved", sku: item.sku });
       yield* Total.update((t) => t + item.priceCents * item.qty);
     }
@@ -72,7 +72,7 @@ export const productionEdge = (
       Inventory.provide(deps.inventory),
       Payments.provide(deps.payments),
       Emit.forEach(deps.publish),
-      Abort.run(),
+      Fail.run(),
       Sync.run(),
     ),
   );
@@ -86,7 +86,7 @@ export const testEdge = (
     Inventory.provide(deps.inventory),
     Payments.provide(deps.payments),
     Emit.discard(),
-    Abort.orThrow(),
+    Fail.orThrow(),
     Sync.run(),
     Kyoot.runSync,
   );

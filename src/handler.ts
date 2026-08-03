@@ -1,10 +1,5 @@
 import { KyootImpl } from "./core.ts";
-import type { AnyKyoot, Kyoot, OnOp, Resume } from "./model.ts";
-import type { Row } from "./types.ts";
-
-export type Handler<K extends PropertyKey, In, Out> = <A, S extends Row & { [P in K]: In }>(
-  k: Kyoot<A, S>,
-) => Kyoot<Out, Omit<S, K>>;
+import type { AnyKyoot, Resume } from "./model.ts";
 
 export function makeHandler<State = undefined>(spec: {
   readonly effectKey: PropertyKey;

@@ -1,10 +1,5 @@
 import { Env, Kyoot } from "../src/index.ts";
 
-interface Config {
-  host: string;
-  port: number;
-}
-
 class Config extends Env.Tag<{ id: string; name: string }>()("Config") {}
 class Greeting extends Env.Tag<string>()("greeting") {}
 

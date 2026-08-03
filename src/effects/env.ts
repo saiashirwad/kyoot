@@ -15,10 +15,14 @@ export function Tag<E>() {
         return makeOp(effectKey, undefined) as any;
       }
 
+      static [Symbol.iterator](): Iterator<Kyoot<unknown, EnvRow<Id, E>>, E, unknown> {
+        return this.service()[Symbol.iterator]();
+      }
+
       static provide(impl: E) {
         return <A, S extends Row & EnvRow<Id, E>>(
           k: Kyoot<A, S>,
-        ): Kyoot<[A, E], Simplify<Omit<S, `env/${Id}`>>> =>
+        ): Kyoot<A, Simplify<Omit<S, `env/${Id}`>>> =>
           makeHandler({
             effectKey,
             self: k,

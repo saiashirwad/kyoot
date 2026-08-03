@@ -33,10 +33,10 @@ export const Result = {
   defect<E = never, A = never>(defect: unknown): Result<E, A> {
     return { ok: false, cause: Cause.defect(defect) };
   },
-  isOk<E, A>(r: Result<E, A>): r is { ok: true; value: A } {
+  isOk<E, A>(r: Result<E, A>): r is { readonly ok: true; readonly value: A } {
     return r.ok;
   },
-  isErr<E, A>(r: Result<E, A>): r is { ok: false; cause: Cause<E> } {
+  isErr<E, A>(r: Result<E, A>): r is { readonly ok: false; readonly cause: Cause<E> } {
     return !r.ok;
   },
 };

@@ -9,10 +9,10 @@ export { runPromise, runSync } from "./runtime.ts";
 export { gen } from "./gen.ts";
 export type { AsyncOp, AsyncRuntime, FiberHandle } from "./runtime.ts";
 export type { Pipeable } from "./pipe.ts";
-export { makeHandler } from "./handler.ts";
+export { effect, makeHandler } from "./handler.ts";
 export { Cause, Result } from "./result.ts";
 export type { AsyncOnly, Empty, Merge, MergeAll, Only, Row, Simplify, Unhandled } from "./types.ts";
-export type { RowsOf } from "./model.ts";
+export type { AnyKyoot, RowsOf } from "./model.ts";
 
 export * as Async from "./effects/async.ts";
 export * as Choice from "./effects/choice.ts";

@@ -1,8 +1,7 @@
-import { invoke, makeOp } from "../core.ts";
-import { succeed } from "../core.ts";
-import { makeHandler } from "../handler.ts";
-import type { AnyKyoot, Kyoot } from "../model.ts";
-import type { Row, Simplify } from "../types.ts";
+import { invoke, succeed } from "../core.ts";
+import { effect } from "../handler.ts";
+import type { Kyoot } from "../model.ts";
+import type { Row } from "../types.ts";
 
 type VarRow<Id extends string, V> = {
   [K in `var/${Id}`]: V;
@@ -15,44 +14,41 @@ type VarOp<V> =
 
 export function Tag<V>() {
   return function <const Id extends string>(id: Id) {
-    const effectKey = `var/${id}`;
+    const fx = effect<`var/${Id}`, V, VarOp<V>>(`var/${id}`);
 
     return class {
       static get(): Kyoot<V, VarRow<Id, V>> {
-        return makeOp(effectKey, { kind: "get" }) as Kyoot<V, VarRow<Id, V>>;
+        return fx.op<V>({ kind: "get" });
       }
 
       static set(value: V): Kyoot<void, VarRow<Id, V>> {
-        return makeOp(effectKey, { kind: "set", value }) as Kyoot<void, VarRow<Id, V>>;
+        return fx.op<void>({ kind: "set", value });
       }
 
       static update(f: (value: V) => V): Kyoot<void, VarRow<Id, V>> {
-        return makeOp(effectKey, { kind: "update", f }) as Kyoot<void, VarRow<Id, V>>;
+        return fx.op<void>({ kind: "update", f });
       }
 
       static run(initial: V) {
-        return <A, S extends Row & Partial<VarRow<Id, V>> = {}>(
-          k: Kyoot<A, S>,
-        ): Kyoot<[A, V], Simplify<Omit<S, `var/${Id}`>>> =>
-          makeHandler<V>({
-            effectKey,
-            self: k as AnyKyoot,
-            state: initial,
-            onOp: (op: VarOp<V>, resume, value) => {
-              switch (op.kind) {
-                case "get":
-                  return resume(value);
-                case "set":
-                  return resume(undefined, op.value);
-                case "update":
-                  return resume(
-                    undefined,
-                    invoke(() => op.f(value)),
-                  );
-              }
-            },
-            onSuccess: (a, value) => succeed([a, value]),
-          });
+        const handle = fx.handle<V>({
+          state: initial,
+          onOp: (op, resume, value) => {
+            switch (op.kind) {
+              case "get":
+                return resume(value);
+              case "set":
+                return resume(undefined, op.value);
+              case "update":
+                return resume(
+                  undefined,
+                  invoke(() => op.f(value)),
+                );
+            }
+          },
+          onSuccess: (a, value) => succeed([a, value]),
+        });
+        return <A, S extends Row & Partial<VarRow<Id, V>> = {}>(k: Kyoot<A, S>) =>
+          handle<A, S, [A, V]>(k);
       }
     };
   };

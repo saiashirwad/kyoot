@@ -22,10 +22,13 @@ export class ParseError {
   }
 }
 
-export type Parser<A, E = never> = KyootT<
-  A,
-  { "parse/input": void; "parse/fail": ParseError } & ([E] extends [never] ? {} : { fail: E })
->;
+type ParserBase = { "parse/input": void; "parse/fail": ParseError };
+
+type ParserRow = Row & ParserBase;
+
+type FailRow<E> = [E] extends [never] ? {} : { fail: E };
+
+export type Parser<A, E = never> = KyootT<A, ParserBase & FailRow<E>>;
 
 type DomainError<S> = "fail" extends keyof S ? S["fail"] : never;
 
@@ -124,16 +127,13 @@ export const char = (c: string) => satisfy((x) => x === c, JSON.stringify(c));
 
 export const digit = satisfy((c) => c >= "0" && c <= "9", "digit");
 
-export const letter: Parser<string> = satisfy(
-  (c) => (c >= "a" && c <= "z") || (c >= "A" && c <= "Z"),
-  "letter",
-);
+export const letter = satisfy((c) => (c >= "a" && c <= "z") || (c >= "A" && c <= "Z"), "letter");
 
-export const string = (s: string): Parser<string> =>
+export const string = (s: string) =>
   Kyoot.gen(function* () {
     for (const c of s) yield* char(c);
     return s;
-  }) as Parser<string>;
+  });
 
 export const regex = (re: RegExp, expected: string): Parser<string> =>
   Kyoot.gen(function* () {
@@ -142,57 +142,64 @@ export const regex = (re: RegExp, expected: string): Parser<string> =>
     if (m === null || m.index !== 0) return yield* expectedHere(expected);
     yield* seek(pos + m[0].length);
     return m[0];
-  }) as Parser<string>;
+  });
 
 export const endOfInput: Parser<void> = Kyoot.gen(function* () {
   const c = yield* peek;
   if (c !== undefined) return yield* expectedHere("end of input");
 }) as Parser<void>;
 
-const or2 = (p: Parser<any, any>, q: Parser<any, any>): AnyKyoot =>
+const or2 = (p: AnyKyoot, q: AnyKyoot): AnyKyoot =>
   Kyoot.gen(function* () {
     const mark = yield* getPos;
     return yield* p.pipe(
       catchParse((e1) =>
         Kyoot.gen(function* () {
           yield* seek(mark);
-          return yield* (q as AnyKyoot).pipe(
-            catchParse((e2) => parseFail(e2.pos >= e1.pos ? e2 : e1)),
-          );
+          return yield* q.pipe(catchParse((e2) => parseFail(e2.pos >= e1.pos ? e2 : e1)));
         }),
       ),
     );
   });
 
-export function or<A, E1, B, E2>(p: Parser<A, E1>, q: Parser<B, E2>): Parser<A | B, E1 | E2> {
-  return or2(p, q) as Parser<A | B, E1 | E2>;
+export function or<A, S1 extends ParserRow, B, S2 extends ParserRow>(
+  p: KyootT<A, S1>,
+  q: KyootT<B, S2>,
+): KyootT<A | B, Simplify<Merge<S1, S2>>> {
+  return or2(p, q);
 }
 
-export const oneOf = <A, E>(ps: ReadonlyArray<Parser<A, E>>): Parser<A, E> => {
+export const oneOf = <A, S extends ParserRow>(ps: ReadonlyArray<KyootT<A, S>>): KyootT<A, S> => {
   let acc: AnyKyoot = parseFail(new ParseError(0, "one of", undefined));
   for (let i = ps.length - 1; i >= 0; i--) acc = or2(ps[i]!, acc);
-  return acc as Parser<A, E>;
+  return acc as KyootT<A, S>;
 };
 
-export const many = <A, E>(p: Parser<A, E>, opts?: { atLeast?: number }): Parser<A[], E> =>
+export const many = <A, S extends ParserRow>(
+  p: KyootT<A, S>,
+  opts?: { atLeast?: number },
+): KyootT<A[], S> =>
   Kyoot.gen(function* () {
     const out: A[] = [];
     const atLeast = opts?.atLeast ?? 0;
     for (let i = 0; i < atLeast; i++) out.push(yield* p);
     while (true) {
       const r = yield* or2(
-        p.map((a): { readonly more: true; readonly a: A } => ({ more: true, a })) as AnyKyoot,
+        p.map((a): { readonly more: true; readonly a: A } => ({ more: true, a })),
         succeed({ more: false } as const),
       );
       if (!r.more) return out;
       out.push(r.a);
     }
-  }) as Parser<A[], E>;
+  }) as KyootT<A[], S>;
 
-export const optional = <A, E>(p: Parser<A, E>) =>
-  or2(p as Parser<any, any>, succeed(undefined)) as Parser<A | undefined, E>;
+export const optional = <A, S extends ParserRow>(p: KyootT<A, S>): KyootT<A | undefined, S> =>
+  or2(p, succeed(undefined)) as KyootT<A | undefined, S>;
 
-export const sepBy = <A, E>(p: Parser<A, E>, sep: Parser<unknown, E>) =>
+export const sepBy = <A, S extends ParserRow, S2 extends ParserRow>(
+  p: KyootT<A, S>,
+  sep: KyootT<unknown, S2>,
+): KyootT<A[], Simplify<Merge<S, S2>>> =>
   Kyoot.gen(function* () {
     const first = yield* optional(p);
     if (first === undefined) return [] as A[];
@@ -200,7 +207,7 @@ export const sepBy = <A, E>(p: Parser<A, E>, sep: Parser<unknown, E>) =>
       Kyoot.gen(function* () {
         yield* sep;
         return yield* p;
-      }) as Parser<A, E>,
+      }) as AnyKyoot,
     );
     return [first, ...restItems];
-  }) as Parser<A[], E>;
+  }) as KyootT<A[], Simplify<Merge<S, S2>>>;

@@ -38,6 +38,9 @@ export class KyootImpl<A, S extends Row = {}> implements Kyoot<A, S> {
 
 const isKyoot = (value: unknown): value is AnyKyoot => value instanceof KyootImpl;
 
+const makeGenCont = (gen: Generator<AnyKyoot, any, unknown>, input: unknown): AnyKyoot =>
+  new KyootImpl({ _tag: "gen-cont", gen, nextInput: input });
+
 export const succeed = <A>(value: A): Kyoot<A, {}> => new KyootImpl({ _tag: "pure", value });
 
 export const makeOp = (key: PropertyKey, payload: unknown, kont?: (v: any) => AnyKyoot) =>
@@ -126,11 +129,7 @@ export function stepAll(k: AnyKyoot): unknown {
         break;
       }
       case "gen": {
-        current = new KyootImpl({
-          _tag: "gen-cont",
-          gen: invoke(currentNode.factory),
-          nextInput: undefined,
-        });
+        current = makeGenCont(invoke(currentNode.factory), undefined);
         break;
       }
       case "gen-cont": {
@@ -138,9 +137,7 @@ export function stepAll(k: AnyKyoot): unknown {
         if (step.done === true) {
           current = succeed(step.value);
         } else {
-          continuations.push(
-            (input) => new KyootImpl({ _tag: "gen-cont", gen: currentNode.gen, nextInput: input }),
-          );
+          continuations.push((input) => makeGenCont(currentNode.gen, input));
           current = step.value;
         }
         break;
@@ -148,17 +145,16 @@ export function stepAll(k: AnyKyoot): unknown {
       case "op": {
         const captured = continuations.splice(0);
         let used = false;
-        const resume = (v: any) => {
+        const claim = (): void => {
           if (used) throw new DefectError(new Error("continuation resumed twice (one-shot law)"));
           used = true;
-          return reify(
-            captured,
-            invoke(() => currentNode.continuation(v)),
-          );
+        };
+        const resume = (v: any) => {
+          claim();
+          return reify(captured, invoke(() => currentNode.continuation(v)));
         };
         const resumeError = (err: unknown) => {
-          if (used) throw new DefectError(new Error("continuation resumed twice (one-shot law)"));
-          used = true;
+          claim();
           return reify(captured, new KyootImpl({ _tag: "raise", error: err }));
         };
         throw new EscapedOp(currentNode.effectKey, currentNode.payload, resume, resumeError);

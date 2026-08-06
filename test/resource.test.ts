@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Fail, Choice, Kyoot, Resource } from "../src/index.ts";
+import { Fail, Kyoot, Resource } from "../src/index.ts";
 
 test("Resource: release runs on success", () => {
   const events: string[] = [];
@@ -68,18 +68,4 @@ test("Resource: release runs on defect", () => {
     (e) => e === boom,
   );
   assert.deepEqual(events, ["release"]);
-});
-
-test("Resource: each Choice branch manages its own resources", () => {
-  const events: string[] = [];
-  const prog = Kyoot.gen(function* () {
-    const x = yield* Choice.get([1, 2]);
-    yield* Resource.acquire(
-      () => x,
-      (r) => events.push(`release ${r}`),
-    );
-    return x;
-  }).pipe(Resource.run(), Choice.run());
-  assert.deepEqual(Kyoot.runSync(prog), [1, 2]);
-  assert.deepEqual(events, ["release 1", "release 2"]);
 });

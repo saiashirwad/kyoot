@@ -6,8 +6,6 @@ export type Merge<S1 extends Row, S2 extends Row> = {
     | (K extends keyof S2 ? S2[K] : never);
 };
 
-export type Empty<S extends Row> = keyof S extends never ? unknown : never;
-
 export type Unhandled<K> = { readonly "unhandled effects": K };
 
 export type Only<S extends Row, Allow extends PropertyKey = never> =

@@ -2,14 +2,11 @@ import {
   NodeSym,
   type AnyKyoot,
   type Continuation,
-  type GenCache,
   type Kyoot,
   type RuntimeNode,
 } from "./model.ts";
 import { pipeArguments } from "./pipe.ts";
 import type { Row } from "./types.ts";
-
-export type { AnyKyoot, Kyoot, OnOp } from "./model.ts";
 
 export class KyootImpl<A, S extends Row = {}> implements Kyoot<A, S> {
   readonly [NodeSym]: RuntimeNode;
@@ -39,7 +36,7 @@ export class KyootImpl<A, S extends Row = {}> implements Kyoot<A, S> {
   }
 }
 
-export const isKyoot = (value: unknown): value is AnyKyoot => value instanceof KyootImpl;
+const isKyoot = (value: unknown): value is AnyKyoot => value instanceof KyootImpl;
 
 export const succeed = <A>(value: A): Kyoot<A, {}> => new KyootImpl({ _tag: "pure", value });
 
@@ -102,6 +99,13 @@ export async function invokeAsync<T>(f: () => Promise<T>): Promise<T> {
   }
 }
 
+const reify = (conts: Array<Continuation>, inner: AnyKyoot): AnyKyoot => {
+  for (let i = conts.length - 1; i >= 0; i--) {
+    inner = new KyootImpl({ _tag: "map", self: inner, mapper: conts[i]! });
+  }
+  return inner;
+};
+
 export function stepAll(k: AnyKyoot): unknown {
   const continuations: Array<Continuation> = [];
   let current: AnyKyoot = k;
@@ -122,36 +126,20 @@ export function stepAll(k: AnyKyoot): unknown {
         break;
       }
       case "gen": {
-        const { factory, trace, cache } = currentNode;
-        let gen = cache.live;
-        let inputs: unknown[];
-        if (gen !== null) {
-          cache.live = null;
-          inputs = [trace === null ? undefined : trace.input];
-        } else {
-          gen = invoke(factory);
-          inputs = [];
-          for (let t = trace; t !== null; t = t.prev) inputs.push(t.input);
-          inputs.push(undefined);
-          inputs.reverse();
-        }
-        let step!: IteratorResult<AnyKyoot, unknown>;
-        for (let i = 0; i < inputs.length; i++) {
-          const input = inputs[i];
-          step = invoke(() => gen.next(input));
-          if (step.done === true && i < inputs.length - 1) {
-            throw new DefectError(
-              new Error("generator replay diverged — generator bodies must be pure between yields"),
-            );
-          }
-        }
+        current = new KyootImpl({
+          _tag: "gen-cont",
+          gen: invoke(currentNode.factory),
+          nextInput: undefined,
+        });
+        break;
+      }
+      case "gen-cont": {
+        const step = invoke(() => currentNode.gen.next(currentNode.nextInput));
         if (step.done === true) {
           current = succeed(step.value);
         } else {
-          const point: GenCache = { live: gen };
           continuations.push(
-            (input) =>
-              new KyootImpl({ _tag: "gen", factory, trace: { input, prev: trace }, cache: point }),
+            (input) => new KyootImpl({ _tag: "gen-cont", gen: currentNode.gen, nextInput: input }),
           );
           current = step.value;
         }
@@ -159,18 +147,21 @@ export function stepAll(k: AnyKyoot): unknown {
       }
       case "op": {
         const captured = continuations.splice(0);
-        const wrap = (inner: AnyKyoot): AnyKyoot => {
-          for (let i = captured.length - 1; i >= 0; i--) {
-            inner = new KyootImpl({ _tag: "map", self: inner, mapper: captured[i]! });
-          }
-          return inner;
+        let used = false;
+        const resume = (v: any) => {
+          if (used) throw new DefectError(new Error("continuation resumed twice (one-shot law)"));
+          used = true;
+          return reify(
+            captured,
+            invoke(() => currentNode.continuation(v)),
+          );
         };
-        throw new EscapedOp(
-          currentNode.effectKey,
-          currentNode.payload,
-          (v) => wrap(invoke(() => currentNode.continuation(v))),
-          (err) => wrap(new KyootImpl({ _tag: "raise", error: err })),
-        );
+        const resumeError = (err: unknown) => {
+          if (used) throw new DefectError(new Error("continuation resumed twice (one-shot law)"));
+          used = true;
+          return reify(captured, new KyootImpl({ _tag: "raise", error: err }));
+        };
+        throw new EscapedOp(currentNode.effectKey, currentNode.payload, resume, resumeError);
       }
       case "raise": {
         throw currentNode.error;
@@ -182,9 +173,10 @@ export function stepAll(k: AnyKyoot): unknown {
           inner = stepAll(handler.self);
         } catch (e) {
           if (e instanceof InterruptedError) {
-            if (handler.onInterrupt !== undefined) {
+            const { onInterrupt } = handler;
+            if (onInterrupt !== undefined) {
               try {
-                invoke(() => handler.onInterrupt!(handler.state));
+                invoke(() => onInterrupt(handler.state));
               } catch {}
             }
             throw e;
@@ -211,17 +203,11 @@ export function stepAll(k: AnyKyoot): unknown {
             break;
           }
           const captured = continuations.splice(0);
-          const wrap = (inner: AnyKyoot): AnyKyoot => {
-            for (let i = captured.length - 1; i >= 0; i--) {
-              inner = new KyootImpl({ _tag: "map", self: inner, mapper: captured[i]! });
-            }
-            return inner;
-          };
           throw new EscapedOp(
             e.key,
             e.payload,
-            (v) => wrap(new KyootImpl({ ...handler, self: e.resume(v) })),
-            (err) => wrap(new KyootImpl({ ...handler, self: e.resumeError(err) })),
+            (v) => reify(captured, new KyootImpl({ ...handler, self: e.resume(v) })),
+            (err) => reify(captured, new KyootImpl({ ...handler, self: e.resumeError(err) })),
           );
         }
         current = invoke(() => handler.onSuccess(inner, handler.state));

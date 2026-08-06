@@ -9,13 +9,6 @@ export type OnOp = (payload: any, resume: Resume, state: any) => AnyKyoot;
 
 export type Continuation = (v: any) => AnyKyoot;
 
-export type Trace = {
-  readonly input: unknown;
-  readonly prev: Trace | null;
-};
-
-export type GenCache = { live: Generator<AnyKyoot, any, unknown> | null };
-
 export type RuntimeNode =
   | { readonly _tag: "pure"; readonly value: unknown }
   | {
@@ -38,8 +31,11 @@ export type RuntimeNode =
   | {
       readonly _tag: "gen";
       readonly factory: () => Generator<AnyKyoot, any, unknown>;
-      readonly trace: Trace | null;
-      readonly cache: GenCache;
+    }
+  | {
+      readonly _tag: "gen-cont";
+      readonly gen: Generator<AnyKyoot, any, unknown>;
+      readonly nextInput: unknown;
     }
   | { readonly _tag: "raise"; readonly error: unknown };
 

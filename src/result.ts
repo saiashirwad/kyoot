@@ -1,7 +1,6 @@
 export type Cause<E> =
   | { readonly _tag: "Fail"; readonly error: E }
   | { readonly _tag: "Defect"; readonly defect: unknown }
-  | { readonly _tag: "Both"; readonly left: Cause<E>; readonly right: Cause<E> }
   | { readonly _tag: "Interrupted" };
 
 export type Result<E, A> =
@@ -14,9 +13,6 @@ export const Cause = {
   },
   defect<E = never>(defect: unknown): Cause<E> {
     return { _tag: "Defect", defect };
-  },
-  both<E>(left: Cause<E>, right: Cause<E>): Cause<E> {
-    return { _tag: "Both", left, right };
   },
   interrupted<E = never>(): Cause<E> {
     return { _tag: "Interrupted" };

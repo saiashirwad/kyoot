@@ -77,7 +77,7 @@ test("runSync on an unhandled effect fails loudly at runtime", () => {
   );
 });
 
-test("multi-shot: a handler may resume a continuation more than once", () => {
+test("a continuation may only be resumed once", () => {
   const k = makeHandler({
     effectKey: "myfx",
     self: Kyoot.gen(function* () {
@@ -85,12 +85,12 @@ test("multi-shot: a handler may resume a continuation more than once", () => {
       return (v as number) * 10;
     }),
     onOp: (_p, resume) => {
-      resume(1);
-      return resume(2);
+      const first = resume(1);
+      return first.map(() => resume(2));
     },
     onSuccess: (a) => succeed(a),
   });
-  assert.equal(Kyoot.runSync(k as never), 20);
+  assert.throws(() => Kyoot.runSync(k as never), /continuation resumed twice \(one-shot law\)/);
 });
 
 test("a handler that resumes zero times short-circuits", () => {

@@ -1,4 +1,4 @@
-import { Async, effect, Emit, Env, Fail, Kyoot, Sync, Var } from "../src/index.ts";
+import { Async, Emit, Env, Fail, Kyoot, makeOp, Sync, Var } from "../src/index.ts";
 import type { Kyoot as KyootT, Result, RowsOf } from "../src/index.ts";
 import { sleep, testClock } from "../examples/clock.ts";
 
@@ -78,8 +78,7 @@ const emitted = Kyoot.gen(function* () {
 }).pipe(Emit.run());
 const e1: [number, string[]] = Kyoot.runSync(emitted);
 
-const Log = effect<"log", string>("log");
-const logOp = Log.op<void>("hello");
+const logOp = makeOp("log", "hello") as KyootT<void, { log: string }>;
 type _logKeys = Expect<Equal<keyof RowsOf<typeof logOp>, "log">>;
 // @ts-expect-error runSync names the unhandled custom effect: Unhandled<"log">
 Kyoot.runSync(logOp);

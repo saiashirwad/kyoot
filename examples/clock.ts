@@ -1,29 +1,27 @@
-import { Async, Kyoot, makeHandler, makeOp, succeed } from "../src/index.ts";
+import { Async, Kyoot, KyootImpl, makeOp, succeed } from "../src/index.ts";
 import type { AnyKyoot, Merge, Row, Simplify } from "../src/index.ts";
 
 export const sleep = (ms: number): Kyoot<void, { clock: number }> =>
   makeOp("clock", ms) as Kyoot<void, { clock: number }>;
 
-export const liveClock = <A, S extends Row & { clock?: number } = {}>(
-  k: Kyoot<A, S>,
-): Kyoot<A, Simplify<Merge<Omit<S, "clock">, { async: true }>>> =>
-  makeHandler({
+export const liveClock = <A, S extends Row & { clock?: number } = {}>(k: Kyoot<A, S>) =>
+  new KyootImpl({
+    _tag: "handler",
     effectKey: "clock",
     self: k as AnyKyoot,
     onOp: (ms: number, resume) => Async.sleep(ms).map(() => resume(undefined)),
     onSuccess: (a) => succeed(a),
-  }) as Kyoot<A, Simplify<Merge<Omit<S, "clock">, { async: true }>>>;
+  });
 
-export const testClock = <A, S extends Row & { clock?: number } = {}>(
-  k: Kyoot<A, S>,
-): Kyoot<readonly [A, number], Simplify<Omit<S, "clock">>> =>
-  makeHandler<number>({
+export const testClock = <A, S extends Row & { clock?: number } = {}>(k: Kyoot<A, S>) =>
+  new KyootImpl({
+    _tag: "handler",
     effectKey: "clock",
     self: k as AnyKyoot,
     state: 0,
-    onOp: (ms: number, resume, now) => resume(undefined, now + ms),
+    onOp: (ms: number, resume, now: number) => resume(undefined, now + ms),
     onSuccess: (a, now) => succeed([a, now] as const),
-  }) as Kyoot<readonly [A, number], Simplify<Omit<S, "clock">>>;
+  });
 
 const boilEgg = (minute: number) =>
   Kyoot.gen(function* () {

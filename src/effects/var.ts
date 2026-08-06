@@ -1,5 +1,4 @@
-import { invoke, makeOp, succeed } from "../core.ts";
-import { makeHandler } from "../handler.ts";
+import { invoke, KyootImpl, makeOp, succeed } from "../core.ts";
 import type { AnyKyoot, Kyoot } from "../model.ts";
 import type { Row, Simplify } from "../types.ts";
 
@@ -33,18 +32,22 @@ export function Tag<V>() {
         return <A, S extends Row & Partial<VarRow<Id, V>> = {}>(
           k: Kyoot<A, S>,
         ): Kyoot<[A, V], Simplify<Omit<S, `var/${Id}`>>> =>
-          makeHandler<V>({
+          new KyootImpl({
+            _tag: "handler",
             effectKey,
             self: k as AnyKyoot,
-            state: initial,
-            onOp: (op: VarOp<V>, resume, value) => {
+            state: initial as V,
+            onOp: (op: VarOp<V>, resume, value: V) => {
               switch (op.kind) {
                 case "get":
                   return resume(value);
                 case "set":
                   return resume(undefined, op.value);
                 case "update":
-                  return resume(undefined, invoke(() => op.f(value)));
+                  return resume(
+                    undefined,
+                    invoke(() => op.f(value)),
+                  );
               }
             },
             onSuccess: (a, value) => succeed([a, value]),

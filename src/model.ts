@@ -22,7 +22,7 @@ export type RuntimeNode =
       readonly _tag: "handler";
       readonly effectKey: PropertyKey;
       readonly self: AnyKyoot;
-      readonly state: unknown;
+      readonly state?: unknown;
       readonly onOp: OnOp;
       readonly onSuccess: (a: any, state: any) => AnyKyoot;
       readonly onDefect?: (d: unknown, state: any) => AnyKyoot;

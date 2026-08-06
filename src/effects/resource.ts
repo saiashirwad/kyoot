@@ -1,16 +1,14 @@
-import { DefectError, invoke, makeOp, succeed } from "../core.ts";
-import { makeHandler } from "../handler.ts";
+import { DefectError, invoke, KyootImpl, makeOp, succeed } from "../core.ts";
 import type { AnyKyoot, Kyoot } from "../model.ts";
 import type { Row, Simplify } from "../types.ts";
 
 type Finalizer = () => void;
 
-export function acquire<R>(
+export const acquire = <R>(
   acquire: () => R,
   release: (r: R) => void,
-): Kyoot<R, { resource: true }> {
-  return makeOp("resource", { acquire, release }) as Kyoot<R, { resource: true }>;
-}
+): Kyoot<R, { resource: true }> =>
+  makeOp("resource", { acquire, release }) as Kyoot<R, { resource: true }>;
 
 const runFinalizers = (finalizers: readonly Finalizer[]): void => {
   let first: unknown;
@@ -24,15 +22,21 @@ const runFinalizers = (finalizers: readonly Finalizer[]): void => {
   if (first !== undefined) throw first;
 };
 
-export function run() {
-  return <A, S extends Row & { resource?: unknown } = {}>(
+export const run =
+  () =>
+  <A, S extends Row & { resource?: unknown } = {}>(
     k: Kyoot<A, S>,
   ): Kyoot<A, Simplify<Omit<S, "resource">>> =>
-    makeHandler<Finalizer[]>({
+    new KyootImpl({
+      _tag: "handler",
       effectKey: "resource",
       self: k as AnyKyoot,
-      state: [],
-      onOp: (op: { acquire: () => unknown; release: (r: any) => void }, resume, finalizers) => {
+      state: [] as Finalizer[],
+      onOp: (
+        op: { acquire: () => unknown; release: (r: any) => void },
+        resume,
+        finalizers: Finalizer[],
+      ) => {
         const r = invoke(op.acquire);
         return resume(r, [...finalizers, () => op.release(r)]);
       },
@@ -47,5 +51,4 @@ export function run() {
         throw new DefectError(d);
       },
       onInterrupt: runFinalizers,
-    }) as Kyoot<A, Simplify<Omit<S, "resource">>>;
-}
+    });

@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { invoke, makeOp, succeed } from "../src/core.ts";
-import { makeHandler } from "../src/handler.ts";
+import { invoke, KyootImpl, makeOp, succeed } from "../src/core.ts";
 import { Kyoot, Var } from "../src/index.ts";
 
 class Count extends Var.Tag<number>()("Count") {}
@@ -78,7 +77,8 @@ test("runSync on an unhandled effect fails loudly at runtime", () => {
 });
 
 test("a continuation may only be resumed once", () => {
-  const k = makeHandler({
+  const k = new KyootImpl({
+    _tag: "handler",
     effectKey: "myfx",
     self: Kyoot.gen(function* () {
       const v = yield* makeOp("myfx", undefined);
@@ -94,7 +94,8 @@ test("a continuation may only be resumed once", () => {
 });
 
 test("a handler that resumes zero times short-circuits", () => {
-  const k = makeHandler({
+  const k = new KyootImpl({
+    _tag: "handler",
     effectKey: "myfx",
     self: Kyoot.gen(function* () {
       yield* makeOp("myfx", undefined);
@@ -114,7 +115,8 @@ test("callUser passes control exceptions through untouched", () => {
 });
 
 test("an op escaping a yielded handler node keeps the outer continuation", () => {
-  const inner = makeHandler({
+  const inner = new KyootImpl({
+    _tag: "handler",
     effectKey: "inner",
     self: makeOp("outer", undefined),
     onOp: () => succeed("nope"),
@@ -124,7 +126,8 @@ test("an op escaping a yielded handler node keeps the outer continuation", () =>
     const v = yield* inner;
     return `${v} continued`;
   });
-  const k = makeHandler({
+  const k = new KyootImpl({
+    _tag: "handler",
     effectKey: "outer",
     self: prog,
     onOp: (_p, resume) => resume("handled"),

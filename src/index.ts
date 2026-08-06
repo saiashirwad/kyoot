@@ -4,12 +4,11 @@ import type { Kyoot as KyootType } from "./model.ts";
 import { runPromise, runSync } from "./runtime.ts";
 import type { Row } from "./types.ts";
 
-export { InterruptedError, makeOp, succeed } from "./core.ts";
+export { InterruptedError, KyootImpl, makeOp, succeed } from "./core.ts";
 export { runPromise, runSync } from "./runtime.ts";
 export { gen } from "./gen.ts";
 export type { AsyncOp, AsyncRuntime, FiberHandle } from "./runtime.ts";
 export type { Pipeable } from "./pipe.ts";
-export { makeHandler } from "./handler.ts";
 export { Cause, Result } from "./result.ts";
 export type { AsyncOnly, Merge, MergeAll, Only, Row, Simplify, Unhandled } from "./types.ts";
 export type { AnyKyoot, RowsOf } from "./model.ts";

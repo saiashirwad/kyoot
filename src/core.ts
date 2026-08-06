@@ -151,7 +151,10 @@ export function stepAll(k: AnyKyoot): unknown {
         };
         const resume = (v: any) => {
           claim();
-          return reify(captured, invoke(() => currentNode.continuation(v)));
+          return reify(
+            captured,
+            invoke(() => currentNode.continuation(v)),
+          );
         };
         const resumeError = (err: unknown) => {
           claim();

@@ -1,5 +1,4 @@
-import { makeOp, succeed } from "../core.ts";
-import { makeHandler } from "../handler.ts";
+import { KyootImpl, makeOp, succeed } from "../core.ts";
 import type { Kyoot } from "../model.ts";
 import type { Row, Simplify } from "../types.ts";
 
@@ -23,7 +22,8 @@ export function Tag<E>() {
         return <A, S extends Row & Partial<EnvRow<Id, E>> = {}>(
           k: Kyoot<A, S>,
         ): Kyoot<A, Simplify<Omit<S, `env/${Id}`>>> =>
-          makeHandler({
+          new KyootImpl<A, Simplify<Omit<S, `env/${Id}`>>>({
+            _tag: "handler",
             effectKey,
             self: k,
             onOp: (_, resume) => resume(impl),

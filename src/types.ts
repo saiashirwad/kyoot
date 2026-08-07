@@ -11,8 +11,6 @@ export type Unhandled<K> = { readonly "unhandled effects": K };
 export type Only<S extends Row, Allow extends PropertyKey = never> =
   Exclude<keyof S, Allow> extends never ? unknown : Unhandled<Exclude<keyof S, Allow>>;
 
-export type AsyncOnly<S extends Row> = keyof S extends "async" ? unknown : never;
-
 export type Simplify<T> = { [K in keyof T]: T[K] } & {};
 
 type AllKeys<U> = U extends unknown ? keyof U : never;

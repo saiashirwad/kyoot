@@ -1,9 +1,9 @@
 import { InterruptedError, makeOp, succeed } from "../core.ts";
 import { fail } from "./fail.ts";
-import { Cause, Result } from "../result.ts";
+import { Result } from "../result.ts";
 import type { AnyKyoot, Kyoot } from "../model.ts";
 import type { AsyncOp } from "../runtime.ts";
-import type { AsyncOnly, Merge, Row, Simplify } from "../types.ts";
+import type { Merge, Only, Row, Simplify } from "../types.ts";
 
 // Async — the concurrency slot. The fiber layer lives entirely here; sync
 // programs never touch it. Tier 1: fork/join/await, race, timeout. JS's
@@ -74,9 +74,7 @@ class FiberImpl<A> implements Fiber<A> {
         this.promise.then(
           (a): Result<unknown, A> => Result.ok(a),
           (e): Result<unknown, A> =>
-            e instanceof InterruptedError
-              ? { ok: false, cause: Cause.interrupted() }
-              : Result.defect(e),
+            e instanceof InterruptedError ? Result.interrupted() : Result.defect(e),
         ),
     });
   }
@@ -94,7 +92,7 @@ class FiberImpl<A> implements Fiber<A> {
 // Forked computations must be handled down to at most `async` — a fiber is
 // an independent interpreter loop, so no outer handler can see its ops.
 export function fork<A, S extends Row>(
-  k: Kyoot<A, S> & AsyncOnly<S>,
+  k: Kyoot<A, S> & Only<S, "async">,
 ): Kyoot<Fiber<A>, Simplify<Merge<S, { async: true }>>> {
   return asyncOp({
     execute: (rt) => {
@@ -106,8 +104,8 @@ export function fork<A, S extends Row>(
 
 // First to complete wins.
 export function race<A, S1 extends Row, S2 extends Row>(
-  a: Kyoot<A, S1> & AsyncOnly<S1>,
-  b: Kyoot<A, S2> & AsyncOnly<S2>,
+  a: Kyoot<A, S1> & Only<S1, "async">,
+  b: Kyoot<A, S2> & Only<S2, "async">,
 ): Kyoot<A, Simplify<Merge<Merge<S1, S2>, { async: true }>>> {
   return asyncOp({
     execute: (rt) => {
@@ -124,7 +122,7 @@ export function race<A, S1 extends Row, S2 extends Row>(
 
 export function all(ks: []): Kyoot<readonly [], { async: true }>;
 export function all<A, S extends Row = {}>(
-  ks: ReadonlyArray<Kyoot<A, S> & AsyncOnly<S>>,
+  ks: ReadonlyArray<Kyoot<A, S> & Only<S, "async">>,
 ): Kyoot<ReadonlyArray<A>, Simplify<Merge<S, { async: true }>>>;
 export function all(ks: ReadonlyArray<AnyKyoot>): AnyKyoot {
   return asyncOp({
@@ -161,7 +159,7 @@ export class TimeoutError extends Error {
 // TimeoutError in the `fail` slot.
 export function timeout<A, S extends Row>(
   ms: number,
-  k: Kyoot<A, S> & AsyncOnly<S>,
+  k: Kyoot<A, S> & Only<S, "async">,
 ): Kyoot<A, Simplify<Merge<S, { async: true; fail: TimeoutError }>>> {
   const TIMEOUT: unique symbol = Symbol("kyoot.timeout");
   return asyncOp(

@@ -1,4 +1,4 @@
-import { KyootImpl, makeOp, succeed } from "../core.ts";
+import { KyootImpl, makeOp } from "../core.ts";
 import type { Kyoot } from "../model.ts";
 import type { Row, Simplify } from "../types.ts";
 
@@ -11,7 +11,7 @@ export function Tag<E>() {
     const effectKey = `env/${id}`;
     return class {
       static service(): Kyoot<E, EnvRow<Id, E>> {
-        return makeOp(effectKey, undefined) as any;
+        return makeOp(effectKey, undefined) as Kyoot<E, EnvRow<Id, E>>;
       }
 
       static [Symbol.iterator](): Iterator<Kyoot<unknown, EnvRow<Id, E>>, E, unknown> {
@@ -22,12 +22,11 @@ export function Tag<E>() {
         return <A, S extends Row & Partial<EnvRow<Id, E>> = {}>(
           k: Kyoot<A, S>,
         ): Kyoot<A, Simplify<Omit<S, `env/${Id}`>>> =>
-          new KyootImpl<A, Simplify<Omit<S, `env/${Id}`>>>({
+          new KyootImpl({
             _tag: "handler",
             effectKey,
             self: k,
             onOp: (_, resume) => resume(impl),
-            onSuccess: (a) => succeed(a),
           });
       }
     };

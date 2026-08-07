@@ -47,7 +47,9 @@ export const run =
       onDefect: (d, finalizers) => {
         try {
           runFinalizers(finalizers);
-        } catch {}
+        } catch {
+          /* prefer the original defect over a finalizer failure */
+        }
         throw new DefectError(d);
       },
       onInterrupt: runFinalizers,

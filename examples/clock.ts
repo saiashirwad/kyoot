@@ -1,5 +1,5 @@
 import { Async, Kyoot, KyootImpl, makeOp, succeed } from "../src/index.ts";
-import type { AnyKyoot, Merge, Row, Simplify } from "../src/index.ts";
+import type { AnyKyoot, Row } from "../src/index.ts";
 
 export const sleep = (ms: number): Kyoot<void, { clock: number }> =>
   makeOp("clock", ms) as Kyoot<void, { clock: number }>;
@@ -10,7 +10,6 @@ export const liveClock = <A, S extends Row & { clock?: number } = {}>(k: Kyoot<A
     effectKey: "clock",
     self: k as AnyKyoot,
     onOp: (ms: number, resume) => Async.sleep(ms).map(() => resume(undefined)),
-    onSuccess: (a) => succeed(a),
   });
 
 export const testClock = <A, S extends Row & { clock?: number } = {}>(k: Kyoot<A, S>) =>

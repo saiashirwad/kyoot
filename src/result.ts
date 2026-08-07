@@ -29,6 +29,9 @@ export const Result = {
   defect<E = never, A = never>(defect: unknown): Result<E, A> {
     return { ok: false, cause: Cause.defect(defect) };
   },
+  interrupted<E = never, A = never>(): Result<E, A> {
+    return { ok: false, cause: Cause.interrupted() };
+  },
   isOk<E, A>(r: Result<E, A>): r is { readonly ok: true; readonly value: A } {
     return r.ok;
   },

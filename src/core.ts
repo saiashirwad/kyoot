@@ -15,7 +15,9 @@ export class KyootImpl<A, S extends Row = {}> implements Kyoot<A, S> {
     this[NodeSym] = node;
   }
 
-  map(mapper: (a: any) => any): AnyKyoot {
+  // Return `any` so KyootImpl stays assignable to Kyoot under MapResult;
+  // callers typed as Kyoot still see the precise MapResult signature.
+  map(mapper: (a: any) => any): any {
     return new KyootImpl({ _tag: "map", self: this as AnyKyoot, mapper });
   }
 
@@ -167,6 +169,8 @@ export function stepAll(k: AnyKyoot): unknown {
       }
       case "handler": {
         const handler = currentNode;
+        const rewrap = (self: AnyKyoot, state: unknown = handler.state): AnyKyoot =>
+          new KyootImpl({ ...handler, self, state });
         let inner: unknown;
         try {
           inner = stepAll(handler.self);
@@ -176,7 +180,9 @@ export function stepAll(k: AnyKyoot): unknown {
             if (onInterrupt !== undefined) {
               try {
                 invoke(() => onInterrupt(handler.state));
-              } catch {}
+              } catch {
+                /* finalizer errors must not mask interrupt */
+              }
             }
             throw e;
           }
@@ -190,12 +196,7 @@ export function stepAll(k: AnyKyoot): unknown {
             current = invoke(() =>
               handler.onOp(
                 e.payload,
-                (v, ...next) =>
-                  new KyootImpl({
-                    ...handler,
-                    self: e.resume(v),
-                    state: next.length > 0 ? next[0] : handler.state,
-                  }),
+                (v, ...next) => rewrap(e.resume(v), next.length > 0 ? next[0] : handler.state),
                 handler.state,
               ),
             );
@@ -205,11 +206,11 @@ export function stepAll(k: AnyKyoot): unknown {
           throw new EscapedOp(
             e.key,
             e.payload,
-            (v) => reify(captured, new KyootImpl({ ...handler, self: e.resume(v) })),
-            (err) => reify(captured, new KyootImpl({ ...handler, self: e.resumeError(err) })),
+            (v) => reify(captured, rewrap(e.resume(v))),
+            (err) => reify(captured, rewrap(e.resumeError(err))),
           );
         }
-        current = invoke(() => handler.onSuccess(inner, handler.state));
+        current = invoke(() => (handler.onSuccess ?? succeed)(inner, handler.state));
         break;
       }
     }

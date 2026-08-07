@@ -30,7 +30,6 @@ export const catchAll =
       effectKey: "fail",
       self: k as AnyKyoot,
       onOp: (e) => f(e) as AnyKyoot,
-      onSuccess: (a) => succeed(a),
     });
 
 export const orThrow =
@@ -45,5 +44,4 @@ export const orThrow =
       onOp: (e) => {
         throw new DefectError(e);
       },
-      onSuccess: succeed,
     });

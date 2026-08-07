@@ -2,15 +2,19 @@ import { DefectError, EscapedOp, InterruptedError, invokeAsync, stepAll } from "
 import type { AnyKyoot, Kyoot } from "./model.ts";
 import type { Only, Row } from "./types.ts";
 
+function rethrowAtEdge(e: unknown, edge: string): never {
+  if (e instanceof DefectError) throw e.defect;
+  if (e instanceof EscapedOp) {
+    throw new Error(`${edge} encountered unhandled effect '${String(e.key)}'`);
+  }
+  throw e;
+}
+
 export function runSync<A, S extends Row>(k: Kyoot<A, S> & Only<S>): A {
   try {
     return stepAll(k as AnyKyoot) as A;
   } catch (e) {
-    if (e instanceof DefectError) throw e.defect;
-    if (e instanceof EscapedOp) {
-      throw new Error(`runSync encountered unhandled effect '${String(e.key)}'`);
-    }
-    throw e;
+    rethrowAtEdge(e, "runSync");
   }
 }
 
@@ -100,11 +104,7 @@ export function runPromise<A>(k: AnyKyoot): Promise<A> {
     signal: new AbortController().signal,
     spawn: (k2) => asyncDrive(k2, seed),
   };
-  return (asyncDrive(k as AnyKyoot, seed).promise as Promise<A>).catch((e: unknown): never => {
-    if (e instanceof DefectError) throw e.defect;
-    if (e instanceof EscapedOp) {
-      throw new Error(`runPromise encountered unhandled effect '${String(e.key)}'`);
-    }
-    throw e;
-  });
+  return (asyncDrive(k as AnyKyoot, seed).promise as Promise<A>).catch((e: unknown): never =>
+    rethrowAtEdge(e, "runPromise"),
+  );
 }

@@ -1,4 +1,4 @@
-import { invoke, KyootImpl, makeOp, succeed } from "../core.ts";
+import { invoke, KyootImpl, makeOp } from "../core.ts";
 import type { Kyoot } from "../model.ts";
 import type { Row, Simplify } from "../types.ts";
 
@@ -9,11 +9,10 @@ export function run() {
   return <A, S extends Row & { sync?: unknown } = {}>(
     k: Kyoot<A, S>,
   ): Kyoot<A, Simplify<Omit<S, "sync">>> =>
-    new KyootImpl<A, Simplify<Omit<S, "sync">>>({
+    new KyootImpl({
       _tag: "handler",
       effectKey: "sync",
       self: k,
       onOp: (f, resume) => resume(invoke(f)),
-      onSuccess: (a) => succeed(a),
     });
 }

@@ -88,7 +88,6 @@ test("a continuation may only be resumed once", () => {
       const first = resume(1);
       return first.map(() => resume(2));
     },
-    onSuccess: (a) => succeed(a),
   });
   assert.throws(() => Kyoot.runSync(k as never), /continuation resumed twice \(one-shot law\)/);
 });
@@ -102,7 +101,6 @@ test("a handler that resumes zero times short-circuits", () => {
       return "unreachable";
     }).map(() => "also unreachable"),
     onOp: () => succeed("short"),
-    onSuccess: (a) => succeed(a),
   });
   assert.equal(Kyoot.runSync(k as never), "short");
 });
@@ -120,7 +118,6 @@ test("an op escaping a yielded handler node keeps the outer continuation", () =>
     effectKey: "inner",
     self: makeOp("outer", undefined),
     onOp: () => succeed("nope"),
-    onSuccess: (a) => succeed(a),
   });
   const prog = Kyoot.gen(function* () {
     const v = yield* inner;
@@ -131,7 +128,6 @@ test("an op escaping a yielded handler node keeps the outer continuation", () =>
     effectKey: "outer",
     self: prog,
     onOp: (_p, resume) => resume("handled"),
-    onSuccess: (a) => succeed(a),
   });
   assert.equal(Kyoot.runSync(k as never), "handled continued");
 });

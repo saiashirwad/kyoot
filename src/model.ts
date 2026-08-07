@@ -24,7 +24,8 @@ export type RuntimeNode =
       readonly self: AnyKyoot;
       readonly state?: unknown;
       readonly onOp: OnOp;
-      readonly onSuccess: (a: any, state: any) => AnyKyoot;
+      /** Defaults to pure success (`succeed(a)`). */
+      readonly onSuccess?: (a: any, state: any) => AnyKyoot;
       readonly onDefect?: (d: unknown, state: any) => AnyKyoot;
       readonly onInterrupt?: (state: any) => void;
     }
@@ -41,12 +42,25 @@ export type RuntimeNode =
 
 export const NodeSym: unique symbol = Symbol("kyoot.node");
 
+/**
+ * Result of `map`. Pure values (including `never` from `throw`) keep `S`.
+ * Returning a nested Kyoot flattens and merges rows.
+ *
+ * Uses tuple checks so a free `S2 extends Row` is never introduced — that
+ * unconstrained parameter used to collapse to `Row` and wipe real effect keys.
+ */
+export type MapResult<S extends Row, B> = [B] extends [never]
+  ? Kyoot<never, S>
+  : [B] extends [Kyoot<infer B2, infer S2>]
+    ? Kyoot<B2, Simplify<Merge<S, S2 extends Row ? S2 : {}>>>
+    : Kyoot<B, S>;
+
 export interface Kyoot<A, S extends Row = {}> extends Pipeable {
   readonly _?: (s: S) => void;
 
   readonly [NodeSym]: RuntimeNode;
 
-  map<B, S2 extends Row = {}>(f: (a: A) => B | Kyoot<B, S2>): Kyoot<B, Simplify<Merge<S, S2>>>;
+  map<B>(f: (a: A) => B): MapResult<S, B>;
 
   [Symbol.iterator](): Iterator<Kyoot<unknown, S>, A, unknown>;
 }

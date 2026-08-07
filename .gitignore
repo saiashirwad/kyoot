@@ -1,1 +1,4 @@
 node_modules
+
+# npm — this project uses pnpm
+package-lock.json

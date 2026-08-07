@@ -85,3 +85,21 @@ Kyoot.runSync(logOp);
 
 const clockProg = sleep(5).pipe(testClock);
 const c1: readonly [void, number] = Kyoot.runSync(clockProg);
+
+// pure map (including throw → never) must keep the effect row; no Row pollution
+const pureMapped = Async.sleep(1).map((_) => 1);
+type _pureMapKeys = Expect<Equal<keyof RowsOf<typeof pureMapped>, "async">>;
+type _pureMapValue = Expect<Equal<typeof pureMapped extends KyootT<infer A, any> ? A : never, number>>;
+
+const neverMapped = Async.sleep(1).map(() => {
+  throw new Error("boom");
+});
+type _neverMapKeys = Expect<Equal<keyof RowsOf<typeof neverMapped>, "async">>;
+// fork accepts a pure-mapped body (Only<"async">, not a widened Row)
+const forked = Async.fork(neverMapped);
+type _forkKeys = Expect<Equal<keyof RowsOf<typeof forked>, "async">>;
+
+// nested Kyoot from map still flattens and merges rows
+const flatMapped = Kyoot.succeed(1).map((n) => Fail.fail(String(n)));
+type _flatKeys = Expect<Equal<keyof RowsOf<typeof flatMapped>, "fail">>;
+type _flatFail = Expect<Equal<RowsOf<typeof flatMapped>["fail"], string>>;

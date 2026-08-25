@@ -1,35 +1,25 @@
-export type Cause<E> =
-  | { readonly _tag: "Fail"; readonly error: E }
-  | { readonly _tag: "Defect"; readonly defect: unknown }
-  | { readonly _tag: "Interrupted" };
+export type FailCause<E> = { readonly _tag: "Fail"; readonly error: E };
+export type DefectCause = { readonly _tag: "Defect"; readonly defect: unknown };
+export type InterruptedCause = { readonly _tag: "Interrupted" };
+export type Cause<E> = FailCause<E> | DefectCause | InterruptedCause;
 
-export type Result<E, A> =
-  | { readonly ok: true; readonly value: A }
-  | { readonly ok: false; readonly cause: Cause<E> };
+export type Ok<A> = { readonly ok: true; readonly value: A };
+export type Err<C> = { readonly ok: false; readonly cause: C };
+export type Result<E, A> = Ok<A> | Err<Cause<E>>;
 
-export const Cause = {
-  fail<E>(error: E): Cause<E> {
-    return { _tag: "Fail", error };
-  },
-  defect<E = never>(defect: unknown): Cause<E> {
-    return { _tag: "Defect", defect };
-  },
-  interrupted<E = never>(): Cause<E> {
-    return { _tag: "Interrupted" };
-  },
-};
-
+// Each constructor returns its own branch, so a handler that builds a Result
+// from several callbacks infers a union of branches — which is a Result.
 export const Result = {
-  ok<E = never, A = unknown>(value: A): Result<E, A> {
+  ok<A>(value: A): Ok<A> {
     return { ok: true, value };
   },
-  fail<E, A = never>(error: E): Result<E, A> {
-    return { ok: false, cause: Cause.fail(error) };
+  fail<E>(error: E): Err<FailCause<E>> {
+    return { ok: false, cause: { _tag: "Fail", error } };
   },
-  defect<E = never, A = never>(defect: unknown): Result<E, A> {
-    return { ok: false, cause: Cause.defect(defect) };
+  defect(defect: unknown): Err<DefectCause> {
+    return { ok: false, cause: { _tag: "Defect", defect } };
   },
-  interrupted<E = never, A = never>(): Result<E, A> {
-    return { ok: false, cause: Cause.interrupted() };
+  interrupted(): Err<InterruptedCause> {
+    return { ok: false, cause: { _tag: "Interrupted" } };
   },
 };

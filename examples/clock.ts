@@ -1,25 +1,23 @@
-import { Async, Kyoot, KyootImpl, makeOp, succeed } from "../src/index.ts";
-import type { AnyKyoot, Row } from "../src/index.ts";
+import { Async, Kyoot, makeHandler, makeOp } from "../src/index.ts";
+import type { Row } from "../src/index.ts";
 
 export const sleep = (ms: number): Kyoot<void, { clock: number }> =>
   makeOp("clock", ms) as Kyoot<void, { clock: number }>;
 
-export const liveClock = <A, S extends Row & { clock?: number } = {}>(k: Kyoot<A, S>) =>
-  new KyootImpl({
-    _tag: "handler",
+export const liveClock = <A, S extends Row & { clock?: number }>(k: Kyoot<A, S>) =>
+  makeHandler({
     effectKey: "clock",
-    self: k as AnyKyoot,
-    onOp: (ms: number, resume) => Async.sleep(ms).map(() => resume(undefined)),
+    self: k,
+    onOp: (ms, resume) => Async.sleep(ms).map(() => resume(undefined)),
   });
 
-export const testClock = <A, S extends Row & { clock?: number } = {}>(k: Kyoot<A, S>) =>
-  new KyootImpl({
-    _tag: "handler",
+export const testClock = <A, S extends Row & { clock?: number }>(k: Kyoot<A, S>) =>
+  makeHandler({
     effectKey: "clock",
-    self: k as AnyKyoot,
+    self: k,
     state: 0,
-    onOp: (ms: number, resume, now: number) => resume(undefined, now + ms),
-    onSuccess: (a, now) => succeed([a, now] as const),
+    onOp: (ms, resume, now) => resume(undefined, now + ms),
+    onSuccess: (a, now) => Kyoot.succeed([a, now] as const),
   });
 
 const boilEgg = (minute: number) =>

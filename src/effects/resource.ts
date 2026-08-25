@@ -1,6 +1,6 @@
-import { KyootImpl, makeOp, succeed } from "../core.ts";
-import type { AnyKyoot, Kyoot } from "../model.ts";
-import type { Row, Simplify } from "../types.ts";
+import { makeHandler, makeOp, succeed } from "../core.ts";
+import type { Kyoot } from "../model.ts";
+import type { Row } from "../types.ts";
 
 type Finalizer = () => void;
 
@@ -22,19 +22,12 @@ const runFinalizers = (finalizers: readonly Finalizer[]): void => {
   if (first !== undefined) throw first;
 };
 
-export const run = <A, S extends Row & { resource?: unknown } = {}>(
-  k: Kyoot<A, S>,
-): Kyoot<A, Simplify<Omit<S, "resource">>> =>
-  new KyootImpl({
-    _tag: "handler",
+export const run = <A, S extends Row & { resource?: unknown }>(k: Kyoot<A, S>) =>
+  makeHandler({
     effectKey: "resource",
-    self: k as AnyKyoot,
+    self: k,
     state: [] as Finalizer[],
-    onOp: (
-      op: { acquire: () => unknown; release: (r: any) => void },
-      resume,
-      finalizers: Finalizer[],
-    ) => {
+    onOp: (op: { acquire: () => unknown; release: (r: any) => void }, resume, finalizers) => {
       const r = op.acquire();
       return resume(r, [...finalizers, () => op.release(r)]);
     },

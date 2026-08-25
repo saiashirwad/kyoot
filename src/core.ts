@@ -5,9 +5,10 @@ import {
   type Kyoot,
   type RuntimeNode,
 } from "./model.ts";
-import { pipeArguments } from "./pipe.ts";
-import type { Row } from "./types.ts";
+import { pipeArguments, type Pipeable } from "./pipe.ts";
+import type { MergeAll, Row } from "./types.ts";
 
+export interface KyootImpl<A, S extends Row = {}> extends Pipeable {}
 export class KyootImpl<A, S extends Row = {}> implements Kyoot<A, S> {
   readonly [NodeSym]: RuntimeNode;
 
@@ -15,14 +16,10 @@ export class KyootImpl<A, S extends Row = {}> implements Kyoot<A, S> {
     this[NodeSym] = node;
   }
 
-  // Return `any` so KyootImpl stays assignable to Kyoot under MapResult;
-  // callers typed as Kyoot still see the precise MapResult signature.
-  map(mapper: (a: any) => any): any {
+  // Parameter typed by A so a KyootImpl never infers A as `any` downstream;
+  // return stays `any` so KyootImpl is assignable to Kyoot under MapResult.
+  map(mapper: (a: A) => any): any {
     return new KyootImpl({ _tag: "map", self: this as AnyKyoot, mapper });
-  }
-
-  pipe(...fns: Array<(x: any) => any>) {
-    return pipeArguments(this, fns);
   }
 
   [Symbol.iterator]() {
@@ -44,6 +41,41 @@ export const succeed = <A>(value: A): Kyoot<A, {}> => new KyootImpl({ _tag: "pur
 
 export const makeOp = (key: PropertyKey, payload: unknown) =>
   new KyootImpl({ _tag: "op", effectKey: key, payload });
+
+// The payload type an effect key carries in the row, if the row has it.
+type Payload<S, K extends PropertyKey> = K extends keyof S ? Exclude<S[K], undefined> : never;
+
+// resume\x27s result is opaque: the handler\x27s type comes from `self`, not from
+// what resume hands back. Returning `never` keeps it out of inference.
+export type Resume<St> = (value: any, state?: St) => Kyoot<never, {}>;
+
+// Build a handler node and infer its type: the result is what onSuccess
+// returns (default: the inner value) plus anything onOp / onDefect
+// short-circuit with; the row is the inner row minus K plus whatever the
+// callbacks introduce.
+export function makeHandler<
+  K extends PropertyKey,
+  A,
+  S extends Row,
+  St = undefined,
+  P = Payload<S, K>,
+  B = A,
+  B2 = never,
+  B3 = never,
+  R1 extends Row = {},
+  R2 extends Row = {},
+  R3 extends Row = {},
+>(node: {
+  effectKey: K;
+  self: Kyoot<A, S>;
+  state?: St;
+  onOp: (payload: P, resume: Resume<St>, state: St) => Kyoot<B2, R1>;
+  onSuccess?: (a: A, state: St) => Kyoot<B, R2>;
+  onDefect?: (d: unknown, state: St) => Kyoot<B3, R3>;
+  onInterrupt?: (state: St) => void;
+}): Kyoot<B | B2 | B3, MergeAll<Omit<S, K> | R1 | R2 | R3>> {
+  return new KyootImpl({ _tag: "handler", ...(node as any) }) as AnyKyoot;
+}
 
 export class EscapedOp {
   readonly _tag = "EscapedOp";
@@ -166,3 +198,7 @@ export function stepAll(k: AnyKyoot): unknown {
     }
   }
 }
+
+KyootImpl.prototype.pipe = function (this: unknown, ...fns: Array<(x: any) => any>) {
+  return pipeArguments(this, fns);
+};

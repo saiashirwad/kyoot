@@ -1,4 +1,4 @@
-import { Async, Emit, Env, Fail, Kyoot, makeOp, Sync, Var } from "../src/index.ts";
+import { Async, Emit, Env, Fail, Kyoot, makeOp, Sync, Var, makeHandler } from "../src/index.ts";
 import type { Kyoot as KyootT, Result, RowsOf } from "../src/index.ts";
 import { sleep, testClock } from "../examples/clock.ts";
 
@@ -70,13 +70,13 @@ const counted = Kyoot.gen(function* () {
   yield* Total.update((t) => t + 1);
   return yield* Total.get();
 }).pipe(Total.run(0));
-const v1: [number, number] = Kyoot.runSync(counted);
+const v1: readonly [number, number] = Kyoot.runSync(counted);
 
 const emitted = Kyoot.gen(function* () {
   yield* Emit.value("a");
   return 1;
 }).pipe(Emit.run);
-const e1: [number, string[]] = Kyoot.runSync(emitted);
+const e1: readonly [number, string[]] = Kyoot.runSync(emitted);
 
 const logOp = makeOp("log", "hello") as KyootT<void, { log: string }>;
 type _logKeys = Expect<Equal<keyof RowsOf<typeof logOp>, "log">>;
@@ -105,3 +105,34 @@ type _forkKeys = Expect<Equal<keyof RowsOf<typeof forked>, "async">>;
 const flatMapped = Kyoot.succeed(1).map((n) => Fail.fail(String(n)));
 type _flatKeys = Expect<Equal<keyof RowsOf<typeof flatMapped>, "fail">>;
 type _flatFail = Expect<Equal<RowsOf<typeof flatMapped>["fail"], string>>;
+
+// ---------------------------------------------------------------------------
+// Handler result types are inferred by makeHandler, not annotated.
+// ---------------------------------------------------------------------------
+import type { DefectCause, Err, FailCause, Ok } from "../src/index.ts";
+type ValueOf<K> = K extends KyootT<infer A, any> ? A : never;
+
+// Fail.run: a union of the branches its callbacks build — which is a Result.
+type _failRunValue = Expect<
+  Equal<ValueOf<typeof handled>, Ok<number> | Err<FailCause<FetchFailed>> | Err<DefectCause>>
+>;
+type _failRunKeys = Expect<Equal<keyof RowsOf<typeof handled>, never>>;
+
+// catchAll: the recovery's value and row join the result.
+const recovered = Kyoot.gen(function* () {
+  yield* Fail.fail(new FetchFailed());
+  return 1;
+}).pipe(Fail.catchAll(() => Async.sleep(1).map(() => "fallback" as const)));
+type _catchAllValue = Expect<Equal<ValueOf<typeof recovered>, number | "fallback">>;
+type _catchAllKeys = Expect<Equal<keyof RowsOf<typeof recovered>, "async">>;
+
+// A handler whose onOp runs an async op adds `async` to the row.
+const slowSync = Sync.defer(() => 1).pipe((k) =>
+  makeHandler({
+    effectKey: "sync",
+    self: k,
+    onOp: (f: () => unknown, resume) => Async.sleep(1).map(() => resume(f())),
+  }),
+);
+type _asyncHandlerValue = Expect<Equal<ValueOf<typeof slowSync>, number>>;
+type _asyncHandlerKeys = Expect<Equal<keyof RowsOf<typeof slowSync>, "async">>;

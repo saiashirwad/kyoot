@@ -1,19 +1,21 @@
-import { EscapedOp, InterruptedError, stepAll } from "./core.ts";
-import type { AnyKyoot, Kyoot } from "./model.ts";
+import { EscapedOp, InterruptedError, stepAll, withBudget, yieldKey } from "./core.ts";
+import type { AnyKyoot, HandlerNode, Kyoot } from "./model.ts";
 import type { Only, Row } from "./types.ts";
 
-function rethrowAtEdge(e: unknown, edge: string): never {
-  if (e instanceof EscapedOp) {
-    throw new Error(`${edge} encountered unhandled effect '${String(e.key)}'`);
-  }
-  throw e;
-}
+// The keys the async driver serves itself; `yieldKey` is the driver's own.
+const SERVED = ["async", "clock", yieldKey] as const;
+export type Served = Exclude<(typeof SERVED)[number], symbol>;
+const served = (key: PropertyKey) => (SERVED as readonly PropertyKey[]).includes(key);
+
+export const unhandledEffect = (edge: string, key: PropertyKey) =>
+  new Error(`${edge} encountered unhandled effect '${String(key)}'`);
 
 export function runSync<A, S extends Row>(k: Kyoot<A, S> & Only<S>): A {
   try {
-    return stepAll(k as AnyKyoot) as A;
+    return withBudget(Infinity, () => stepAll(k as AnyKyoot)) as A;
   } catch (e) {
-    rethrowAtEdge(e, "runSync");
+    if (e instanceof EscapedOp) throw unhandledEffect("runSync", e.key);
+    throw e;
   }
 }
 
@@ -24,6 +26,9 @@ export interface FiberHandle<A = unknown> {
 
 export interface AsyncRuntime {
   readonly signal: AbortSignal;
+  // The handlers the op being served crossed, innermost first, for a fiber
+  // spawned by the op to inherit (see `inherit`).
+  readonly handlers?: readonly HandlerNode[];
   spawn<A>(k: Kyoot<A, any>): FiberHandle<A>;
 }
 
@@ -31,10 +36,26 @@ export interface AsyncOp {
   execute(rt: AsyncRuntime): Promise<unknown>;
 }
 
+// Steps a fiber runs before it lets the event loop turn.
+const STEP_BUDGET = 4096;
+
+// A signal that never fires, for ops that run as cleanup.
+const NEVER = new AbortController().signal;
+
+const yieldNow = () =>
+  new Promise<void>((resolve) => {
+    if (typeof setImmediate === "function") setImmediate(resolve);
+    else setTimeout(resolve, 0);
+  });
+
 const realSleep = (ms: number, signal: AbortSignal) =>
   new Promise<void>((resolve) => {
-    const t = setTimeout(resolve, ms);
-    signal.addEventListener("abort", () => clearTimeout(t), { once: true });
+    const onAbort = () => clearTimeout(t);
+    const t = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
   });
 
 const raceSignal = <T>(
@@ -42,12 +63,14 @@ const raceSignal = <T>(
   signal: AbortSignal,
 ): Promise<{ readonly done: true; readonly value: T } | { readonly done: false }> => {
   if (signal.aborted) return Promise.resolve({ done: false });
-  return Promise.race([
-    p.then((value) => ({ done: true as const, value })),
-    new Promise<{ done: false }>((resolve) => {
-      signal.addEventListener("abort", () => resolve({ done: false }), { once: true });
-    }),
-  ]);
+  let onAbort = () => {};
+  const aborted = new Promise<{ done: false }>((resolve) => {
+    onAbort = () => resolve({ done: false });
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  return Promise.race([p.then((value) => ({ done: true as const, value })), aborted]).finally(() =>
+    signal.removeEventListener("abort", onAbort),
+  );
 };
 
 export function asyncDrive<A>(k: Kyoot<A, any>, parent: AsyncRuntime): FiberHandle<A> {
@@ -70,19 +93,25 @@ export function asyncDrive<A>(k: Kyoot<A, any>, parent: AsyncRuntime): FiberHand
   // An interrupt is delivered once, at the next op. Ops after that are cleanup
   // (finalizers) and run to completion with a live signal.
   let interrupted = false;
+  const interrupt = (e: EscapedOp) => {
+    interrupted = true;
+    return e.resumeError(new InterruptedError());
+  };
   const serve = async (e: EscapedOp): Promise<AnyKyoot> => {
-    const signal = interrupted ? new AbortController().signal : rt.signal;
+    const signal = interrupted ? NEVER : rt.signal;
+    if (e.key === yieldKey) {
+      await yieldNow();
+      return signal.aborted ? interrupt(e) : e.resume(undefined);
+    }
     const work =
-      e.key === "async"
-        ? (e.payload as AsyncOp).execute({ ...rt, signal })
-        : realSleep(e.payload as number, signal);
+      e.key === "clock"
+        ? realSleep(e.payload as number, signal)
+        : (e.payload as AsyncOp).execute({ ...rt, signal, handlers: e.handlers });
     try {
       const raced = interrupted
         ? { done: true, value: await work }
         : await raceSignal(work, signal);
-      if (raced.done) return e.resume(raced.value);
-      interrupted = true;
-      return e.resumeError(new InterruptedError());
+      return raced.done ? e.resume(raced.value) : interrupt(e);
     } catch (err) {
       return e.resumeError(err);
     }
@@ -91,9 +120,10 @@ export function asyncDrive<A>(k: Kyoot<A, any>, parent: AsyncRuntime): FiberHand
     let current: AnyKyoot = k;
     while (true) {
       try {
-        return stepAll(current) as A;
+        return withBudget(STEP_BUDGET, () => stepAll(current)) as A;
       } catch (e) {
-        if (!(e instanceof EscapedOp) || (e.key !== "async" && e.key !== "clock")) throw e;
+        if (!(e instanceof EscapedOp)) throw e;
+        if (!served(e.key)) throw unhandledEffect("fiber", e.key);
         current = await serve(e);
       }
     }
@@ -101,26 +131,14 @@ export function asyncDrive<A>(k: Kyoot<A, any>, parent: AsyncRuntime): FiberHand
   const settle = async () => {
     controller.abort();
     parent.signal.removeEventListener("abort", link);
-    await Promise.allSettled(children);
+    if (children.size > 0) await Promise.allSettled(children);
   };
-  const promise = drive.then(
-    async (v) => {
-      await settle();
-      return v;
-    },
-    async (e: unknown) => {
-      await settle();
-      throw e;
-    },
-  );
-  return { promise, interrupt: () => controller.abort() };
+  return { promise: drive.finally(settle), interrupt: () => controller.abort() };
 }
 
-export function runPromise<A, S extends Row>(
-  k: Kyoot<A, S> & Only<S, "async" | "clock">,
-): Promise<A>;
+export function runPromise<A, S extends Row>(k: Kyoot<A, S> & Only<S, Served>): Promise<A>;
 export function runPromise<A>(k: AnyKyoot): Promise<A> {
-  return runFiber<A>(k).promise.catch((e: unknown): never => rethrowAtEdge(e, "runPromise"));
+  return runFiber<A>(k).promise;
 }
 
 export function runFiber<A>(k: Kyoot<A, any>): FiberHandle<A> {

@@ -2,12 +2,14 @@ import {
   NodeSym,
   type AnyKyoot,
   type Continuation,
+  type ForkMode,
+  type HandlerNode,
   type Kyoot,
   type RowOf,
   type RuntimeNode,
 } from "./model.ts";
 import { pipeArguments, type Pipeable } from "./pipe.ts";
-import type { MergeAll, Row, Simplify } from "./types.ts";
+import type { FailRow, MergeAll, Row, Simplify } from "./types.ts";
 
 // The interface carries pipe's overloads; the class merges with it.
 // oxlint-disable-next-line no-unused-vars, typescript/no-unsafe-declaration-merging
@@ -61,9 +63,19 @@ export interface Resume<A, St> {
   with(program: Kyoot<A, any>, state?: St): Kyoot<never, {}>;
 }
 
-type Performed<K extends string, P, A, E> = [E] extends [never]
-  ? Kyoot<A, { [k in K]: P }>
-  : Kyoot<A, Simplify<{ [k in K]: P } & { fail: E }>>;
+type Performed<K extends string, P, A, E> = Kyoot<A, Simplify<{ [k in K]: P } & FailRow<E>>>;
+
+// What a handler is made of. State is `initial`, threaded through `resume`,
+// or `create()`, called when the frame is entered: a cell that is fresh per
+// run and shared with fibers forked under the handler.
+export interface Hooks<P, A, St, X1, R1 extends Row, X2, R2 extends Row> {
+  initial?: St;
+  create?: () => St;
+  fork?: ForkMode;
+  onOp: (payload: P, resume: Resume<A, St>, state: St) => Kyoot<X1, R1>;
+  onDefect?: (d: unknown, state: St) => Kyoot<X2, R2>;
+  onInterrupt?: (state: St) => void;
+}
 
 // A declared effect: key, payload type, answer type, and the failure type a
 // handler may hand back with `resume.with(Fail.fail(e))`. Calling it performs
@@ -76,12 +88,9 @@ export const effect =
   <const K extends string>(key: K) => {
     const perform = (payload: P) => makeOp(key, payload) as Performed<K, P, A, E>;
     const handle =
-      <St = undefined, X1 = never, X2 = never, R1 extends Row = {}, R2 extends Row = {}>(hooks: {
-        initial?: St;
-        onOp: (payload: P, resume: Resume<A, St>, state: St) => Kyoot<X1, R1>;
-        onDefect?: (d: unknown, state: St) => Kyoot<X2, R2>;
-        onInterrupt?: (state: St) => void;
-      }) =>
+      <St = undefined, X1 = never, X2 = never, R1 extends Row = {}, R2 extends Row = {}>(
+        hooks: Hooks<P, A, St, X1, R1, X2, R2>,
+      ) =>
       <B, S extends Row & { [k in K]?: P }>(
         k: Kyoot<B, S>,
       ): Kyoot<B | X1 | X2, MergeAll<Omit<S, K> | R1 | R2>> =>
@@ -102,7 +111,9 @@ export const effect =
   };
 
 // The payload type an effect key carries in the row, if the row has it.
-type Payload<S, K extends PropertyKey> = K extends keyof S ? Exclude<S[K], undefined> : never;
+export type Payload<S, K extends PropertyKey> = K extends keyof S
+  ? Exclude<S[K], undefined>
+  : never;
 
 // Build a handler node and infer its type: the result is what onSuccess
 // returns (default: the inner value) plus anything onOp / onDefect
@@ -126,21 +137,27 @@ export function makeHandler<
 >(
   effectKey: K,
   self: Kyoot<A, S>,
-  hooks: {
-    initial?: St;
-    onOp: (payload: P, resume: Resume<any, St>, state: St) => Kyoot<B2, R1>;
+  hooks: Hooks<P, any, St, B2, R1, B3, R3> & {
     onSuccess?: (a: A, state: St) => Kyoot<B, R2>;
-    onDefect?: (d: unknown, state: St) => Kyoot<B3, R3>;
-    onInterrupt?: (state: St) => void;
   },
 ): Kyoot<B | B2 | B3, MergeAll<Omit<S, K> | R1 | R2 | R3>> {
-  const { initial, ...rest } = hooks;
+  const { initial } = hooks;
+  const h = hooks as unknown as HandlerNode;
+  const create = h.create ?? (initial === undefined ? undefined : () => initial);
+  // One fixed shape for every handler node. A frame with a cell to make is
+  // entered on its first step; the rest start entered, state in hand.
   return new KyootImpl({
     _tag: "handler",
     effectKey,
     self,
     state: initial,
-    ...(rest as any),
+    entered: h.create === undefined,
+    create,
+    fork: h.fork,
+    onOp: h.onOp,
+    onSuccess: h.onSuccess,
+    onDefect: h.onDefect,
+    onInterrupt: h.onInterrupt,
   }) as AnyKyoot;
 }
 
@@ -149,10 +166,19 @@ export class EscapedOp {
   readonly key: PropertyKey;
   readonly payload: unknown;
   readonly resumeWith: (k: AnyKyoot) => AnyKyoot;
-  constructor(key: PropertyKey, payload: unknown, resumeWith: (k: AnyKyoot) => AnyKyoot) {
+  // The handlers an `async` op crossed on its way out, innermost first, so a
+  // fiber spawned by the op can inherit them.
+  handlers: HandlerNode[] | undefined;
+  constructor(
+    key: PropertyKey,
+    payload: unknown,
+    resumeWith: (k: AnyKyoot) => AnyKyoot,
+    handlers?: HandlerNode[],
+  ) {
     this.key = key;
     this.payload = payload;
     this.resumeWith = resumeWith;
+    this.handlers = handlers;
   }
   resume(v: unknown) {
     return this.resumeWith(succeed(v));
@@ -170,6 +196,54 @@ export class InterruptedError extends Error {
   }
 }
 
+// Wrap a fiber's program in the handlers that enclosed the fork.
+export const inherit = (k: AnyKyoot, handlers: readonly HandlerNode[] = []): AnyKyoot => {
+  for (const h of handlers) {
+    switch (h.fork ?? "copy") {
+      case "copy":
+        k = new KyootImpl({
+          ...h,
+          self: k,
+          onSuccess: undefined,
+          onDefect: undefined,
+          onInterrupt: undefined,
+        });
+        break;
+      case "scope": {
+        // The end hook runs, but the fiber's value stays its own.
+        const { onSuccess } = h;
+        k = new KyootImpl({
+          ...h,
+          self: k,
+          state: undefined,
+          entered: false,
+          onSuccess: onSuccess && ((a, st) => onSuccess(a, st).map(() => a)),
+        });
+        break;
+      }
+      case "none":
+        break;
+    }
+  }
+  return k;
+};
+
+// An async driver sets a step budget; when a program runs past it, stepAll
+// escapes with this key so the driver can let other fibers run.
+export const yieldKey: unique symbol = Symbol("kyoot.yield");
+
+let remaining = Infinity;
+
+export function withBudget<T>(steps: number, f: () => T): T {
+  const prev = remaining;
+  remaining = steps;
+  try {
+    return f();
+  } finally {
+    remaining = prev;
+  }
+}
+
 const reify = (conts: Array<Continuation>, inner: AnyKyoot): AnyKyoot => {
   for (let i = conts.length - 1; i >= 0; i--) {
     inner = new KyootImpl({ _tag: "map", self: inner, mapper: conts[i]! });
@@ -177,11 +251,42 @@ const reify = (conts: Array<Continuation>, inner: AnyKyoot): AnyKyoot => {
   return inner;
 };
 
+// Capture the pending continuations into a one-shot escape.
+const escape = (
+  continuations: Array<Continuation>,
+  key: PropertyKey,
+  payload: unknown,
+  onResume: (k: AnyKyoot) => AnyKyoot,
+  handlers?: HandlerNode[],
+): EscapedOp => {
+  // The frame is abandoned by the throw, so its array is the capture.
+  const captured = continuations;
+  let used = false;
+  return new EscapedOp(
+    key,
+    payload,
+    (k) => {
+      if (used) throw new Error("continuation resumed twice (one-shot law)");
+      used = true;
+      return reify(captured, onResume(k));
+    },
+    handlers,
+  );
+};
+
+const identity = (k: AnyKyoot) => k;
+
 export function stepAll(k: AnyKyoot): unknown {
   const continuations: Array<Continuation> = [];
   let current: AnyKyoot = k;
 
   while (true) {
+    if (--remaining < 0) {
+      // Resumed with a value, carry on from here; resumed with an error
+      // (an interrupt), raise it here.
+      const here = current;
+      throw escape(continuations, yieldKey, undefined, (k) => k.map(() => here));
+    }
     const currentNode = current[NodeSym];
     switch (currentNode._tag) {
       case "pure": {
@@ -197,21 +302,22 @@ export function stepAll(k: AnyKyoot): unknown {
         break;
       }
       case "op": {
-        const captured = continuations.splice(0);
-        let used = false;
-        throw new EscapedOp(currentNode.effectKey, currentNode.payload, (k) => {
-          if (used) throw new Error("continuation resumed twice (one-shot law)");
-          used = true;
-          return reify(captured, k);
-        });
+        throw escape(continuations, currentNode.effectKey, currentNode.payload, identity);
       }
       case "raise": {
         throw currentNode.error;
       }
       case "handler": {
-        const handler = currentNode;
+        let handler: HandlerNode = currentNode;
+        if (!handler.entered) handler = { ...handler, state: handler.create?.(), entered: true };
         const rewrap = (self: AnyKyoot, state: unknown = handler.state): AnyKyoot =>
           new KyootImpl({ ...handler, self, state });
+        // A throw inside onOp, or any exception that is not one of our two
+        // control exceptions, is a defect of this handler's scope.
+        const defect = (d: unknown): AnyKyoot => {
+          if (handler.onDefect === undefined) throw d;
+          return handler.onDefect(d, handler.state);
+        };
         let inner: unknown;
         try {
           inner = stepAll(handler.self);
@@ -234,19 +340,20 @@ export function stepAll(k: AnyKyoot): unknown {
               try {
                 current = handler.onOp(e.payload, resume, handler.state);
               } catch (d) {
-                // A throw inside onOp is a defect of this handler's scope.
-                if (handler.onDefect === undefined) throw d;
-                current = handler.onDefect(d, handler.state);
+                current = defect(d);
               }
               break;
             }
-            const captured = continuations.splice(0);
-            throw new EscapedOp(e.key, e.payload, (k) => reify(captured, rewrap(e.resumeWith(k))));
+            if (e.key === "async" && handler.fork !== "none") (e.handlers ??= []).push(handler);
+            throw escape(
+              continuations,
+              e.key,
+              e.payload,
+              (k) => rewrap(e.resumeWith(k)),
+              e.handlers,
+            );
           }
-          // Anything that is not one of our two control exceptions is a defect.
-          const { onDefect } = handler;
-          if (onDefect === undefined) throw e;
-          current = onDefect(e, handler.state);
+          current = defect(e);
           break;
         }
         current = (handler.onSuccess ?? succeed)(inner, handler.state);

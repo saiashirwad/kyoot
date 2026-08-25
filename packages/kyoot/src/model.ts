@@ -13,6 +13,12 @@ export type OnOp = (
 
 export type Continuation = (v: any) => AnyKyoot;
 
+// What a handler does at a fork. `copy`: the fiber gets `onOp` with the
+// frame's state; the frame's end hooks stay with the parent. `scope`: the
+// fiber gets a frame of its own, state from `create`, with the end hooks at
+// the fiber's end. `none`: the handler stops at the fiber.
+export type ForkMode = "copy" | "scope" | "none";
+
 export type RuntimeNode =
   | { readonly _tag: "pure"; readonly value: unknown }
   | {
@@ -26,12 +32,17 @@ export type RuntimeNode =
       readonly effectKey: PropertyKey;
       readonly self: AnyKyoot;
       readonly state?: unknown;
+      readonly create?: () => unknown;
+      readonly entered?: boolean;
+      readonly fork?: ForkMode;
       readonly onOp: OnOp;
       readonly onSuccess?: (a: any, state: any) => AnyKyoot;
       readonly onDefect?: (d: unknown, state: any) => AnyKyoot;
       readonly onInterrupt?: (state: any) => void | AnyKyoot;
     }
   | { readonly _tag: "raise"; readonly error: unknown };
+
+export type HandlerNode = Extract<RuntimeNode, { _tag: "handler" }>;
 
 export const NodeSym: unique symbol = Symbol("kyoot.node");
 

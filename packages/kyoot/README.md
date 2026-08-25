@@ -76,6 +76,10 @@ const virtual = <A, S extends Row & { clock?: number }>(k: Kyoot<A, S>) =>
 
 The row is a plain object type with the payload type as each key's value. `yield*` unions rows, a handler removes its key, and `RowsOf<typeof program>` reads it back.
 
+State is `initial`, threaded through `resume`, or `create()`, called when the handler's frame is entered — a mutable cell that is fresh per run and shared with fibers forked under the handler. `Log.collect` and `Emit.run` use `create`, so a fiber's entries land in the parent's list.
+
+A handler also says what it does at a fork, with `fork`. `"copy"` (the default): the fiber gets `onOp` with the frame's state as it stands — a cell from `create` is shared, threaded state is a snapshot (a `Var` set in a fiber is not seen after `join`) — and the frame's end hooks stay with the parent. `"scope"`: the fiber gets a frame of its own, with `onSuccess` run at the fiber's end; `Resource.run` does this, so a fiber has a scope of its own. `"none"`: the handler stops at the fiber, and an op for it inside the fiber is unhandled. `fail` handlers never cross into a fiber, whatever their mode: a fiber's failure crosses `join` and meets the handlers there.
+
 ## Built-in effects
 
 | Module     | Op                                                                      | Handlers                                                                         |
@@ -96,7 +100,7 @@ Tags are keyed by id, so `Env.tag<A>()("a")` and `Env.tag<B>()("b")` are separat
 
 `Resource.run` releases in reverse order on success, defect, or interrupt. A failure in a finalizer never hides the original error.
 
-A stream is a program that emits. `Emit.fromAsyncIterable` turns an async source into one, `Emit.map` and `Emit.forEach` transform and consume it (a `forEach` callback may return a program, whose effects join the row), and `Emit.toAsyncIterable` runs it and hands the values out as they arrive; breaking out of the loop interrupts the producer.
+A stream is a program that emits. `Emit.fromAsyncIterable` turns an async source into one, `Emit.map` and `Emit.forEach` transform and consume it (a `forEach` callback may return a program, whose effects join the row), and `Emit.toAsyncIterable` runs it and hands the values out as they arrive. The producer runs at most `buffer` values ahead (16 by default; `{ buffer: 1 }` is pull) and parks until the consumer takes one; breaking out of the loop interrupts it.
 
 `Resource.acquire`'s `close` may return a program, so a finalizer can do async work. Finalizers run to completion on success, defect, and interrupt; after an interrupt is delivered, the ops a fiber performs are treated as cleanup and are not interrupted again.
 
@@ -117,11 +121,18 @@ const main = Kyoot.gen(function* () {
 await Kyoot.runPromise(main);
 ```
 
-`fork` returns a fiber with `join`, `await` (as a `Result`), and `interrupt`. Handle a program down to `async` and `clock` before you fork it; a fiber runs its own interpreter, so outer handlers cannot see into it — a `Clock.virtual` outside a fork does not reach the sleeps inside it. Interrupting a fiber interrupts its children and runs their finalizers.
+`fork` returns a fiber with `join`, `await` (as a `Result`), and `interrupt`. A fiber inherits the handlers around the fork, so the forked program's row is pushed onto the parent's: fork a program that needs `env/db` and the parent needs `env/db`, and the `provide` outside the fork answers inside it. What the fiber leaves out is `async` and `clock`, which its driver serves, and `fail`, which crosses `join` as a typed failure (`Fiber<A, E>`; `await` reports it as a `Fail` cause). `race`, `all`, and `timeout` work the same way and merge their branches' rows. Interrupting a fiber interrupts its children and runs their finalizers.
+
+```ts
+const main = Kyoot.gen(function* () {
+  const fiber = yield* Async.fork(lookup("42")); // needs env/db, may fail with NotFound
+  return yield* fiber.join; // fail: NotFound, here
+}).pipe(Db.provide(db), Fail.run, Sync.run);
+```
 
 `fromPromise` passes an `AbortSignal` to your function. Give it to `fetch` and interrupting the fiber cancels the request.
 
-There is no scheduler beyond the event loop. Fibers yield only at await points, so a hot loop in one fiber starves the rest.
+A fiber yields to the event loop every few thousand steps, so a hot loop of ops in one fiber neither starves the rest nor blocks its own interrupt. A loop inside a single `Sync.defer` is one step and cannot be preempted. `runSync` never yields.
 
 ## Your own effect
 
@@ -172,6 +183,7 @@ agent("why is the sky blue?").pipe(
 - `resume` works once; a second call throws. `resume(value)` continues the program with a value; `resume.with(program)` continues it with a computation, run where the op was.
 - A thrown exception is a defect: it skips `onOp` and goes to the nearest `onDefect`, or out of `runSync`. Use `Fail` for errors you expect.
 - A handler that does not resume drops the rest of the program, so handlers inside it never finish. Put `Fail.run` inside `Resource.run`; the other order leaves resources open on failure.
+- A handler that returns a value instead of resuming must not be copied into a fiber, since the fiber's value is its own; mark it `fork: "none"`. A copy that short-circuits is caught and reported as a defect.
 
 ## Name
 

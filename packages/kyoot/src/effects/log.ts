@@ -24,10 +24,15 @@ export const print = <A, S extends Row & { log?: Entry }>(k: Kyoot<A, S>) =>
     },
   });
 
+// The list is a cell made per run, so fibers forked under the handler log
+// into the same list.
 export const collect = <A, S extends Row & { log?: Entry }>(k: Kyoot<A, S>) =>
   makeHandler("log", k, {
-    initial: [] as Entry[],
-    onOp: (entry, resume, entries) => resume(undefined, [...entries, entry]),
+    create: () => [] as Entry[],
+    onOp: (entry, resume, entries) => {
+      entries.push(entry);
+      return resume(undefined);
+    },
     onSuccess: (a, entries) => succeed([a, entries] as const),
   });
 

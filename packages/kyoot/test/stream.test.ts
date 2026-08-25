@@ -66,3 +66,38 @@ test("toAsyncIterable: a defect in the producer rejects the consumer", async () 
     (e) => e === boom,
   );
 });
+
+test("toAsyncIterable: the producer runs at most `buffer` items ahead", async () => {
+  let produced = 0;
+  const stream = Kyoot.gen(function* () {
+    for (let i = 0; i < 50; i++) {
+      produced++;
+      yield* Emit.value(i);
+    }
+  });
+  let consumed = 0;
+  let maxAhead = 0;
+  for await (const _ of Emit.toAsyncIterable(stream, { buffer: 3 })) {
+    consumed++;
+    maxAhead = Math.max(maxAhead, produced - consumed);
+    await new Promise((r) => setTimeout(r, 1));
+  }
+  assert.equal(consumed, 50);
+  assert.equal(produced, 50);
+  assert.ok(maxAhead <= 3, `producer ran ${maxAhead} ahead`);
+});
+
+test("toAsyncIterable: breaking while the producer is parked interrupts it", async () => {
+  let produced = 0;
+  const stream = Kyoot.gen(function* () {
+    while (true) {
+      produced++;
+      yield* Emit.value(produced);
+    }
+  });
+  for await (const x of Emit.toAsyncIterable(stream, { buffer: 2 })) if (x >= 5) break;
+  const at = produced;
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(produced, at);
+  assert.ok(at <= 8);
+});

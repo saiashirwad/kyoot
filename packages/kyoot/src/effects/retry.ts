@@ -21,8 +21,7 @@ export const run =
       for (let attempt = 0; ; attempt++) {
         const r = yield* k.pipe(Fail.run);
         if (r.ok) return r.value;
-        if (r.cause._tag === "Defect") throw r.cause.defect;
-        if (attempt >= policy.times) return yield* Fail.fail(r.cause.error);
+        if (r.cause._tag !== "Fail" || attempt >= policy.times) return yield* Fail.fromResult(r);
         yield* Clock.sleep(delayOf(policy, attempt));
       }
     });

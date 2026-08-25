@@ -1,7 +1,7 @@
 import { isKyoot, makeHandler, op, succeed } from "../core.ts";
 import { gen } from "../gen.ts";
 import type { Kyoot, RowOf } from "../model.ts";
-import { runFiber } from "../runtime.ts";
+import { runFiber, type Served } from "../runtime.ts";
 import type { MergeAll, Only, Row } from "../types.ts";
 import * as Async from "./async.ts";
 
@@ -25,10 +25,15 @@ export const fromAsyncIterable = <E>(items: AsyncIterable<E>) =>
     }
   });
 
+// The list is a cell made per run, so fibers forked under the handler emit
+// into the same list.
 export const run = <A, S extends Row & { emit?: unknown }>(k: Kyoot<A, S>) =>
   makeHandler("emit", k, {
-    initial: [] as Array<S["emit"]>,
-    onOp: (e, resume, acc) => resume(undefined, [...acc, e]),
+    create: () => [] as Array<S["emit"]>,
+    onOp: (e, resume, acc) => {
+      acc.push(e);
+      return resume(undefined);
+    },
     onSuccess: (a, acc) => succeed([a, acc] as const),
   });
 
@@ -54,15 +59,30 @@ export const map =
 export const discard = <A, S extends Row & { emit?: unknown }>(k: Kyoot<A, S>) =>
   makeHandler("emit", k, { onOp: (_e, resume) => resume(undefined) });
 
+// Runs the producer in a fiber and hands its values out as they arrive. The
+// producer runs at most `buffer` values ahead of the consumer; past that it
+// parks until the consumer takes one. Breaking out of the loop interrupts it.
 export const toAsyncIterable = <S extends Row & { emit?: unknown }>(
-  k: Kyoot<unknown, S> & Only<S, "emit" | "async" | "clock">,
+  k: Kyoot<unknown, S> & Only<S, "emit" | Served>,
+  options: { readonly buffer?: number } = {},
 ): AsyncIterable<S["emit"]> => ({
   [Symbol.asyncIterator]() {
+    const capacity = Math.max(1, options.buffer ?? 16);
     const buffer: S["emit"][] = [];
     let finished = false;
     let failure: unknown;
     let wake = () => {};
-    const fiber = runFiber(k.pipe(forEach((e: S["emit"]) => void (buffer.push(e), wake()))));
+    let drain = () => {};
+    const fiber = runFiber(
+      k.pipe(
+        forEach((e: S["emit"]) => {
+          buffer.push(e);
+          wake();
+          if (buffer.length < capacity) return;
+          return Async.fromPromise(() => new Promise<void>((r) => (drain = r)));
+        }),
+      ),
+    );
     fiber.promise.then(
       () => ((finished = true), wake()),
       (e: unknown) => ((failure = e), (finished = true), wake()),
@@ -70,7 +90,11 @@ export const toAsyncIterable = <S extends Row & { emit?: unknown }>(
     return {
       async next() {
         while (buffer.length === 0 && !finished) await new Promise<void>((r) => (wake = r));
-        if (buffer.length > 0) return { value: buffer.shift()!, done: false };
+        if (buffer.length > 0) {
+          const value = buffer.shift()!;
+          drain();
+          return { value, done: false };
+        }
         if (failure !== undefined) throw failure;
         return { value: undefined, done: true };
       },

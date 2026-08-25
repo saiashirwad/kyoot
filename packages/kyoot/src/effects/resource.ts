@@ -36,6 +36,8 @@ export const run = <A, S extends Row & { resource?: ResourceOp<any> }>(
   k: Kyoot<A, S>,
 ): Kyoot<A, MergeAll<Omit<S, "resource"> | ReleaseRow<S["resource"]>>> =>
   makeHandler("resource", k, {
+    // A fiber gets a scope of its own, released when the fiber ends.
+    fork: "scope",
     initial: [] as Finalizer[],
     onOp: (res, resume, finalizers) => {
       const r = res.acquire();

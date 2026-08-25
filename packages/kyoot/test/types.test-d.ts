@@ -221,3 +221,54 @@ const plainScoped = Resource.acquire(
   () => {},
 ).pipe(Resource.run);
 type _plainScopedKeys = Expect<Equal<keyof RowsOf<typeof plainScoped>, never>>;
+
+// ---------------------------------------------------------------------------
+// Fibers inherit the handlers around the fork: the fiber's row is pushed onto
+// the parent's, and a typed failure crosses join.
+// ---------------------------------------------------------------------------
+const needsGreeter = Kyoot.gen(function* () {
+  const g = yield* Greeter;
+  if (g.greet("x") === "") yield* Fail.fail(new FetchFailed());
+  yield* Clock.sleep(1);
+  return 1;
+});
+const forkedNeedy = Async.fork(needsGreeter);
+// env stays for the parent; clock and fail do not (the driver serves clock, join carries fail)
+type _forkNeedyKeys = Expect<Equal<keyof RowsOf<typeof forkedNeedy>, "async" | "env/greeter">>;
+type NeedyFiber = ValueOf<typeof forkedNeedy>;
+type _joinKeys = Expect<Equal<keyof RowsOf<NeedyFiber["join"]>, "async" | "fail">>;
+type _joinFail = Expect<Equal<RowsOf<NeedyFiber["join"]>["fail"], FetchFailed>>;
+type _joinValue = Expect<Equal<ValueOf<NeedyFiber["join"]>, number>>;
+type _awaitValue = Expect<Equal<ValueOf<NeedyFiber["await"]>, Result<FetchFailed, number>>>;
+
+// a fiber that cannot fail has no fail key on join
+type PureFiber = ValueOf<typeof forked>;
+type _pureJoinKeys = Expect<Equal<keyof RowsOf<PureFiber["join"]>, "async">>;
+
+// the parent handles what the fiber needs, around the fork
+const joined = Kyoot.gen(function* () {
+  const fiber = yield* Async.fork(needsGreeter);
+  return yield* fiber.join;
+}).pipe(Greeter.provide({ greet: (n) => n }), Fail.run);
+const j1: Promise<Result<FetchFailed, number>> = Kyoot.runPromise(joined);
+
+// race and all merge the branches' leftover rows and failures
+const raced = Async.race(needsGreeter, Fail.fail("other" as const));
+type _raceKeys = Expect<Equal<keyof RowsOf<typeof raced>, "async" | "env/greeter" | "fail">>;
+type _raceFail = Expect<Equal<RowsOf<typeof raced>["fail"], FetchFailed | "other">>;
+const allOf = Async.all([needsGreeter, needsGreeter]);
+type _allKeys = Expect<Equal<keyof RowsOf<typeof allOf>, "async" | "env/greeter" | "fail">>;
+type _allValue = Expect<Equal<ValueOf<typeof allOf>, number[]>>;
+const none = Async.all([]);
+type _noneKeys = Expect<Equal<keyof RowsOf<typeof none>, "async">>;
+
+// a handler may say what it does at a fork
+const Ask2 = effect<string, number>()("ask2");
+Ask2.handle({ fork: "none", onOp: (_q, resume) => resume(1) });
+Ask2.handle({
+  fork: "scope",
+  create: () => [] as string[],
+  onOp: (q, resume, seen) => resume(seen.push(q)),
+});
+// @ts-expect-error fork takes one of the three modes
+Ask2.handle({ fork: "share", onOp: (_q, resume) => resume(1) });

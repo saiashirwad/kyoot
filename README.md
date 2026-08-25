@@ -38,19 +38,29 @@ Kyoot.runSync(lookup("42"));
 
 ## How it works
 
-An op is a key and a payload. `op<A>()` sets `A`, the type the op resumes with.
+An effect is a key, a payload type, and an answer type. Calling it performs an op.
 
 ```ts
-const sleep = (ms: number) => op<void>()("clock", ms);
+const Clock = effect<number, void>()("clock");
+Clock(1000);
 // Kyoot<void, { clock: number }>
 ```
 
-A handler catches one key and resumes the program, optionally with new state. `onSuccess` sees the final value and the final state.
+A handler catches one key and resumes the program, optionally with new state. `resume` is typed to the answer.
+
+```ts
+const liveClock = Clock.handle({
+  onOp: (ms, resume) => Async.sleep(ms).map(() => resume(undefined)),
+});
+// <A, S>(k: Kyoot<A, S>) => Kyoot<A, Omit<S, "clock"> & { async: AsyncOp }>
+```
+
+A handler that also reshapes the final value uses `makeHandler` directly; `onSuccess` sees the value and the final state.
 
 ```ts
 const testClock = <A, S extends Row & { clock?: number }>(k: Kyoot<A, S>) =>
   makeHandler({
-    effectKey: "clock",
+    effectKey: Clock.key,
     self: k,
     state: 0,
     onOp: (ms, resume, now) => resume(undefined, now + ms),
@@ -100,19 +110,22 @@ There is no scheduler beyond the event loop. Fibers yield only at await points, 
 
 ## Your own effect
 
-Define one `op` and one handler per interpretation. The clock above is an example; `examples/clock.ts` runs the same program against a virtual clock in `runSync` and a real one in `runPromise`.
+Declare one `effect` and one handler per interpretation. The clock above is one; `examples/clock.ts` runs the same program against a virtual clock in `runSync` and a real one in `runPromise`.
 
 ```ts
-const liveClock = <A, S extends Row & { clock?: number }>(k: Kyoot<A, S>) =>
-  makeHandler({
-    effectKey: "clock",
-    self: k,
-    onOp: (ms, resume) => Async.sleep(ms).map(() => resume(undefined)),
-  });
-
 Kyoot.runSync(boilEgg.pipe(testClock)); // [result, virtualMs]
 await Kyoot.runPromise(boilEgg.pipe(liveClock)); // result, after real sleep
 ```
+
+`examples/checkout.ts` does the same for a business program: `Inventory` and `Payments` are effects, and the handlers are an in-memory stock table and a test double. A handler may also fail instead of resuming, which adds `fail` to the row at that step.
+
+```ts
+const Payments = effect<Charge, string>()("payments");
+const declineAll = (reason: string) =>
+  Payments.handle({ onOp: () => Fail.fail(new PaymentDeclined(reason)) });
+```
+
+`op<A>()(key, payload)` is the one-off form underneath `effect`, for ops whose payload type varies per call (`Fail.fail`, `Emit.value`).
 
 ## Rules
 

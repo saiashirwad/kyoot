@@ -50,6 +50,30 @@ export const op =
   <const K extends string, P>(key: K, payload: P): Kyoot<A, { [k in K]: P }> =>
     makeOp(key, payload) as Kyoot<A, { [k in K]: P }>;
 
+export interface Hooks<P, A, St, R extends Row> {
+  readonly state?: St;
+  readonly onOp: (
+    payload: P,
+    resume: (a: A, state?: St) => Kyoot<never, {}>,
+    state: St,
+  ) => Kyoot<any, R>;
+  readonly onDefect?: (d: unknown, state: St) => Kyoot<any, R>;
+  readonly onInterrupt?: (state: St) => void;
+}
+
+// A declared effect: key, payload type, answer type. Calling it performs the
+// op; `handle` builds a handler whose `resume` is typed to the answer.
+export const effect =
+  <P, A>() =>
+  <const K extends string>(key: K) => {
+    const perform = (payload: P) => op<A>()(key, payload);
+    const handle =
+      <St = undefined, R extends Row = {}>(hooks: Hooks<P, A, St, R>) =>
+      <B, S extends Row & { [k in K]?: P }>(k: Kyoot<B, S>): Kyoot<B, MergeAll<Omit<S, K> | R>> =>
+        makeHandler({ effectKey: key, self: k, ...hooks });
+    return Object.assign(perform, { key, handle });
+  };
+
 // The payload type an effect key carries in the row, if the row has it.
 type Payload<S, K extends PropertyKey> = K extends keyof S ? Exclude<S[K], undefined> : never;
 

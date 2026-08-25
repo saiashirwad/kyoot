@@ -1,4 +1,4 @@
-import { Async, Emit, Env, Fail, Kyoot, op, Sync, Var, makeHandler } from "../src/index.ts";
+import { Async, effect, Emit, Env, Fail, Kyoot, op, Sync, Var, makeHandler } from "../src/index.ts";
 import type { AsyncOp, Kyoot as KyootT, Result, RowsOf } from "../src/index.ts";
 import { sleep, testClock } from "../examples/clock.ts";
 
@@ -85,6 +85,22 @@ type _logKeys = Expect<Equal<keyof RowsOf<typeof logOp>, "log">>;
 type _logPayload = Expect<Equal<RowsOf<typeof logOp>["log"], string>>;
 // @ts-expect-error runSync names the unhandled custom effect: Unhandled<"log">
 Kyoot.runSync(logOp);
+
+// effect: a declared op with a typed answer; handle() infers the wrapper.
+const Ask = effect<{ q: string }, number>()("ask");
+const asked = Ask({ q: "n?" }).map((n) => n + 1);
+type _askRow = Expect<Equal<RowsOf<typeof asked>, { ask: { q: string } }>>;
+const answered: number = asked.pipe(
+  Ask.handle({ onOp: ({ q }, resume) => resume(q.length) }),
+  Kyoot.runSync,
+);
+// @ts-expect-error resume is typed to the answer
+Ask.handle({ onOp: (_p, resume) => resume("no") });
+// @ts-expect-error the payload is typed by the declaration
+Ask.handle({ onOp: ({ nope }, resume) => resume(1) });
+// a handler that fails instead of resuming adds `fail` to the row
+const refused = asked.pipe(Ask.handle({ onOp: () => Fail.fail("refused" as const) }));
+type _refusedRow = Expect<Equal<keyof RowsOf<typeof refused>, "fail">>;
 
 const clockProg = sleep(5).pipe(testClock);
 const c1: readonly [void, number] = Kyoot.runSync(clockProg);

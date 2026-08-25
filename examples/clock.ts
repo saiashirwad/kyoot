@@ -1,18 +1,16 @@
-import { Async, Kyoot, makeHandler, op } from "../src/index.ts";
+import { Async, effect, Kyoot, makeHandler } from "../src/index.ts";
 import type { Row } from "../src/index.ts";
 
-export const sleep = (ms: number) => op<void>()("clock", ms);
+export const Clock = effect<number, void>()("clock");
+export const sleep = Clock;
 
-export const liveClock = <A, S extends Row & { clock?: number }>(k: Kyoot<A, S>) =>
-  makeHandler({
-    effectKey: "clock",
-    self: k,
-    onOp: (ms, resume) => Async.sleep(ms).map(() => resume(undefined)),
-  });
+export const liveClock = Clock.handle({
+  onOp: (ms, resume) => Async.sleep(ms).map(() => resume(undefined)),
+});
 
 export const testClock = <A, S extends Row & { clock?: number }>(k: Kyoot<A, S>) =>
   makeHandler({
-    effectKey: "clock",
+    effectKey: Clock.key,
     self: k,
     state: 0,
     onOp: (ms, resume, now) => resume(undefined, now + ms),

@@ -4,8 +4,8 @@ import type { Kyoot as KyootType } from "./model.ts";
 import { runPromise, runSync } from "./runtime.ts";
 import type { Row } from "./types.ts";
 
-export { InterruptedError, makeHandler, op } from "./core.ts";
-export type { Resume } from "./core.ts";
+export { effect, InterruptedError, makeHandler, op } from "./core.ts";
+export type { Hooks, Resume } from "./core.ts";
 export type { AsyncOp, AsyncRuntime, FiberHandle } from "./runtime.ts";
 export type { Pipeable } from "./pipe.ts";
 export { Result } from "./result.ts";

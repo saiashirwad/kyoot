@@ -1,5 +1,4 @@
-import { Emit, Env, Fail, Kyoot, Sync, Var } from "../src/index.ts";
-import type { Kyoot as KyootT } from "../src/index.ts";
+import { effect, Emit, Fail, Kyoot, Var } from "../src/index.ts";
 
 export class OutOfStock {
   readonly _tag = "OutOfStock";
@@ -22,74 +21,55 @@ export interface Order {
   readonly items: ReadonlyArray<{ sku: string; qty: number; priceCents: number }>;
 }
 
-export interface Card {
-  readonly number: string;
-}
-
 export type OrderEvent = { type: "reserved"; sku: string };
 
-export interface Inventory {
-  reserve(sku: string, qty: number): KyootT<boolean, { sync: () => unknown }>;
+export interface Reserve {
+  readonly sku: string;
+  readonly qty: number;
 }
 
-export interface Payments {
-  charge(
-    totalCents: number,
-    card: Card,
-  ): KyootT<string, { sync: () => unknown; fail: PaymentDeclined }>;
+export interface Charge {
+  readonly totalCents: number;
+  readonly card: string;
 }
 
-export const Inventory = Env.tag<Inventory>()("inventory");
-export const Payments = Env.tag<Payments>()("payments");
+export const Inventory = effect<Reserve, boolean>()("inventory");
+export const Payments = effect<Charge, string>()("payments");
 
 const Total = Var.tag<number>()("Total");
 
-export interface Receipt {
-  readonly orderId: string;
-  readonly chargeId: string;
-  readonly totalCents: number;
-}
-
-export const checkout = (order: Order, card: Card) =>
+export const checkout = (order: Order, card: string) =>
   Kyoot.gen(function* () {
-    const inventory = yield* Inventory.get();
-    const payments = yield* Payments.get();
     for (const item of order.items) {
-      const ok = yield* inventory.reserve(item.sku, item.qty);
+      const ok = yield* Inventory({ sku: item.sku, qty: item.qty });
       if (!ok) yield* Fail.fail(new OutOfStock(item.sku));
       yield* Emit.value<OrderEvent>({ type: "reserved", sku: item.sku });
       yield* Total.update((t) => t + item.priceCents * item.qty);
     }
-    const total = yield* Total.get();
-    const chargeId = yield* payments.charge(total, card);
-    return { orderId: order.id, chargeId, totalCents: total };
+    const totalCents = yield* Total.get();
+    const chargeId = yield* Payments({ totalCents, card });
+    return { orderId: order.id, chargeId, totalCents };
   }).pipe(Total.run(0));
 
-export const productionEdge = (
-  order: Order,
-  card: Card,
-  deps: { inventory: Inventory; payments: Payments; publish: (e: OrderEvent) => void },
-) =>
-  Kyoot.runPromise(
-    checkout(order, card).pipe(
-      Inventory.provide(deps.inventory),
-      Payments.provide(deps.payments),
-      Emit.forEach(deps.publish),
-      Fail.run,
-      Sync.run,
-    ),
-  );
+export const inMemoryInventory = (stock: Readonly<Record<string, number>>) =>
+  Inventory.handle({
+    state: stock,
+    onOp: ({ sku, qty }, resume, stock) => {
+      const have = stock[sku] ?? 0;
+      return have >= qty ? resume(true, { ...stock, [sku]: have - qty }) : resume(false);
+    },
+  });
 
-export const testEdge = (
-  order: Order,
-  card: Card,
-  deps: { inventory: Inventory; payments: Payments },
-) =>
-  checkout(order, card).pipe(
-    Inventory.provide(deps.inventory),
-    Payments.provide(deps.payments),
-    Emit.discard,
-    Fail.orThrow,
-    Sync.run,
+if (process.argv[1]?.endsWith("checkout.ts")) {
+  const order: Order = { id: "o-1", items: [{ sku: "book", qty: 2, priceCents: 1200 }] };
+  const result = checkout(order, "4242").pipe(
+    inMemoryInventory({ book: 3 }),
+    Payments.handle({
+      onOp: ({ totalCents }, resume) => resume(`ch_${totalCents}`),
+    }),
+    Emit.forEach(console.log),
+    Fail.run,
     Kyoot.runSync,
   );
+  console.log(result);
+}

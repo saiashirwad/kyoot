@@ -1,6 +1,6 @@
 import { succeed } from "./core.ts";
 import type { AnyKyoot, Kyoot, RowsOf } from "./model.ts";
-import type { MergeAll, Simplify } from "./types.ts";
+import type { MergeAll } from "./types.ts";
 
 const step = (g: Generator<AnyKyoot, unknown, unknown>, input: unknown): AnyKyoot =>
   succeed(input).map((input) => {
@@ -10,6 +10,6 @@ const step = (g: Generator<AnyKyoot, unknown, unknown>, input: unknown): AnyKyoo
 
 export function gen<A, Y extends AnyKyoot>(
   f: () => Generator<Y, A, unknown>,
-): Kyoot<A, Simplify<MergeAll<RowsOf<Y>>>> {
+): Kyoot<A, MergeAll<RowsOf<Y>>> {
   return succeed(undefined).map(() => step(f(), undefined)) as Kyoot<A, any>;
 }

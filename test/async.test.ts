@@ -1,16 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Fail, Async, InterruptedError, Kyoot, Resource, Result } from "../src/index.ts";
+import { Fail, Async, InterruptedError, Kyoot, Resource } from "../src/index.ts";
 
-test("suspend resolves through runPromise", async () => {
-  const r = await Kyoot.runPromise(Async.suspend<number>((resume) => resume(42)));
+test("fromPromise resolves through runPromise", async () => {
+  const r = await Kyoot.runPromise(Async.fromPromise(() => Promise.resolve(42)));
   assert.equal(r, 42);
 });
 
-test("suspend exposes an AbortSignal from day one", async () => {
-  const r = await Kyoot.runPromise(
-    Async.suspend((resume, signal: AbortSignal) => resume(signal.aborted)),
-  );
+test("fromPromise exposes an AbortSignal from day one", async () => {
+  const r = await Kyoot.runPromise(Async.fromPromise((signal) => Promise.resolve(signal.aborted)));
   assert.equal(r, false);
 });
 
@@ -39,7 +37,7 @@ test("fiber.await returns a Result instead of throwing", async () => {
   });
   const r = await Kyoot.runPromise(prog);
   assert.equal(r.ok, false);
-  assert.equal(Result.isErr(r) && r.cause._tag === "Defect" && r.cause.defect, boom);
+  assert.equal(!r.ok && r.cause._tag === "Defect" && r.cause.defect, boom);
 });
 
 test("race: first to complete wins", async () => {
@@ -51,9 +49,7 @@ test("race: first to complete wins", async () => {
 test("timeout: a slow computation fails with a typed TimeoutError", async () => {
   const r = await Kyoot.runPromise(Async.timeout(5, Async.sleep(50)).pipe(Fail.run()));
   assert.equal(r.ok, false);
-  assert.ok(
-    Result.isErr(r) && r.cause._tag === "Fail" && r.cause.error instanceof Async.TimeoutError,
-  );
+  assert.ok(!r.ok && r.cause._tag === "Fail" && r.cause.error instanceof Async.TimeoutError);
 });
 
 test("timeout: a fast computation wins", async () => {
@@ -119,7 +115,7 @@ test("interrupt: finalizers run and await reports Interrupted", async () => {
   });
   const r = await Kyoot.runPromise(prog);
   assert.equal(r.ok, false);
-  assert.ok(Result.isErr(r) && r.cause._tag === "Interrupted");
+  assert.ok(!r.ok && r.cause._tag === "Interrupted");
   assert.deepEqual(events, ["release"]);
 });
 
@@ -200,7 +196,7 @@ test("all: interrupting the parent interrupts every branch", async () => {
   });
   const r = await Kyoot.runPromise(prog);
   assert.equal(r.ok, false);
-  assert.ok(Result.isErr(r) && r.cause._tag === "Interrupted");
+  assert.ok(!r.ok && r.cause._tag === "Interrupted");
   assert.deepEqual(events.sort(), ["release a", "release b"]);
 });
 
@@ -235,15 +231,18 @@ test("timeout interrupts the branch and runs its finalizers", async () => {
   assert.deepEqual(events, ["release"]);
 });
 
-test("suspend's signal fires on interruption", async () => {
+test("fromPromise's signal fires on interruption", async () => {
   let sawAbort = false;
   const prog = Kyoot.gen(function* () {
     const fiber = yield* Async.fork(
-      Async.suspend((_resume, signal: AbortSignal) => {
-        signal.addEventListener("abort", () => {
-          sawAbort = true;
-        });
-      }),
+      Async.fromPromise(
+        (signal) =>
+          new Promise(() => {
+            signal.addEventListener("abort", () => {
+              sawAbort = true;
+            });
+          }),
+      ),
     );
     yield* fiber.interrupt;
     yield* fiber.await;

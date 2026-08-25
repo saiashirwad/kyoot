@@ -26,8 +26,8 @@ test("Fail.run: a defect lands in the defect channel, not the error channel", ()
   }).pipe(Fail.run());
   const r = Kyoot.runSync(k);
   assert.equal(r.ok, false);
-  assert.equal(Result.isErr(r) && r.cause._tag, "Defect");
-  assert.equal(Result.isErr(r) && r.cause._tag === "Defect" && r.cause.defect, boom);
+  assert.equal(!r.ok && r.cause._tag, "Defect");
+  assert.equal(!r.ok && r.cause._tag === "Defect" && r.cause.defect, boom);
 });
 
 test("defects bypass Fail.catchAll", () => {

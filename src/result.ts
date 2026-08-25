@@ -32,10 +32,4 @@ export const Result = {
   interrupted<E = never, A = never>(): Result<E, A> {
     return { ok: false, cause: Cause.interrupted() };
   },
-  isOk<E, A>(r: Result<E, A>): r is { readonly ok: true; readonly value: A } {
-    return r.ok;
-  },
-  isErr<E, A>(r: Result<E, A>): r is { readonly ok: false; readonly cause: Cause<E> } {
-    return !r.ok;
-  },
 };

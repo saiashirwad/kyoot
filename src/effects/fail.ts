@@ -24,7 +24,7 @@ export const catchAll =
   <E, A2, S2 extends Row>(f: (e: E) => Kyoot<A2, S2>) =>
   <A, S extends Row & { fail?: E } = {}>(
     k: Kyoot<A, S>,
-  ): Kyoot<A | A2, Simplify<Merge<Omit<S, "fail">, S2>>> =>
+  ): Kyoot<A | A2, Merge<Omit<S, "fail">, S2>> =>
     new KyootImpl({
       _tag: "handler",
       effectKey: "fail",

@@ -89,7 +89,9 @@ const c1: readonly [void, number] = Kyoot.runSync(clockProg);
 // pure map (including throw → never) must keep the effect row; no Row pollution
 const pureMapped = Async.sleep(1).map((_) => 1);
 type _pureMapKeys = Expect<Equal<keyof RowsOf<typeof pureMapped>, "async">>;
-type _pureMapValue = Expect<Equal<typeof pureMapped extends KyootT<infer A, any> ? A : never, number>>;
+type _pureMapValue = Expect<
+  Equal<typeof pureMapped extends KyootT<infer A, any> ? A : never, number>
+>;
 
 const neverMapped = Async.sleep(1).map(() => {
   throw new Error("boom");

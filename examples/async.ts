@@ -19,15 +19,13 @@ interface Pokemon {
 }
 
 const get = (url: string) =>
-  Async.suspend<{ status: number; json: unknown }>((resume, signal) => {
-    fetch(url, { signal }).then(
-      (res) =>
-        res.json().then(
-          (json) => resume({ status: res.status, json }),
-          () => resume({ status: 0, json: null }),
-        ),
-      () => resume({ status: 0, json: null }),
-    );
+  Async.fromPromise(async (signal): Promise<{ status: number; json: unknown }> => {
+    try {
+      const res = await fetch(url, { signal });
+      return { status: res.status, json: await res.json() };
+    } catch {
+      return { status: 0, json: null };
+    }
   });
 
 const pokemon = (name: string) =>
@@ -56,7 +54,7 @@ const main = Kyoot.gen(function* () {
     pokemon("pikachu").pipe(Fail.run()),
     pokemon("slowpoke").pipe(Fail.run()),
   );
-  console.log(Result.isOk(winner) ? `winner: ${show(winner.value)}` : "race failed");
+  console.log(winner.ok ? `winner: ${show(winner.value)}` : "race failed");
 
   console.log("\nfetching the starters in parallel...");
   const fibers: Async.Fiber<Result<FetchFailed, Pokemon>>[] = [];

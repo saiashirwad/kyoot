@@ -40,8 +40,8 @@ test("production edge: success is Result.ok, events stream out in order", async 
     { type: "reserved", sku: "book" },
     { type: "reserved", sku: "pen" },
   ]);
-  assert.ok(Result.isOk(r));
-  assert.deepEqual(Result.isOk(r) && r.value, [
+  assert.ok(r.ok);
+  assert.deepEqual(r.ok && r.value, [
     { orderId: "o-1", chargeId: "ch_1650", totalCents: 1650 },
     1650,
   ]);
@@ -56,8 +56,8 @@ test("production edge: out of stock is a typed failure, transactional state", as
     payments: alwaysApprove,
     publish: () => {},
   });
-  assert.ok(Result.isErr(r));
-  const cause = Result.isErr(r) && r.cause;
+  assert.ok(!r.ok);
+  const cause = !r.ok && r.cause;
   assert.ok(cause && cause._tag === "Fail" && cause.error instanceof OutOfStock);
   assert.equal(Array.isArray(r), false);
 });

@@ -1,10 +1,6 @@
 export type Row = Record<string, unknown>;
 
-export type Merge<S1 extends Row, S2 extends Row> = {
-  [K in keyof S1 | keyof S2]:
-    | (K extends keyof S1 ? S1[K] : never)
-    | (K extends keyof S2 ? S2[K] : never);
-};
+export type Merge<S1 extends Row, S2 extends Row> = MergeAll<S1 | S2>;
 
 export type Unhandled<K> = { readonly "unhandled effects": K };
 

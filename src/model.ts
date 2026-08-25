@@ -1,5 +1,5 @@
 import type { Pipeable } from "./pipe.ts";
-import type { Merge, Row, Simplify } from "./types.ts";
+import type { Merge, Row } from "./types.ts";
 
 export type AnyKyoot = Kyoot<any, any>;
 
@@ -42,7 +42,7 @@ export const NodeSym: unique symbol = Symbol("kyoot.node");
 export type MapResult<S extends Row, B> = [B] extends [never]
   ? Kyoot<never, S>
   : [B] extends [Kyoot<infer B2, infer S2>]
-    ? Kyoot<B2, Simplify<Merge<S, S2 extends Row ? S2 : {}>>>
+    ? Kyoot<B2, Merge<S, S2 extends Row ? S2 : {}>>
     : Kyoot<B, S>;
 
 export interface Kyoot<A, S extends Row = {}> extends Pipeable {

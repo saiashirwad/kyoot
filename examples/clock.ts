@@ -9,9 +9,7 @@ export const liveClock = Clock.handle({
 });
 
 export const testClock = <A, S extends Row & { clock?: number }>(k: Kyoot<A, S>) =>
-  makeHandler({
-    effectKey: Clock.key,
-    self: k,
+  makeHandler(Clock.key, k, {
     state: 0,
     onOp: (ms, resume, now) => resume(undefined, now + ms),
     onSuccess: (a, now) => Kyoot.succeed([a, now] as const),

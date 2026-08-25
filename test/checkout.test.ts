@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  approveAll,
   checkout,
   inMemoryInventory,
   OutOfStock,
@@ -20,6 +19,10 @@ const order: Order = {
 };
 const card = "4242";
 const stocked = { book: 5, pen: 5 };
+
+const approveAll = Payments.handle({
+  onOp: ({ totalCents }, resume) => resume(`ch_${totalCents}`),
+});
 
 const declineAll = (reason: string) =>
   Payments.handle({ onOp: () => Fail.fail(new PaymentDeclined(reason)) });

@@ -101,6 +101,9 @@ Ask.handle({ onOp: ({ nope }, resume) => resume(1) });
 // a handler that fails instead of resuming adds `fail` to the row
 const refused = asked.pipe(Ask.handle({ onOp: () => Fail.fail("refused" as const) }));
 type _refusedRow = Expect<Equal<keyof RowsOf<typeof refused>, "fail">>;
+// a handler that returns instead of resuming adds its value to the result
+const cached = asked.pipe(Ask.handle({ onOp: () => Kyoot.succeed("cached" as const) }));
+type _cachedValue = Expect<Equal<ValueOf<typeof cached>, number | "cached">>;
 
 const clockProg = sleep(5).pipe(testClock);
 const c1: readonly [void, number] = Kyoot.runSync(clockProg);
@@ -147,9 +150,7 @@ type _catchAllKeys = Expect<Equal<keyof RowsOf<typeof recovered>, "async">>;
 
 // A handler whose onOp runs an async op adds `async` to the row.
 const slowSync = Sync.defer(() => 1).pipe((k) =>
-  makeHandler({
-    effectKey: "sync",
-    self: k,
+  makeHandler("sync", k, {
     onOp: (f, resume) => Async.sleep(1).map(() => resume(f())), // f: () => unknown, from the row
   }),
 );

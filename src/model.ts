@@ -3,9 +3,11 @@ import type { Merge, Row } from "./types.ts";
 
 export type AnyKyoot = Kyoot<any, any>;
 
-export type Resume = (value: any, state?: any) => AnyKyoot;
-
-export type OnOp = (payload: any, resume: Resume, state: any) => AnyKyoot;
+export type OnOp = (
+  payload: any,
+  resume: (value: any, state?: any) => AnyKyoot,
+  state: any,
+) => AnyKyoot;
 
 export type Continuation = (v: any) => AnyKyoot;
 

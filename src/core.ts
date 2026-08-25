@@ -50,36 +50,34 @@ export const op =
   <const K extends string, P>(key: K, payload: P): Kyoot<A, { [k in K]: P }> =>
     makeOp(key, payload) as Kyoot<A, { [k in K]: P }>;
 
-export interface Hooks<P, A, St, R extends Row> {
-  readonly state?: St;
-  readonly onOp: (
-    payload: P,
-    resume: (a: A, state?: St) => Kyoot<never, {}>,
-    state: St,
-  ) => Kyoot<any, R>;
-  readonly onDefect?: (d: unknown, state: St) => Kyoot<any, R>;
-  readonly onInterrupt?: (state: St) => void;
-}
+// resume's result is opaque: the handler's type comes from `self`, not from
+// what resume hands back. Returning `never` keeps it out of inference.
+export type Resume<A, St> = (value: A, state?: St) => Kyoot<never, {}>;
 
 // A declared effect: key, payload type, answer type. Calling it performs the
-// op; `handle` builds a handler whose `resume` is typed to the answer.
+// op; `handle` builds a handler whose `resume` is typed to the answer. Like
+// makeHandler, a callback that returns instead of resuming adds its value
+// and row to the result.
 export const effect =
   <P, A>() =>
   <const K extends string>(key: K) => {
     const perform = (payload: P) => op<A>()(key, payload);
     const handle =
-      <St = undefined, R extends Row = {}>(hooks: Hooks<P, A, St, R>) =>
-      <B, S extends Row & { [k in K]?: P }>(k: Kyoot<B, S>): Kyoot<B, MergeAll<Omit<S, K> | R>> =>
-        makeHandler({ effectKey: key, self: k, ...hooks });
+      <St = undefined, X1 = never, X2 = never, R1 extends Row = {}, R2 extends Row = {}>(hooks: {
+        state?: St;
+        onOp: (payload: P, resume: Resume<A, St>, state: St) => Kyoot<X1, R1>;
+        onDefect?: (d: unknown, state: St) => Kyoot<X2, R2>;
+        onInterrupt?: (state: St) => void;
+      }) =>
+      <B, S extends Row & { [k in K]?: P }>(
+        k: Kyoot<B, S>,
+      ): Kyoot<B | X1 | X2, MergeAll<Omit<S, K> | R1 | R2>> =>
+        makeHandler(key, k, hooks);
     return Object.assign(perform, { key, handle });
   };
 
 // The payload type an effect key carries in the row, if the row has it.
 type Payload<S, K extends PropertyKey> = K extends keyof S ? Exclude<S[K], undefined> : never;
-
-// resume\x27s result is opaque: the handler\x27s type comes from `self`, not from
-// what resume hands back. Returning `never` keeps it out of inference.
-export type Resume<St> = (value: any, state?: St) => Kyoot<never, {}>;
 
 // Build a handler node and infer its type: the result is what onSuccess
 // returns (default: the inner value) plus anything onOp / onDefect
@@ -100,16 +98,18 @@ export function makeHandler<
   R1 extends Row = {},
   R2 extends Row = {},
   R3 extends Row = {},
->(node: {
-  effectKey: K;
-  self: Kyoot<A, S>;
-  state?: St;
-  onOp: (payload: P, resume: Resume<St>, state: St) => Kyoot<B2, R1>;
-  onSuccess?: (a: A, state: St) => Kyoot<B, R2>;
-  onDefect?: (d: unknown, state: St) => Kyoot<B3, R3>;
-  onInterrupt?: (state: St) => void;
-}): Kyoot<B | B2 | B3, MergeAll<Omit<S, K> | R1 | R2 | R3>> {
-  return new KyootImpl({ _tag: "handler", ...(node as any) }) as AnyKyoot;
+>(
+  effectKey: K,
+  self: Kyoot<A, S>,
+  hooks: {
+    state?: St;
+    onOp: (payload: P, resume: Resume<any, St>, state: St) => Kyoot<B2, R1>;
+    onSuccess?: (a: A, state: St) => Kyoot<B, R2>;
+    onDefect?: (d: unknown, state: St) => Kyoot<B3, R3>;
+    onInterrupt?: (state: St) => void;
+  },
+): Kyoot<B | B2 | B3, MergeAll<Omit<S, K> | R1 | R2 | R3>> {
+  return new KyootImpl({ _tag: "handler", effectKey, self, ...(hooks as any) }) as AnyKyoot;
 }
 
 export class EscapedOp {

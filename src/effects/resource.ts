@@ -25,9 +25,7 @@ const runFinalizers = (finalizers: readonly Finalizer[]): void => {
 };
 
 export const run = <A, S extends Row & { resource?: ResourceOp }>(k: Kyoot<A, S>) =>
-  makeHandler({
-    effectKey: "resource",
-    self: k,
+  makeHandler("resource", k, {
     state: [] as Finalizer[],
     onOp: (res, resume, finalizers) => {
       const r = res.acquire();

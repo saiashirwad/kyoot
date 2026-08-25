@@ -6,9 +6,7 @@ import type { Row } from "../types.ts";
 export const fail = <E>(e: E) => op<never>()("fail", e);
 
 export const run = <A, S extends Row & { fail?: unknown }>(k: Kyoot<A, S>) =>
-  makeHandler({
-    effectKey: "fail",
-    self: k,
+  makeHandler("fail", k, {
     onOp: (e) => succeed(Result.fail(e)),
     onSuccess: (a) => succeed(Result.ok(a)),
     onDefect: (d) => succeed(Result.defect(d)),
@@ -17,12 +15,10 @@ export const run = <A, S extends Row & { fail?: unknown }>(k: Kyoot<A, S>) =>
 export const catchAll =
   <E, A2, S2 extends Row>(f: (e: E) => Kyoot<A2, S2>) =>
   <A, S extends Row & { fail?: E }>(k: Kyoot<A, S>) =>
-    makeHandler({ effectKey: "fail", self: k, onOp: (e) => f(e) });
+    makeHandler("fail", k, { onOp: (e) => f(e) });
 
 export const orThrow = <A, S extends Row & { fail?: unknown }>(k: Kyoot<A, S>) =>
-  makeHandler({
-    effectKey: "fail",
-    self: k,
+  makeHandler("fail", k, {
     onOp: (e) => {
       throw e;
     },

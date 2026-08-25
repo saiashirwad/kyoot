@@ -32,9 +32,7 @@ export const tag =
       set: (value) => op({ kind: "set", value }),
       update: (f) => op({ kind: "update", f }),
       run: (initial) => (k) =>
-        makeHandler({
-          effectKey,
-          self: k,
+        makeHandler(effectKey, k, {
           state: initial,
           onOp: (op: VarOp<V>, resume, value) => {
             switch (op.kind) {

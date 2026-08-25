@@ -23,7 +23,6 @@ export const tag =
     return {
       get,
       [Symbol.iterator]: () => get()[Symbol.iterator](),
-      provide: (impl) => (k) =>
-        makeHandler({ effectKey, self: k, onOp: (_, resume) => resume(impl) }),
+      provide: (impl) => (k) => makeHandler(effectKey, k, { onOp: (_, resume) => resume(impl) }),
     };
   };

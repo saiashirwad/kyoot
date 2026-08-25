@@ -36,7 +36,10 @@ export interface Payments {
   charge(totalCents: number, card: Card): KyootT<string, { sync: true; fail: PaymentDeclined }>;
 }
 
-export const Inventory = Env.tag<Inventory>()("inventory");
+export const Inventory = Env.tag<{
+  reserve(sku: string, qty: number): KyootT<boolean, { sync: true }>;
+}>()("inventory");
+
 export const Payments = Env.tag<Payments>()("payments");
 
 const Total = Var.tag<number>()("Total");

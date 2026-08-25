@@ -32,23 +32,14 @@ export type RuntimeNode =
 
 export const NodeSym: unique symbol = Symbol("kyoot.node");
 
-/**
- * Result of `map`. Pure values (including `never` from `throw`) keep `S`.
- * Returning a nested Kyoot flattens and merges rows.
- *
- * Uses tuple checks so a free `S2 extends Row` is never introduced — that
- * unconstrained parameter used to collapse to `Row` and wipe real effect keys.
- */
-export type MapResult<S extends Row, B> = [B] extends [never]
-  ? Kyoot<never, S>
-  : [B] extends [Kyoot<infer B2, infer S2>]
-    ? Kyoot<B2, Merge<S, S2 extends Row ? S2 : {}>>
-    : Kyoot<B, S>;
-
 export interface Kyoot<A, S extends Row = {}> extends Pipeable {
   readonly _?: (s: S) => void;
 
-  map<B>(f: (a: A) => B): MapResult<S, B>;
+  /** Transform the value. `f` returns a plain value; a returned Kyoot is just a value. */
+  map<B>(f: (a: A) => B): Kyoot<B, S>;
+
+  /** Sequence a Kyoot after this one. Rows merge. (`S2 = {}` keeps a thrown `never` from widening to `Row`.) */
+  flatMap<B, S2 extends Row = {}>(f: (a: A) => Kyoot<B, S2>): Kyoot<B, Merge<S, S2>>;
 
   [Symbol.iterator](): Iterator<Kyoot<unknown, S>, A, unknown>;
 }

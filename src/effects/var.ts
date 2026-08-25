@@ -27,8 +27,9 @@ export const tag =
   <const Id extends string>(id: Id): Tag<Id, V> => {
     const effectKey = `var/${id}`;
     const op = (op: VarOp<V>) => makeOp(effectKey, op) as Kyoot<any, VarRow<Id, V>>;
+    const getNode = op({ kind: "get" });
     return {
-      get: () => op({ kind: "get" }),
+      get: () => getNode,
       set: (value) => op({ kind: "set", value }),
       update: (f) => op({ kind: "update", f }),
       run: (initial) => (k) =>

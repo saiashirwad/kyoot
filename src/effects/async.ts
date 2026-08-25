@@ -170,7 +170,7 @@ export function timeout<A, S extends Row>(
         },
       ) as Promise<unknown>;
     },
-  }).map((r) => (r === TIMEOUT ? (fail(new TimeoutError(ms)) as AnyKyoot) : succeed(r))) as Kyoot<
+  }).flatMap((r) => (r === TIMEOUT ? (fail(new TimeoutError(ms)) as AnyKyoot) : succeed(r))) as Kyoot<
     A,
     Merge<S, { async: true; fail: TimeoutError }>
   >;

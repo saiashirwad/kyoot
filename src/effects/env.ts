@@ -19,7 +19,8 @@ export const tag =
   <E>() =>
   <const Id extends string>(id: Id): Tag<Id, E> => {
     const effectKey = `env/${id}`;
-    const get = () => makeOp(effectKey, undefined) as Kyoot<E, EnvRow<Id, E>>;
+    const node = makeOp(effectKey, undefined) as Kyoot<E, EnvRow<Id, E>>;
+    const get = () => node;
     return {
       get,
       [Symbol.iterator]: () => get()[Symbol.iterator](),

@@ -5,8 +5,8 @@ import { Kyoot, Var } from "../src/index.ts";
 
 const Count = Var.tag<number>()("Count");
 
-test("map auto-flattens a returned Kyo", () => {
-  const n = Kyoot.runSync(Kyoot.succeed(1).map((x) => Kyoot.succeed(x + 1)));
+test("flatMap sequences a returned Kyoot", () => {
+  const n = Kyoot.runSync(Kyoot.succeed(1).flatMap((x) => Kyoot.succeed(x + 1)));
   assert.equal(n, 2);
 });
 
@@ -86,7 +86,7 @@ test("a continuation may only be resumed once", () => {
     }),
     onOp: (_p, resume) => {
       const first = resume(1);
-      return first.map(() => resume(2));
+      return first.flatMap(() => resume(2));
     },
   });
   assert.throws(() => Kyoot.runSync(k as never), /continuation resumed twice \(one-shot law\)/);

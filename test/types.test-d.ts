@@ -101,7 +101,7 @@ type _neverMapKeys = Expect<Equal<keyof RowsOf<typeof neverMapped>, "async">>;
 const forked = Async.fork(neverMapped);
 type _forkKeys = Expect<Equal<keyof RowsOf<typeof forked>, "async">>;
 
-// nested Kyoot from map still flattens and merges rows
-const flatMapped = Kyoot.succeed(1).map((n) => Fail.fail(String(n)));
+// flatMap merges rows
+const flatMapped = Kyoot.succeed(1).flatMap((n) => Fail.fail(String(n)));
 type _flatKeys = Expect<Equal<keyof RowsOf<typeof flatMapped>, "fail">>;
 type _flatFail = Expect<Equal<RowsOf<typeof flatMapped>["fail"], string>>;

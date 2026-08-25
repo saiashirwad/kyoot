@@ -9,7 +9,7 @@ export type { AsyncOp, AsyncRuntime, FiberHandle } from "./runtime.ts";
 export type { Pipeable } from "./pipe.ts";
 export { Cause, Result } from "./result.ts";
 export type { Merge, MergeAll, Only, Row, Simplify, Unhandled } from "./types.ts";
-export type { AnyKyoot, MapResult, RowsOf } from "./model.ts";
+export type { AnyKyoot, RowsOf } from "./model.ts";
 
 export * as Async from "./effects/async.ts";
 export * as Emit from "./effects/emit.ts";

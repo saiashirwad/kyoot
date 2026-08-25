@@ -31,6 +31,12 @@ export interface AsyncOp {
   execute(rt: AsyncRuntime): Promise<unknown>;
 }
 
+const realSleep = (ms: number, signal: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    const t = setTimeout(resolve, ms);
+    signal.addEventListener("abort", () => clearTimeout(t), { once: true });
+  });
+
 const raceSignal = <T>(
   p: Promise<T>,
   signal: AbortSignal,
@@ -67,12 +73,13 @@ export function asyncDrive<A>(k: Kyoot<A, any>, parent: AsyncRuntime): FiberHand
       try {
         return stepAll(current) as A;
       } catch (e) {
-        if (e instanceof EscapedOp && e.key === "async") {
-          const raced = await raceSignal((e.payload as AsyncOp).execute(rt), rt.signal);
-          current = raced.done ? e.resume(raced.value) : e.resumeError(new InterruptedError());
-        } else {
-          throw e;
-        }
+        if (!(e instanceof EscapedOp) || (e.key !== "async" && e.key !== "clock")) throw e;
+        const work =
+          e.key === "async"
+            ? (e.payload as AsyncOp).execute(rt)
+            : realSleep(e.payload as number, rt.signal);
+        const raced = await raceSignal(work, rt.signal);
+        current = raced.done ? e.resume(raced.value) : e.resumeError(new InterruptedError());
       }
     }
   })();
@@ -94,7 +101,9 @@ export function asyncDrive<A>(k: Kyoot<A, any>, parent: AsyncRuntime): FiberHand
   return { promise, interrupt: () => controller.abort() };
 }
 
-export function runPromise<A, S extends Row>(k: Kyoot<A, S> & Only<S, "async">): Promise<A>;
+export function runPromise<A, S extends Row>(
+  k: Kyoot<A, S> & Only<S, "async" | "clock">,
+): Promise<A>;
 export function runPromise<A>(k: AnyKyoot): Promise<A> {
   const seed: AsyncRuntime = {
     signal: new AbortController().signal,

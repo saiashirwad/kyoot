@@ -1,5 +1,6 @@
 import { InterruptedError, op, succeed } from "../core.ts";
 import { fail } from "./fail.ts";
+import { sleep } from "./clock.ts";
 import { Result } from "../result.ts";
 import type { Kyoot } from "../model.ts";
 import type { AsyncOp, AsyncRuntime, FiberHandle } from "../runtime.ts";
@@ -10,15 +11,6 @@ const async = <A>(execute: (rt: AsyncRuntime) => Promise<A>) =>
 
 export const fromPromise = <A>(f: (signal: AbortSignal) => Promise<A>) =>
   async((rt) => f(rt.signal));
-
-export const sleep = (ms: number) =>
-  fromPromise<void>(
-    (signal) =>
-      new Promise((resolve) => {
-        const t = setTimeout(resolve, ms);
-        signal.addEventListener("abort", () => clearTimeout(t), { once: true });
-      }),
-  );
 
 export interface Fiber<A> {
   readonly join: Kyoot<A, { async: AsyncOp }>;
@@ -36,7 +28,7 @@ const fiber = <A>(h: FiberHandle<A>): Fiber<A> => ({
   interrupt: async(async () => h.interrupt()),
 });
 
-type Forkable<A, S extends Row> = Kyoot<A, S> & Only<S, "async">;
+type Forkable<A, S extends Row> = Kyoot<A, S> & Only<S, "async" | "clock">;
 
 const settle = (fibers: ReadonlyArray<FiberHandle>) =>
   Promise.allSettled(fibers.map((f) => (f.interrupt(), f.promise)));

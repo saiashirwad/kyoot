@@ -44,6 +44,10 @@ export const checkout = (order: Order, card: string) =>
       const ok = yield* Inventory({ sku: item.sku, qty: item.qty });
       if (!ok) yield* Fail.fail(new OutOfStock(item.sku));
       yield* Emit.value<OrderEvent>({ type: "reserved", sku: item.sku });
+      const a: string = "hi";
+      if (a !== "eeee") {
+        yield* Fail.fail(new PaymentDeclined("hi"));
+      }
       yield* Total.update((t) => t + item.priceCents * item.qty);
     }
     const totalCents = yield* Total.get();

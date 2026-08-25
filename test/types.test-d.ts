@@ -1,6 +1,18 @@
-import { Async, effect, Emit, Env, Fail, Kyoot, op, Sync, Var, makeHandler } from "../src/index.ts";
+import {
+  Async,
+  Clock,
+  effect,
+  Emit,
+  Env,
+  Fail,
+  Kyoot,
+  makeHandler,
+  op,
+  Retry,
+  Sync,
+  Var,
+} from "../src/index.ts";
 import type { AsyncOp, Kyoot as KyootT, Result, RowsOf } from "../src/index.ts";
-import { sleep, testClock } from "../examples/clock.ts";
 
 type Expect<T extends true> = T;
 type Equal<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
@@ -18,22 +30,25 @@ const Total = Var.tag<number>()("Total");
 
 const mixed = Kyoot.gen(function* () {
   yield* Fail.fail(new FetchFailed());
-  yield* Async.sleep(1);
+  yield* Async.fromPromise(() => Promise.resolve(1));
+  yield* Clock.sleep(1);
   yield* Sync.defer(() => 1);
   return "done";
 });
 type MixedRows = RowsOf<typeof mixed>;
-type _mixedKeys = Expect<Equal<keyof MixedRows, "fail" | "async" | "sync">>;
+type _mixedKeys = Expect<Equal<keyof MixedRows, "fail" | "async" | "clock" | "sync">>;
 type _mixedFail = Expect<Equal<MixedRows["fail"], FetchFailed>>;
 // the row value is the op's payload type
 type _mixedAsync = Expect<Equal<MixedRows["async"], AsyncOp>>;
 type _mixedSync = Expect<Equal<MixedRows["sync"], () => unknown>>;
+type _mixedClock = Expect<Equal<MixedRows["clock"], number>>;
 type _mixedValue = Expect<Equal<typeof mixed extends KyootT<infer A, any> ? A : never, string>>;
 
-// @ts-expect-error runSync rejects async rows
-Kyoot.runSync(Async.sleep(1));
+// @ts-expect-error runSync rejects clock rows; runPromise serves them
+Kyoot.runSync(Clock.sleep(1));
+const slept: Promise<void> = Kyoot.runPromise(Clock.sleep(1));
 
-// @ts-expect-error runSync names every unhandled key: Unhandled<"fail" | "async" | "sync">
+// @ts-expect-error runSync names every unhandled key: Unhandled<"fail" | "async" | "clock" | "sync">
 Kyoot.runSync(mixed);
 
 const syncProg = Sync.defer(() => 1);
@@ -50,7 +65,8 @@ const fp = Async.fromPromise((signal) => fetch("https://example.com", { signal }
 type _fpKeys = Expect<Equal<keyof RowsOf<typeof fp>, "async">>;
 type _fpValue = Expect<Equal<typeof fp extends KyootT<infer A, any> ? A : never, Response>>;
 
-const timed = Async.timeout(100, Async.sleep(1));
+// the branches run in fibers, whose driver serves `clock`, so it does not surface
+const timed = Async.timeout(100, Clock.sleep(1));
 type _timedKeys = Expect<Equal<keyof RowsOf<typeof timed>, "async" | "fail">>;
 type _timedFail = Expect<Equal<RowsOf<typeof timed>["fail"], Async.TimeoutError>>;
 
@@ -105,17 +121,26 @@ type _refusedRow = Expect<Equal<keyof RowsOf<typeof refused>, "fail">>;
 const cached = asked.pipe(Ask.handle({ onOp: () => Kyoot.succeed("cached" as const) }));
 type _cachedValue = Expect<Equal<ValueOf<typeof cached>, number | "cached">>;
 
-const clockProg = sleep(5).pipe(testClock);
+const clockProg = Clock.sleep(5).pipe(Clock.virtual);
 const c1: readonly [void, number] = Kyoot.runSync(clockProg);
 
+// Retry keeps the failure and adds the clock; the value type is unchanged.
+const retried = Kyoot.gen(function* () {
+  yield* Fail.fail(new FetchFailed());
+  return 1;
+}).pipe(Retry.run({ times: 3, delay: 10 }));
+type _retryKeys = Expect<Equal<keyof RowsOf<typeof retried>, "fail" | "clock">>;
+type _retryFail = Expect<Equal<RowsOf<typeof retried>["fail"], FetchFailed>>;
+type _retryValue = Expect<Equal<ValueOf<typeof retried>, number>>;
+
 // pure map (including throw → never) must keep the effect row; no Row pollution
-const pureMapped = Async.sleep(1).map((_) => 1);
+const pureMapped = Async.fromPromise(() => Promise.resolve()).map((_) => 1);
 type _pureMapKeys = Expect<Equal<keyof RowsOf<typeof pureMapped>, "async">>;
 type _pureMapValue = Expect<
   Equal<typeof pureMapped extends KyootT<infer A, any> ? A : never, number>
 >;
 
-const neverMapped = Async.sleep(1).map(() => {
+const neverMapped = Async.fromPromise(() => Promise.resolve()).map(() => {
   throw new Error("boom");
 });
 type _neverMapKeys = Expect<Equal<keyof RowsOf<typeof neverMapped>, "async">>;
@@ -144,15 +169,15 @@ type _failRunKeys = Expect<Equal<keyof RowsOf<typeof handled>, never>>;
 const recovered = Kyoot.gen(function* () {
   yield* Fail.fail(new FetchFailed());
   return 1;
-}).pipe(Fail.catchAll(() => Async.sleep(1).map(() => "fallback" as const)));
+}).pipe(Fail.catchAll(() => Clock.sleep(1).map(() => "fallback" as const)));
 type _catchAllValue = Expect<Equal<ValueOf<typeof recovered>, number | "fallback">>;
-type _catchAllKeys = Expect<Equal<keyof RowsOf<typeof recovered>, "async">>;
+type _catchAllKeys = Expect<Equal<keyof RowsOf<typeof recovered>, "clock">>;
 
 // A handler whose onOp runs an async op adds `async` to the row.
 const slowSync = Sync.defer(() => 1).pipe((k) =>
   makeHandler("sync", k, {
-    onOp: (f, resume) => Async.sleep(1).map(() => resume(f())), // f: () => unknown, from the row
+    onOp: (f, resume) => Clock.sleep(1).map(() => resume(f())), // f: () => unknown, from the row
   }),
 );
 type _asyncHandlerValue = Expect<Equal<ValueOf<typeof slowSync>, number>>;
-type _asyncHandlerKeys = Expect<Equal<keyof RowsOf<typeof slowSync>, "async">>;
+type _asyncHandlerKeys = Expect<Equal<keyof RowsOf<typeof slowSync>, "clock">>;

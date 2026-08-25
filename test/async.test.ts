@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Fail, Async, InterruptedError, Kyoot, Resource } from "../src/index.ts";
+import { Async, Clock, Fail, InterruptedError, Kyoot, Resource } from "../src/index.ts";
 
 test("fromPromise resolves through runPromise", async () => {
   const r = await Kyoot.runPromise(Async.fromPromise(() => Promise.resolve(42)));
@@ -16,7 +16,7 @@ test("fork/join: a fiber is an independent interpreter loop", async () => {
   const prog = Kyoot.gen(function* () {
     const fiber = yield* Async.fork(
       Kyoot.gen(function* () {
-        yield* Async.sleep(10);
+        yield* Clock.sleep(10);
         return "fiber done";
       }),
     );
@@ -29,7 +29,7 @@ test("fiber.await returns a Result instead of throwing", async () => {
   const boom = new Error("boom");
   const prog = Kyoot.gen(function* () {
     const fiber = yield* Async.fork(
-      Async.sleep(1).map(() => {
+      Clock.sleep(1).map(() => {
         throw boom;
       }),
     );
@@ -41,13 +41,13 @@ test("fiber.await returns a Result instead of throwing", async () => {
 });
 
 test("race: first to complete wins", async () => {
-  const slow = Async.sleep(50).map(() => "slow");
-  const fast = Async.sleep(5).map(() => "fast");
+  const slow = Clock.sleep(50).map(() => "slow");
+  const fast = Clock.sleep(5).map(() => "fast");
   assert.equal(await Kyoot.runPromise(Async.race(slow, fast)), "fast");
 });
 
 test("timeout: a slow computation fails with a typed TimeoutError", async () => {
-  const r = await Kyoot.runPromise(Async.timeout(5, Async.sleep(50)).pipe(Fail.run));
+  const r = await Kyoot.runPromise(Async.timeout(5, Clock.sleep(50)).pipe(Fail.run));
   assert.equal(r.ok, false);
   assert.ok(!r.ok && r.cause._tag === "Fail" && r.cause.error instanceof Async.TimeoutError);
 });
@@ -56,7 +56,7 @@ test("timeout: a fast computation wins", async () => {
   const r = await Kyoot.runPromise(
     Async.timeout(
       50,
-      Async.sleep(5).map(() => "quick"),
+      Clock.sleep(5).map(() => "quick"),
     ).pipe(Fail.orThrow),
   );
   assert.equal(r, "quick");
@@ -66,7 +66,7 @@ test("timeout inside a gen resumes the surrounding computation", async () => {
   const prog = Kyoot.gen(function* () {
     const r = yield* Async.timeout(
       50,
-      Async.sleep(5).map(() => "quick"),
+      Clock.sleep(5).map(() => "quick"),
     ).pipe(Fail.run);
     return r.ok ? `${r.value} again` : "failed";
   });
@@ -76,7 +76,7 @@ test("timeout inside a gen resumes the surrounding computation", async () => {
 test("runPromise surfaces defects as rejections", async () => {
   const boom = new Error("boom");
   const k = Kyoot.gen(function* () {
-    yield* Async.sleep(1);
+    yield* Clock.sleep(1);
     throw boom;
   });
   await assert.rejects(Kyoot.runPromise(k), (e) => e === boom);
@@ -92,7 +92,7 @@ test("runPromise on an unhandled non-async effect rejects loudly", async () => {
 
 test("runSync rejects an async op at runtime", () => {
   assert.throws(
-    () => Kyoot.runSync(Async.sleep(1) as never),
+    () => Kyoot.runSync(Async.fromPromise(() => Promise.resolve()) as never),
     (e: unknown) => e instanceof Error && e.message.includes("unhandled effect 'async'"),
   );
 });
@@ -106,7 +106,7 @@ test("interrupt: finalizers run and await reports Interrupted", async () => {
           () => "conn",
           () => events.push("release"),
         );
-        yield* Async.sleep(10_000);
+        yield* Clock.sleep(10_000);
         return "unreachable";
       }).pipe(Resource.run),
     );
@@ -129,7 +129,7 @@ test("structured concurrency: a completed parent interrupts its children", async
             () => "conn",
             () => events.push("release"),
           );
-          yield* Async.sleep(10_000);
+          yield* Clock.sleep(10_000);
         }).pipe(Resource.run),
       );
       return "parent done";
@@ -139,8 +139,8 @@ test("structured concurrency: a completed parent interrupts its children", async
 });
 
 test("all: results come back in input order, not completion order", async () => {
-  const slow = Async.sleep(20).map(() => "slow");
-  const fast = Async.sleep(5).map(() => "fast");
+  const slow = Clock.sleep(20).map(() => "slow");
+  const fast = Clock.sleep(5).map(() => "fast");
   assert.deepEqual(await Kyoot.runPromise(Async.all([slow, fast])), ["slow", "fast"]);
 });
 
@@ -149,7 +149,7 @@ test("all: branches run concurrently", async () => {
   const branch = (tag: string, ms: number) =>
     Kyoot.gen(function* () {
       events.push(`start ${tag}`);
-      yield* Async.sleep(ms);
+      yield* Clock.sleep(ms);
       events.push(`end ${tag}`);
     });
   await Kyoot.runPromise(Async.all([branch("a", 20), branch("b", 10)]));
@@ -168,10 +168,10 @@ test("all: first failure interrupts the rest and runs their finalizers", async (
       () => "conn",
       () => events.push("release"),
     );
-    yield* Async.sleep(10_000);
+    yield* Clock.sleep(10_000);
     return "unreachable";
   }).pipe(Resource.run);
-  const failing = Async.sleep(5).map(() => {
+  const failing = Clock.sleep(5).map(() => {
     throw boom;
   });
   await assert.rejects(Kyoot.runPromise(Async.all([slow, failing])), (e) => e === boom);
@@ -186,11 +186,11 @@ test("all: interrupting the parent interrupts every branch", async () => {
         () => tag,
         () => events.push(`release ${tag}`),
       );
-      yield* Async.sleep(10_000);
+      yield* Clock.sleep(10_000);
     }).pipe(Resource.run);
   const prog = Kyoot.gen(function* () {
     const fiber = yield* Async.fork(Async.all([branch("a"), branch("b")]));
-    yield* Async.sleep(10);
+    yield* Clock.sleep(10);
     yield* fiber.interrupt;
     return yield* fiber.await;
   });
@@ -207,10 +207,10 @@ test("race interrupts the loser and runs its finalizers", async () => {
       () => "slow",
       () => events.push("release slow"),
     );
-    yield* Async.sleep(10_000);
+    yield* Clock.sleep(10_000);
     return "slow";
   }).pipe(Resource.run);
-  const fast = Async.sleep(5).map(() => "fast");
+  const fast = Clock.sleep(5).map(() => "fast");
   const r = await Kyoot.runPromise(Async.race(slow, fast));
   assert.equal(r, "fast");
   assert.deepEqual(events, ["release slow"]);
@@ -223,7 +223,7 @@ test("timeout interrupts the branch and runs its finalizers", async () => {
       () => "conn",
       () => events.push("release"),
     );
-    yield* Async.sleep(10_000);
+    yield* Clock.sleep(10_000);
     return "unreachable";
   }).pipe(Resource.run);
   const r = await Kyoot.runPromise(Async.timeout(5, slow).pipe(Fail.run));
@@ -253,7 +253,7 @@ test("fromPromise's signal fires on interruption", async () => {
 
 test("joining an interrupted fiber interrupts the joiner", async () => {
   const prog = Kyoot.gen(function* () {
-    const fiber = yield* Async.fork(Async.sleep(10_000));
+    const fiber = yield* Async.fork(Clock.sleep(10_000));
     yield* fiber.interrupt;
     return yield* fiber.join;
   });

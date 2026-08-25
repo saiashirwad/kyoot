@@ -23,7 +23,6 @@ export type RuntimeNode =
       readonly self: AnyKyoot;
       readonly state?: unknown;
       readonly onOp: OnOp;
-      /** Defaults to pure success (`succeed(a)`). */
       readonly onSuccess?: (a: any, state: any) => AnyKyoot;
       readonly onDefect?: (d: unknown, state: any) => AnyKyoot;
       readonly onInterrupt?: (state: any) => void;

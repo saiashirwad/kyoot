@@ -5,7 +5,9 @@ export type AnyKyoot = Kyoot<any, any>;
 
 export type OnOp = (
   payload: any,
-  resume: (value: any, state?: any) => AnyKyoot,
+  resume: ((value: any, state?: any) => AnyKyoot) & {
+    with: (program: AnyKyoot, state?: any) => AnyKyoot;
+  },
   state: any,
 ) => AnyKyoot;
 

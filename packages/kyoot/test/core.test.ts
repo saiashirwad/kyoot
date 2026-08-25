@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { KyootImpl, makeHandler, makeOp, succeed } from "../src/core.ts";
-import { Kyoot, Var } from "../src/index.ts";
+import { effect, Fail, Kyoot, Var } from "../src/index.ts";
 
 const Count = Var.tag<number>()("Count");
 
@@ -134,4 +134,23 @@ test("a throw inside onOp goes to the same handler's onDefect", () => {
     onDefect: (d) => succeed(d === boom ? "caught" : "wrong"),
   });
   assert.equal(Kyoot.runSync(k as never), "caught");
+});
+
+test("resume.with continues the program at the op, where its own handlers see it", () => {
+  const Fetch = effect<string, string, string>()("fetch");
+  const program = Fetch("a").pipe(Fail.catchAll((e: string) => Kyoot.succeed(`caught ${e}`)));
+  const failing = Fetch.handle({ onOp: (url, resume) => resume.with(Fail.fail(`no ${url}`)) });
+  assert.equal(Kyoot.runSync(program.pipe(failing)), "caught no a");
+});
+
+test("intercept answers some ops and performs the rest for the handler outside", () => {
+  const Fetch = effect<string, string>()("fetch");
+  const cache = Fetch.intercept((url, next) =>
+    url === "hot" ? Kyoot.succeed("cached") : next(url),
+  );
+  const live = Fetch.handle({ onOp: (url, resume) => resume(`fetched ${url}`) });
+  const program = Kyoot.gen(function* () {
+    return [yield* Fetch("hot"), yield* Fetch("cold")];
+  });
+  assert.deepEqual(Kyoot.runSync(program.pipe(cache, live)), ["cached", "fetched cold"]);
 });

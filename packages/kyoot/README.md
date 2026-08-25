@@ -55,6 +55,13 @@ const printLogs = Log.handle({
 // <A, S>(k: Kyoot<A, S>) => Kyoot<A, Omit<S, "log"> & { sync: () => unknown }>
 ```
 
+A handler that only wants to sit between the program and the handlers outside it uses `intercept`. It sees the payload and a `next` that performs the op again for the outer handlers to answer. Whatever it returns — a value, or a failure — is delivered where the op was performed, so the program can catch it. This is how a cache, a sandbox, or a system prompt is written.
+
+```ts
+const cache = Fetch.intercept((url, next) => (url === "hot" ? Kyoot.succeed("cached") : next(url)));
+program.pipe(cache, live);
+```
+
 A handler that also reshapes the final value uses `makeHandler` directly; `onSuccess` sees the value and the final state. This is how `Clock.virtual` is written:
 
 ```ts
@@ -118,12 +125,20 @@ There is no scheduler beyond the event loop. Fibers yield only at await points, 
 
 ## Your own effect
 
-Declare one `effect` and one handler per interpretation. `examples/checkout.ts` does this for a business program: `Inventory` and `Payments` are effects, and the handlers are an in-memory stock table and a test double. A handler may also fail instead of resuming, which adds `fail` to the row at that step.
+Declare one `effect` and one handler per interpretation. `examples/checkout.ts` does this for a business program: `Inventory` and `Payments` are effects, and the handlers are an in-memory stock table and a test double. A handler may fail instead of resuming, which adds `fail` to the row at that step: the failure belongs to the handler's scope, and the program inside cannot catch it.
 
 ```ts
 const Payments = effect<Charge, string>()("payments");
 const declineAll = (reason: string) =>
   Payments.handle({ onOp: () => Fail.fail(new PaymentDeclined(reason)) });
+```
+
+When the failure is part of the effect's contract, declare it as the third type argument and hand it back with `resume.with`. It is then raised where the op was performed, so the program's own `catchTag` sees it. This is how `FileSystem.readFile` fails with `NotFound`.
+
+```ts
+const Payments = effect<Charge, string, PaymentDeclined>()("payments");
+const declineAll = (reason: string) =>
+  Payments.handle({ onOp: (_, resume) => resume.with(Fail.fail(new PaymentDeclined(reason))) });
 ```
 
 `op<A>()(key, payload)` is the one-off form underneath `effect`, for ops whose payload type varies per call (`Fail.fail`, `Emit.value`).
@@ -154,7 +169,7 @@ agent("why is the sky blue?").pipe(
 
 ## Rules
 
-- `resume` works once; a second call throws.
+- `resume` works once; a second call throws. `resume(value)` continues the program with a value; `resume.with(program)` continues it with a computation, run where the op was.
 - A thrown exception is a defect: it skips `onOp` and goes to the nearest `onDefect`, or out of `runSync`. Use `Fail` for errors you expect.
 - A handler that does not resume drops the rest of the program, so handlers inside it never finish. Put `Fail.run` inside `Resource.run`; the other order leaves resources open on failure.
 

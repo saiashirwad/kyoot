@@ -1,20 +1,17 @@
 import { execFile } from "node:child_process";
 import * as fsp from "node:fs/promises";
-import { Async, Fail, Kyoot } from "kyoot";
+import { Async, Fail } from "kyoot";
 import type { Kyoot as K, Row } from "kyoot";
 import * as Command from "./command.ts";
 import * as FileSystem from "./fs.ts";
 
 const attempt = <A, E>(f: () => Promise<A>, onError: (e: unknown) => E) =>
-  Kyoot.gen(function* () {
-    const r = yield* Async.fromPromise(() =>
-      f().then(
-        (value) => ({ ok: true as const, value }),
-        (e: unknown) => ({ ok: false as const, error: onError(e) }),
-      ),
-    );
-    return r.ok ? r.value : yield* Fail.fail(r.error);
-  });
+  Async.fromPromise(() =>
+    f().then(
+      (value) => ({ ok: true as const, value }),
+      (e: unknown) => ({ ok: false as const, error: onError(e) }),
+    ),
+  );
 
 const codes: Record<string, FileSystem.Code> = {
   ENOENT: "NotFound",
@@ -70,7 +67,7 @@ export const fs = FileSystem.handle({
     attempt(
       () => performFs(op),
       (e) => fsError(op, e),
-    ).map(resume),
+    ).map((r) => (r.ok ? resume(r.value) : resume.with(Fail.fail(r.error)))),
 });
 
 const exec = (op: Command.Op) =>
@@ -93,7 +90,7 @@ export const command = Command.handle({
     attempt(
       () => exec(op),
       (e) => new Command.CommandError(op.command, (e as Error).message),
-    ).map(resume),
+    ).map((r) => (r.ok ? resume(r.value) : resume.with(Fail.fail(r.error)))),
 });
 
 export const provide = <A, S extends Row & { fs?: FileSystem.Op; command?: Command.Op }>(

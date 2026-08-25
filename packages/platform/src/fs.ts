@@ -41,11 +41,13 @@ export interface Stat {
   readonly mtime: Date;
 }
 
-const tag = effect<Op, any>()("fs");
+const fs = effect<Op, any, FsError>()("fs");
 
-export const handle = tag.handle;
+export const handle = fs.handle;
 
-const perform = <A>(op: Op) => tag(op) as Kyoot<A, { fs: Op; fail: FsError }>;
+export const intercept = fs.intercept;
+
+const perform = <A>(op: Op) => fs(op) as Kyoot<A, { fs: Op; fail: FsError }>;
 
 export const readFile = (path: string) => perform<string>({ kind: "readFile", path });
 

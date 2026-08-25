@@ -1,5 +1,4 @@
 import { effect } from "kyoot";
-import type { Kyoot } from "kyoot";
 
 export interface Options {
   readonly cwd?: string;
@@ -28,9 +27,11 @@ export class CommandError {
   }
 }
 
-const tag = effect<Op, Output>()("command");
+const command = effect<Op, Output, CommandError>()("command");
 
-export const handle = tag.handle;
+export const handle = command.handle;
 
-export const run = (command: string, args: readonly string[] = [], options: Options = {}) =>
-  tag({ command, args, ...options }) as Kyoot<Output, { command: Op; fail: CommandError }>;
+export const intercept = command.intercept;
+
+export const run = (name: string, args: readonly string[] = [], options: Options = {}) =>
+  command({ command: name, args, ...options });

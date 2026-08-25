@@ -1,11 +1,8 @@
 import { Kyoot, makeHandler } from "kyoot";
 import type { Kyoot as K, Row } from "kyoot";
-import { Model, type Completion, type Request, type Usage } from "./model.ts";
+import { Model, type Request, type Usage } from "./model.ts";
 
-export type Next = (req: Request) => K<Completion, { "ai/model": Request }>;
-
-export const init = <R extends Row>(f: (req: Request, next: Next) => K<Completion, R>) =>
-  Model.handle({ onOp: (req, resume) => f(req, Model).map(resume) });
+export const init = Model.intercept;
 
 export const system = (content: string) =>
   init((req, next) => next({ ...req, messages: [{ role: "system", content }, ...req.messages] }));

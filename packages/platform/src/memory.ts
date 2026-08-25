@@ -93,17 +93,15 @@ export const fs =
       }
     };
 
-    const perform = (op: Op): K<unknown, { fail: FsError }> => {
-      try {
-        return Kyoot.succeed(run(op));
-      } catch (e) {
-        if (e instanceof FsError) return Fail.fail(e);
-        throw e;
-      }
-    };
-
     return makeHandler("fs", k, {
-      onOp: (op, resume) => perform(op).map(resume),
+      onOp: (op, resume) => {
+        try {
+          return resume(run(op));
+        } catch (e) {
+          if (e instanceof FsError) return resume.with(Fail.fail(e));
+          throw e;
+        }
+      },
       onSuccess: (a) =>
         Kyoot.succeed([a, Object.fromEntries([...files].map(([p, f]) => [p, f.data]))] as const),
     });

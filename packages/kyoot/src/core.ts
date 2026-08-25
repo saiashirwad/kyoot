@@ -3,10 +3,11 @@ import {
   type AnyKyoot,
   type Continuation,
   type Kyoot,
+  type RowOf,
   type RuntimeNode,
 } from "./model.ts";
 import { pipeArguments, type Pipeable } from "./pipe.ts";
-import type { MergeAll, Row } from "./types.ts";
+import type { MergeAll, Row, Simplify } from "./types.ts";
 
 // The interface carries pipe's overloads; the class merges with it.
 // oxlint-disable-next-line no-unused-vars, typescript/no-unsafe-declaration-merging
@@ -53,16 +54,27 @@ export const op =
 
 // resume's result is opaque: the handler's type comes from `self`, not from
 // what resume hands back. Returning `never` keeps it out of inference.
-export type Resume<A, St> = (value: A, state?: St) => Kyoot<never, {}>;
+// `resume.with` continues the program with a computation instead of a value,
+// run where the op was performed, so the program's own handlers see it.
+export interface Resume<A, St> {
+  (value: A, state?: St): Kyoot<never, {}>;
+  with(program: Kyoot<A, any>, state?: St): Kyoot<never, {}>;
+}
 
-// A declared effect: key, payload type, answer type. Calling it performs the
-// op; `handle` builds a handler whose `resume` is typed to the answer. Like
-// makeHandler, a callback that returns instead of resuming adds its value
-// and row to the result.
+type Performed<K extends string, P, A, E> = [E] extends [never]
+  ? Kyoot<A, { [k in K]: P }>
+  : Kyoot<A, Simplify<{ [k in K]: P } & { fail: E }>>;
+
+// A declared effect: key, payload type, answer type, and the failure type a
+// handler may hand back with `resume.with(Fail.fail(e))`. Calling it performs
+// the op; `handle` builds a handler whose `resume` is typed to the answer.
+// Like makeHandler, a callback that returns instead of resuming adds its
+// value and row to the result. `intercept` sits between the program and the
+// handlers outside it: `next` performs the op again for them to answer.
 export const effect =
-  <P, A>() =>
+  <P, A, E = never>() =>
   <const K extends string>(key: K) => {
-    const perform = (payload: P) => op<A>()(key, payload);
+    const perform = (payload: P) => makeOp(key, payload) as Performed<K, P, A, E>;
     const handle =
       <St = undefined, X1 = never, X2 = never, R1 extends Row = {}, R2 extends Row = {}>(hooks: {
         initial?: St;
@@ -74,7 +86,19 @@ export const effect =
         k: Kyoot<B, S>,
       ): Kyoot<B | X1 | X2, MergeAll<Omit<S, K> | R1 | R2>> =>
         makeHandler(key, k, hooks);
-    return Object.assign(perform, { key, handle });
+    // Whatever `f` does, its outcome is delivered where the op was performed:
+    // a value resumes, a failure is raised there for the program to catch.
+    const intercept = <Ret extends Kyoot<A, any>>(
+      f: (payload: P, next: (payload: P) => Performed<K, P, A, E>) => Ret,
+    ) =>
+      handle({
+        onOp: (payload, resume) =>
+          makeHandler("fail", f(payload, perform) as AnyKyoot, {
+            onOp: (e) => resume.with(makeOp("fail", e) as AnyKyoot),
+            onSuccess: (a) => resume(a),
+          }) as Kyoot<never, RowOf<Ret>>,
+      });
+    return Object.assign(perform, { key, handle, intercept });
   };
 
 // The payload type an effect key carries in the row, if the row has it.
@@ -124,18 +148,17 @@ export class EscapedOp {
   readonly _tag = "EscapedOp";
   readonly key: PropertyKey;
   readonly payload: unknown;
-  readonly resume: (v: any) => AnyKyoot;
-  readonly resumeError: (err: unknown) => AnyKyoot;
-  constructor(
-    key: PropertyKey,
-    payload: unknown,
-    resume: (v: any) => AnyKyoot,
-    resumeError: (err: unknown) => AnyKyoot,
-  ) {
+  readonly resumeWith: (k: AnyKyoot) => AnyKyoot;
+  constructor(key: PropertyKey, payload: unknown, resumeWith: (k: AnyKyoot) => AnyKyoot) {
     this.key = key;
     this.payload = payload;
-    this.resume = resume;
-    this.resumeError = resumeError;
+    this.resumeWith = resumeWith;
+  }
+  resume(v: unknown) {
+    return this.resumeWith(succeed(v));
+  }
+  resumeError(err: unknown) {
+    return this.resumeWith(new KyootImpl({ _tag: "raise", error: err }));
   }
 }
 
@@ -176,19 +199,11 @@ export function stepAll(k: AnyKyoot): unknown {
       case "op": {
         const captured = continuations.splice(0);
         let used = false;
-        const claim = (): void => {
+        throw new EscapedOp(currentNode.effectKey, currentNode.payload, (k) => {
           if (used) throw new Error("continuation resumed twice (one-shot law)");
           used = true;
-        };
-        const resume = (v: any) => {
-          claim();
-          return reify(captured, succeed(v));
-        };
-        const resumeError = (err: unknown) => {
-          claim();
-          return reify(captured, new KyootImpl({ _tag: "raise", error: err }));
-        };
-        throw new EscapedOp(currentNode.effectKey, currentNode.payload, resume, resumeError);
+          return reify(captured, k);
+        });
       }
       case "raise": {
         throw currentNode.error;
@@ -211,8 +226,11 @@ export function stepAll(k: AnyKyoot): unknown {
           }
           if (e instanceof EscapedOp) {
             if (e.key === handler.effectKey) {
-              const resume = (v: unknown, ...next: unknown[]) =>
-                rewrap(e.resume(v), next.length > 0 ? next[0] : handler.state);
+              const state = (next: unknown[]) => (next.length > 0 ? next[0] : handler.state);
+              const resume = Object.assign(
+                (v: unknown, ...next: unknown[]) => rewrap(e.resume(v), state(next)),
+                { with: (k: AnyKyoot, ...next: unknown[]) => rewrap(e.resumeWith(k), state(next)) },
+              );
               try {
                 current = handler.onOp(e.payload, resume, handler.state);
               } catch (d) {
@@ -223,12 +241,7 @@ export function stepAll(k: AnyKyoot): unknown {
               break;
             }
             const captured = continuations.splice(0);
-            throw new EscapedOp(
-              e.key,
-              e.payload,
-              (v) => reify(captured, rewrap(e.resume(v))),
-              (err) => reify(captured, rewrap(e.resumeError(err))),
-            );
+            throw new EscapedOp(e.key, e.payload, (k) => reify(captured, rewrap(e.resumeWith(k))));
           }
           // Anything that is not one of our two control exceptions is a defect.
           const { onDefect } = handler;

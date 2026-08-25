@@ -22,6 +22,7 @@ export * as Resource from "./effects/resource.ts";
 export * as Retry from "./effects/retry.ts";
 export * as Sync from "./effects/sync.ts";
 export * as Var from "./effects/var.ts";
+export * as Registry from "./registry.ts";
 
 export type Kyoot<A, S extends Row = {}> = KyootType<A, S>;
 export const Kyoot = { succeed, gen, runSync, runPromise };

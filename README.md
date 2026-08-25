@@ -110,6 +110,36 @@ await Kyoot.runPromise(main);
 
 There is no scheduler beyond the event loop. Fibers yield only at await points, so a hot loop in one fiber starves the rest.
 
+## Components
+
+`Registry` turns programs into components that can be loaded, unloaded, and swapped while the rest keeps running. A component declares the `Env` tags it needs and a program that sets it up; the setup's `Resource.acquire`s are undone in reverse when the component is unloaded. A component provides a value to others with `ctx.set(tag, impl)`, which is itself a resource, so it is withdrawn on unload. When a provider appears, dependents whose needs are now met activate; when it goes, they deactivate first, while its bindings are still readable.
+
+```ts
+const Db = Env.tag<{ query: (sql: string) => string }>()("db");
+
+const database = Registry.component({
+  inject: {},
+  run: (_, ctx) =>
+    Kyoot.gen(function* () {
+      const conn = yield* Resource.acquire(open, close);
+      yield* ctx.set(Db, { query: (sql) => conn.run(sql) });
+    }),
+});
+
+const server = Registry.component({
+  inject: { db: Db },
+  run: ({ db }) => Resource.acquire(() => listen(db), stop),
+});
+
+const registry = yield * Registry.make();
+const srv = yield * registry.use(server); // inactive: nothing provides Db yet
+const db = yield * registry.use(database); // server activates
+yield * db.remove(); // server deactivates, then the database closes
+yield * registry.use(database2); // server comes back on the new one
+```
+
+`use` returns a handle with `active`, `error`, and `remove`. A component's `run` may use `resource`, `async`, and `clock`; anything else must be handled inside it. A component whose setup throws is left inactive with the error on its handle. `examples/registry.ts` runs this sequence.
+
 ## Your own effect
 
 Declare one `effect` and one handler per interpretation. `examples/checkout.ts` does this for a business program: `Inventory` and `Payments` are effects, and the handlers are an in-memory stock table and a test double. A handler may also fail instead of resuming, which adds `fail` to the row at that step.

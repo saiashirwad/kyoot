@@ -12,6 +12,10 @@ const async = <A>(execute: (rt: AsyncRuntime) => Promise<A>) =>
 export const fromPromise = <A>(f: (signal: AbortSignal) => Promise<A>) =>
   async((rt) => f(rt.signal));
 
+export const never = fromPromise<never>(() => new Promise(() => {}));
+
+export const runtime = async((rt) => Promise.resolve(rt));
+
 export interface Fiber<A> {
   readonly join: Kyoot<A, { async: AsyncOp }>;
   readonly await: Kyoot<Result<unknown, A>, { async: AsyncOp }>;

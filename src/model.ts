@@ -15,7 +15,6 @@ export type RuntimeNode =
       readonly _tag: "op";
       readonly effectKey: PropertyKey;
       readonly payload: unknown;
-      readonly continuation: Continuation;
     }
   | { readonly _tag: "map"; readonly self: AnyKyoot; readonly mapper: (a: any) => any }
   | {

@@ -11,8 +11,8 @@ import type { Merge, Only, Row, Simplify } from "../types.ts";
 // queue, no ops budget, no preemption (a hot loop in one fiber starves the
 // rest — documented sharp edge).
 
-function asyncOp(op: AsyncOp, kont?: (v: any) => AnyKyoot): Kyoot<any, { async: true }> {
-  return makeOp("async", op, kont) as Kyoot<any, { async: true }>;
+function asyncOp(op: AsyncOp): Kyoot<any, { async: true }> {
+  return makeOp("async", op) as Kyoot<any, { async: true }>;
 }
 
 export function suspend<A>(
@@ -162,30 +162,30 @@ export function timeout<A, S extends Row>(
   k: Kyoot<A, S> & Only<S, "async">,
 ): Kyoot<A, Simplify<Merge<S, { async: true; fail: TimeoutError }>>> {
   const TIMEOUT: unique symbol = Symbol("kyoot.timeout");
-  return asyncOp(
-    {
-      execute: (rt) => {
-        const f = rt.spawn(k as AnyKyoot);
-        let timer: ReturnType<typeof setTimeout>;
-        const tick = new Promise<typeof TIMEOUT>((resolve) => {
-          timer = setTimeout(resolve, ms, TIMEOUT);
-        });
-        return Promise.race([f.promise, tick]).then(
-          (r) => {
-            if (r === TIMEOUT) {
-              f.interrupt();
-            } else {
-              clearTimeout(timer!);
-            }
-            return r;
-          },
-          (e: unknown) => {
+  return asyncOp({
+    execute: (rt) => {
+      const f = rt.spawn(k as AnyKyoot);
+      let timer: ReturnType<typeof setTimeout>;
+      const tick = new Promise<typeof TIMEOUT>((resolve) => {
+        timer = setTimeout(resolve, ms, TIMEOUT);
+      });
+      return Promise.race([f.promise, tick]).then(
+        (r) => {
+          if (r === TIMEOUT) {
+            f.interrupt();
+          } else {
             clearTimeout(timer!);
-            throw e;
-          },
-        ) as Promise<unknown>;
-      },
+          }
+          return r;
+        },
+        (e: unknown) => {
+          clearTimeout(timer!);
+          throw e;
+        },
+      ) as Promise<unknown>;
     },
-    (r) => (r === TIMEOUT ? (fail(new TimeoutError(ms)) as AnyKyoot) : succeed(r)),
-  ) as Kyoot<A, Simplify<Merge<S, { async: true; fail: TimeoutError }>>>;
+  }).map((r) => (r === TIMEOUT ? (fail(new TimeoutError(ms)) as AnyKyoot) : succeed(r))) as Kyoot<
+    A,
+    Simplify<Merge<S, { async: true; fail: TimeoutError }>>
+  >;
 }

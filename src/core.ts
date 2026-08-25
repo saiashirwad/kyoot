@@ -45,8 +45,8 @@ const makeGenCont = (gen: Generator<AnyKyoot, any, unknown>, input: unknown): An
 
 export const succeed = <A>(value: A): Kyoot<A, {}> => new KyootImpl({ _tag: "pure", value });
 
-export const makeOp = (key: PropertyKey, payload: unknown, kont?: (v: any) => AnyKyoot) =>
-  new KyootImpl({ _tag: "op", effectKey: key, payload, continuation: kont ?? ((v) => succeed(v)) });
+export const makeOp = (key: PropertyKey, payload: unknown) =>
+  new KyootImpl({ _tag: "op", effectKey: key, payload });
 
 export class EscapedOp {
   readonly _tag = "EscapedOp";
@@ -124,7 +124,7 @@ export function stepAll(k: AnyKyoot): unknown {
         };
         const resume = (v: any) => {
           claim();
-          return reify(captured, currentNode.continuation(v));
+          return reify(captured, succeed(v));
         };
         const resumeError = (err: unknown) => {
           claim();

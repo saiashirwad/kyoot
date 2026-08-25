@@ -16,5 +16,9 @@
     "@types/node": "^26.1.2",
     "oxfmt": "^0.61.0",
     "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "effect": "4.0.0-rc.112",
+    "mitata": "^1.0.34"
   }
 }

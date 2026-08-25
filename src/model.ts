@@ -48,8 +48,6 @@ export type MapResult<S extends Row, B> = [B] extends [never]
 export interface Kyoot<A, S extends Row = {}> extends Pipeable {
   readonly _?: (s: S) => void;
 
-  readonly [NodeSym]: RuntimeNode;
-
   map<B>(f: (a: A) => B): MapResult<S, B>;
 
   [Symbol.iterator](): Iterator<Kyoot<unknown, S>, A, unknown>;

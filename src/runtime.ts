@@ -1,4 +1,4 @@
-import { EscapedOp, InterruptedError, stepAll } from "./core.ts";
+import { EscapedOp, Interp, InterruptedError, Status, stepAll } from "./core.ts";
 import type { AnyKyoot, Kyoot } from "./model.ts";
 import type { Only, Row } from "./types.ts";
 
@@ -31,26 +31,14 @@ export interface AsyncOp {
   execute(rt: AsyncRuntime): Promise<unknown>;
 }
 
-const raceSignal = <T>(
-  p: Promise<T>,
-  signal: AbortSignal,
-): Promise<{ readonly done: true; readonly value: T } | { readonly done: false }> => {
-  if (signal.aborted) return Promise.resolve({ done: false });
-  return Promise.race([
-    p.then((value) => ({ done: true as const, value })),
-    new Promise<{ done: false }>((resolve) => {
-      signal.addEventListener("abort", () => resolve({ done: false }), { once: true });
-    }),
-  ]);
-};
-
 export function asyncDrive(k: AnyKyoot, parent: AsyncRuntime): FiberHandle {
   const controller = new AbortController();
+  const signal = controller.signal;
   const link = () => controller.abort();
   parent.signal.addEventListener("abort", link, { once: true });
   const children = new Set<Promise<unknown>>();
   const rt: AsyncRuntime = {
-    signal: controller.signal,
+    signal,
     spawn: (k2) => {
       const h = asyncDrive(k2, rt);
       children.add(h.promise);
@@ -61,21 +49,72 @@ export function asyncDrive(k: AnyKyoot, parent: AsyncRuntime): FiberHandle {
       return h;
     },
   };
-  const drive = (async (): Promise<unknown> => {
-    let current = k;
-    while (true) {
-      try {
-        return stepAll(current);
-      } catch (e) {
-        if (e instanceof EscapedOp && e.key === "async") {
-          const raced = await raceSignal((e.payload as AsyncOp).execute(rt), rt.signal);
-          current = raced.done ? e.resume(raced.value) : e.resumeError(new InterruptedError());
-        } else {
-          throw e;
+  const drive = new Promise<unknown>((resolve, reject) => {
+    const it = new Interp();
+    // Bumped whenever the fiber moves on so a stale promise cannot resume it.
+    let gen = 0;
+    const pump = (): void => {
+      while (it.status === Status.Suspended) {
+        if (it.key !== "async") {
+          reject(new EscapedOp(it.key, it.payload));
+          return;
         }
+        if (signal.aborted) {
+          gen++;
+          try {
+            it.resumeError(new InterruptedError());
+          } catch (e) {
+            reject(e);
+            return;
+          }
+          continue;
+        }
+        let p: Promise<unknown>;
+        try {
+          p = (it.payload as AsyncOp).execute(rt);
+        } catch (e) {
+          reject(e);
+          return;
+        }
+        const g = gen;
+        p.then(
+          (v) => {
+            if (g !== gen) return;
+            gen++;
+            try {
+              it.resume(v);
+            } catch (e) {
+              reject(e);
+              return;
+            }
+            pump();
+          },
+          (e) => {
+            if (g !== gen) return;
+            gen++;
+            reject(e);
+          },
+        );
+        return;
       }
+      resolve(it.value);
+    };
+    signal.addEventListener(
+      "abort",
+      () => {
+        if (it.status !== Status.Suspended) return;
+        pump();
+      },
+      { once: true },
+    );
+    try {
+      it.run(k);
+    } catch (e) {
+      reject(e);
+      return;
     }
-  })();
+    pump();
+  });
   const settle = async () => {
     controller.abort();
     parent.signal.removeEventListener("abort", link);

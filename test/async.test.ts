@@ -39,7 +39,7 @@ test("fiber.await returns a Result instead of throwing", async () => {
   });
   const r = await Kyoot.runPromise(prog);
   assert.equal(r.ok, false);
-  assert.equal(Result.isErr(r) && r.cause._tag, "Defect");
+  assert.equal(Result.isErr(r) && r.cause._tag === "Defect" && r.cause.defect, boom);
 });
 
 test("race: first to complete wins", async () => {

@@ -1,4 +1,4 @@
-import { DefectError, invoke, KyootImpl, makeOp, succeed } from "../core.ts";
+import { KyootImpl, makeOp, succeed } from "../core.ts";
 import type { AnyKyoot, Kyoot } from "../model.ts";
 import type { Row, Simplify } from "../types.ts";
 
@@ -14,7 +14,7 @@ const runFinalizers = (finalizers: readonly Finalizer[]): void => {
   let first: unknown;
   for (let i = finalizers.length - 1; i >= 0; i--) {
     try {
-      invoke(finalizers[i]!);
+      finalizers[i]!();
     } catch (e) {
       if (first === undefined) first = e;
     }
@@ -37,7 +37,7 @@ export const run =
         resume,
         finalizers: Finalizer[],
       ) => {
-        const r = invoke(op.acquire);
+        const r = op.acquire();
         return resume(r, [...finalizers, () => op.release(r)]);
       },
       onSuccess: (a, finalizers) => {
@@ -50,7 +50,7 @@ export const run =
         } catch {
           /* prefer the original defect over a finalizer failure */
         }
-        throw new DefectError(d);
+        throw d;
       },
       onInterrupt: runFinalizers,
     });

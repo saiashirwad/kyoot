@@ -1,4 +1,4 @@
-import { invoke, KyootImpl, makeOp, succeed } from "../core.ts";
+import { KyootImpl, makeOp, succeed } from "../core.ts";
 import type { AnyKyoot, Kyoot } from "../model.ts";
 import type { Row, Simplify } from "../types.ts";
 
@@ -44,10 +44,7 @@ export function Tag<V>() {
                 case "set":
                   return resume(undefined, op.value);
                 case "update":
-                  return resume(
-                    undefined,
-                    invoke(() => op.f(value)),
-                  );
+                  return resume(undefined, op.f(value));
               }
             },
             onSuccess: (a, value) => succeed([a, value]),

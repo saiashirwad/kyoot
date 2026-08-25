@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { invoke, KyootImpl, makeOp, succeed } from "../src/core.ts";
+import { KyootImpl, makeOp, succeed } from "../src/core.ts";
 import { Kyoot, Var } from "../src/index.ts";
 
 class Count extends Var.Tag<number>()("Count") {}
@@ -103,13 +103,6 @@ test("a handler that resumes zero times short-circuits", () => {
     onOp: () => succeed("short"),
   });
   assert.equal(Kyoot.runSync(k as never), "short");
-});
-
-test("callUser passes control exceptions through untouched", () => {
-  assert.equal(
-    invoke(() => 42),
-    42,
-  );
 });
 
 test("an op escaping a yielded handler node keeps the outer continuation", () => {

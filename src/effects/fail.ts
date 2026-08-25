@@ -1,4 +1,4 @@
-import { DefectError, KyootImpl, makeOp, succeed } from "../core.ts";
+import { KyootImpl, makeOp, succeed } from "../core.ts";
 import type { AnyKyoot, Kyoot } from "../model.ts";
 import { Result } from "../result.ts";
 import type { Merge, Row, Simplify } from "../types.ts";
@@ -42,6 +42,6 @@ export const orThrow =
       effectKey: "fail",
       self,
       onOp: (e) => {
-        throw new DefectError(e);
+        throw e;
       },
     });

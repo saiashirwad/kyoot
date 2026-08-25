@@ -48,14 +48,6 @@ export const succeed = <A>(value: A): Kyoot<A, {}> => new KyootImpl({ _tag: "pur
 export const makeOp = (key: PropertyKey, payload: unknown, kont?: (v: any) => AnyKyoot) =>
   new KyootImpl({ _tag: "op", effectKey: key, payload, continuation: kont ?? ((v) => succeed(v)) });
 
-export class DefectError {
-  readonly _tag = "DefectError";
-  readonly defect: unknown;
-  constructor(defect: unknown) {
-    this.defect = defect;
-  }
-}
-
 export class EscapedOp {
   readonly _tag = "EscapedOp";
   readonly key: PropertyKey;
@@ -83,27 +75,6 @@ export class InterruptedError extends Error {
   }
 }
 
-const isControl = (e: unknown) =>
-  e instanceof DefectError || e instanceof EscapedOp || e instanceof InterruptedError;
-
-export function invoke<T>(f: () => T): T {
-  try {
-    return f();
-  } catch (e) {
-    if (isControl(e)) throw e;
-    throw new DefectError(e);
-  }
-}
-
-export async function invokeAsync<T>(f: () => Promise<T>): Promise<T> {
-  try {
-    return await f();
-  } catch (e) {
-    if (isControl(e)) throw e;
-    throw new DefectError(e);
-  }
-}
-
 const reify = (conts: Array<Continuation>, inner: AnyKyoot): AnyKyoot => {
   for (let i = conts.length - 1; i >= 0; i--) {
     inner = new KyootImpl({ _tag: "map", self: inner, mapper: conts[i]! });
@@ -121,7 +92,7 @@ export function stepAll(k: AnyKyoot): unknown {
       case "pure": {
         const f = continuations.pop();
         if (f === undefined) return currentNode.value;
-        const out = invoke(() => f(currentNode.value));
+        const out = f(currentNode.value);
         current = isKyoot(out) ? out : succeed(out);
         break;
       }
@@ -131,11 +102,11 @@ export function stepAll(k: AnyKyoot): unknown {
         break;
       }
       case "gen": {
-        current = makeGenCont(invoke(currentNode.factory), undefined);
+        current = makeGenCont(currentNode.factory(), undefined);
         break;
       }
       case "gen-cont": {
-        const step = invoke(() => currentNode.gen.next(currentNode.nextInput));
+        const step = currentNode.gen.next(currentNode.nextInput);
         if (step.done === true) {
           current = succeed(step.value);
         } else {
@@ -148,15 +119,12 @@ export function stepAll(k: AnyKyoot): unknown {
         const captured = continuations.splice(0);
         let used = false;
         const claim = (): void => {
-          if (used) throw new DefectError(new Error("continuation resumed twice (one-shot law)"));
+          if (used) throw new Error("continuation resumed twice (one-shot law)");
           used = true;
         };
         const resume = (v: any) => {
           claim();
-          return reify(
-            captured,
-            invoke(() => currentNode.continuation(v)),
-          );
+          return reify(captured, currentNode.continuation(v));
         };
         const resumeError = (err: unknown) => {
           claim();
@@ -179,38 +147,37 @@ export function stepAll(k: AnyKyoot): unknown {
             const { onInterrupt } = handler;
             if (onInterrupt !== undefined) {
               try {
-                invoke(() => onInterrupt(handler.state));
+                onInterrupt(handler.state);
               } catch {
                 /* finalizer errors must not mask interrupt */
               }
             }
             throw e;
           }
-          const { onDefect } = handler;
-          if (e instanceof DefectError && onDefect !== undefined) {
-            current = invoke(() => onDefect(e.defect, handler.state));
-            break;
-          }
-          if (!(e instanceof EscapedOp)) throw e;
-          if (e.key === handler.effectKey) {
-            current = invoke(() =>
-              handler.onOp(
+          if (e instanceof EscapedOp) {
+            if (e.key === handler.effectKey) {
+              current = handler.onOp(
                 e.payload,
                 (v, ...next) => rewrap(e.resume(v), next.length > 0 ? next[0] : handler.state),
                 handler.state,
-              ),
+              );
+              break;
+            }
+            const captured = continuations.splice(0);
+            throw new EscapedOp(
+              e.key,
+              e.payload,
+              (v) => reify(captured, rewrap(e.resume(v))),
+              (err) => reify(captured, rewrap(e.resumeError(err))),
             );
-            break;
           }
-          const captured = continuations.splice(0);
-          throw new EscapedOp(
-            e.key,
-            e.payload,
-            (v) => reify(captured, rewrap(e.resume(v))),
-            (err) => reify(captured, rewrap(e.resumeError(err))),
-          );
+          // Anything that is not one of our two control exceptions is a defect.
+          const { onDefect } = handler;
+          if (onDefect === undefined) throw e;
+          current = onDefect(e, handler.state);
+          break;
         }
-        current = invoke(() => (handler.onSuccess ?? succeed)(inner, handler.state));
+        current = (handler.onSuccess ?? succeed)(inner, handler.state);
         break;
       }
     }

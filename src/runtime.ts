@@ -1,9 +1,8 @@
-import { DefectError, EscapedOp, InterruptedError, invokeAsync, stepAll } from "./core.ts";
+import { EscapedOp, InterruptedError, stepAll } from "./core.ts";
 import type { AnyKyoot, Kyoot } from "./model.ts";
 import type { Only, Row } from "./types.ts";
 
 function rethrowAtEdge(e: unknown, edge: string): never {
-  if (e instanceof DefectError) throw e.defect;
   if (e instanceof EscapedOp) {
     throw new Error(`${edge} encountered unhandled effect '${String(e.key)}'`);
   }
@@ -69,10 +68,7 @@ export function asyncDrive(k: AnyKyoot, parent: AsyncRuntime): FiberHandle {
         return stepAll(current);
       } catch (e) {
         if (e instanceof EscapedOp && e.key === "async") {
-          const raced = await raceSignal(
-            invokeAsync(() => (e.payload as AsyncOp).execute(rt)),
-            rt.signal,
-          );
+          const raced = await raceSignal((e.payload as AsyncOp).execute(rt), rt.signal);
           current = raced.done ? e.resume(raced.value) : e.resumeError(new InterruptedError());
         } else {
           throw e;

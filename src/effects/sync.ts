@@ -1,4 +1,4 @@
-import { invoke, KyootImpl, makeOp } from "../core.ts";
+import { KyootImpl, makeOp } from "../core.ts";
 import type { Kyoot } from "../model.ts";
 import type { Row, Simplify } from "../types.ts";
 
@@ -13,6 +13,6 @@ export function run() {
       _tag: "handler",
       effectKey: "sync",
       self: k,
-      onOp: (f, resume) => resume(invoke(f)),
+      onOp: (f, resume) => resume(f()),
     });
 }

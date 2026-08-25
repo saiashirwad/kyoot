@@ -6,7 +6,7 @@ export const value = <E>(e: E) => op<void>()("emit", e);
 
 export const run = <A, S extends Row & { emit?: unknown }>(k: Kyoot<A, S>) =>
   makeHandler("emit", k, {
-    state: [] as Array<S["emit"]>,
+    initial: [] as Array<S["emit"]>,
     onOp: (e, resume, acc) => resume(undefined, [...acc, e]),
     onSuccess: (a, acc) => succeed([a, acc] as const),
   });

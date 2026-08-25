@@ -51,25 +51,22 @@ export const checkout = (order: Order, card: string) =>
     return { orderId: order.id, chargeId, totalCents };
   }).pipe(Total.run(0));
 
-export const inMemoryInventory = (stock: Readonly<Record<string, number>>) =>
+const result = checkout(
+  { id: "o-1", items: [{ sku: "book", qty: 2, priceCents: 1200 }] },
+  "4242",
+).pipe(
   Inventory.handle({
-    state: stock,
+    initial: new Map([["book", 3]]),
     onOp: ({ sku, qty }, resume, stock) => {
-      const have = stock[sku] ?? 0;
-      return have >= qty ? resume(true, { ...stock, [sku]: have - qty }) : resume(false);
+      const have = stock.get(sku) ?? 0;
+      return have >= qty ? resume(true, new Map(stock).set(sku, have - qty)) : resume(false);
     },
-  });
-
-if (process.argv[1]?.endsWith("checkout.ts")) {
-  const order: Order = { id: "o-1", items: [{ sku: "book", qty: 2, priceCents: 1200 }] };
-  const result = checkout(order, "4242").pipe(
-    inMemoryInventory({ book: 3 }),
-    Payments.handle({
-      onOp: ({ totalCents }, resume) => resume(`ch_${totalCents}`),
-    }),
-    Emit.forEach(console.log),
-    Fail.run,
-    Kyoot.runSync,
-  );
-  console.log(result);
-}
+  }),
+  Payments.handle({
+    onOp: ({ totalCents }, resume) => resume(`ch_${totalCents}`),
+  }),
+  Emit.forEach(console.log),
+  Fail.run,
+  Kyoot.runSync,
+);
+console.log(result);

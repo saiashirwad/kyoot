@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Kyoot } from "../src/index.ts";
-import { liveClock, sleep, testClock } from "../examples/clock.ts";
+import { boilEgg, liveClock, sleep, testClock } from "../examples/clock.ts";
 
 test("Clock: testClock runs sleeps instantly and tracks virtual time", () => {
   const t0 = Date.now();
@@ -31,4 +31,11 @@ test("Clock: liveClock actually sleeps", async () => {
   );
   assert.equal(result, "slept");
   assert.ok(Date.now() - t0 >= 25);
+});
+
+test("Clock: the same program runs on a virtual clock and a real one", async () => {
+  assert.deepEqual(Kyoot.runSync(boilEgg(60_000).pipe(testClock)), ["egg ready", 420_000]);
+  const t0 = Date.now();
+  assert.equal(await Kyoot.runPromise(boilEgg(5).pipe(liveClock)), "egg ready");
+  assert.ok(Date.now() - t0 >= 30);
 });

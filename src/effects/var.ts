@@ -33,7 +33,7 @@ export const tag =
       update: (f) => op({ kind: "update", f }),
       run: (initial) => (k) =>
         makeHandler(effectKey, k, {
-          state: initial,
+          initial: initial,
           onOp: (op: VarOp<V>, resume, value) => {
             switch (op.kind) {
               case "get":

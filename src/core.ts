@@ -64,7 +64,7 @@ export const effect =
     const perform = (payload: P) => op<A>()(key, payload);
     const handle =
       <St = undefined, X1 = never, X2 = never, R1 extends Row = {}, R2 extends Row = {}>(hooks: {
-        state?: St;
+        initial?: St;
         onOp: (payload: P, resume: Resume<A, St>, state: St) => Kyoot<X1, R1>;
         onDefect?: (d: unknown, state: St) => Kyoot<X2, R2>;
         onInterrupt?: (state: St) => void;
@@ -102,14 +102,21 @@ export function makeHandler<
   effectKey: K,
   self: Kyoot<A, S>,
   hooks: {
-    state?: St;
+    initial?: St;
     onOp: (payload: P, resume: Resume<any, St>, state: St) => Kyoot<B2, R1>;
     onSuccess?: (a: A, state: St) => Kyoot<B, R2>;
     onDefect?: (d: unknown, state: St) => Kyoot<B3, R3>;
     onInterrupt?: (state: St) => void;
   },
 ): Kyoot<B | B2 | B3, MergeAll<Omit<S, K> | R1 | R2 | R3>> {
-  return new KyootImpl({ _tag: "handler", effectKey, self, ...(hooks as any) }) as AnyKyoot;
+  const { initial, ...rest } = hooks;
+  return new KyootImpl({
+    _tag: "handler",
+    effectKey,
+    self,
+    state: initial,
+    ...(rest as any),
+  }) as AnyKyoot;
 }
 
 export class EscapedOp {

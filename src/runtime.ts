@@ -17,14 +17,14 @@ export function runSync<A, S extends Row>(k: Kyoot<A, S> & Only<S>): A {
   }
 }
 
-export interface FiberHandle {
-  readonly promise: Promise<unknown>;
+export interface FiberHandle<A = unknown> {
+  readonly promise: Promise<A>;
   readonly interrupt: () => void;
 }
 
 export interface AsyncRuntime {
   readonly signal: AbortSignal;
-  spawn(k: AnyKyoot): FiberHandle;
+  spawn<A>(k: Kyoot<A, any>): FiberHandle<A>;
 }
 
 export interface AsyncOp {
@@ -44,7 +44,7 @@ const raceSignal = <T>(
   ]);
 };
 
-export function asyncDrive(k: AnyKyoot, parent: AsyncRuntime): FiberHandle {
+export function asyncDrive<A>(k: Kyoot<A, any>, parent: AsyncRuntime): FiberHandle<A> {
   const controller = new AbortController();
   const link = () => controller.abort();
   parent.signal.addEventListener("abort", link, { once: true });
@@ -61,11 +61,11 @@ export function asyncDrive(k: AnyKyoot, parent: AsyncRuntime): FiberHandle {
       return h;
     },
   };
-  const drive = (async (): Promise<unknown> => {
-    let current = k;
+  const drive = (async (): Promise<A> => {
+    let current: AnyKyoot = k;
     while (true) {
       try {
-        return stepAll(current);
+        return stepAll(current) as A;
       } catch (e) {
         if (e instanceof EscapedOp && e.key === "async") {
           const raced = await raceSignal((e.payload as AsyncOp).execute(rt), rt.signal);
@@ -100,7 +100,5 @@ export function runPromise<A>(k: AnyKyoot): Promise<A> {
     signal: new AbortController().signal,
     spawn: (k2) => asyncDrive(k2, seed),
   };
-  return (asyncDrive(k as AnyKyoot, seed).promise as Promise<A>).catch((e: unknown): never =>
-    rethrowAtEdge(e, "runPromise"),
-  );
+  return asyncDrive(k, seed).promise.catch((e: unknown): never => rethrowAtEdge(e, "runPromise"));
 }

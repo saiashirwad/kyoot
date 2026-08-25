@@ -60,7 +60,7 @@ A handler that also reshapes the final value uses `makeHandler` directly; `onSuc
 ```ts
 const testClock = <A, S extends Row & { clock?: number }>(k: Kyoot<A, S>) =>
   makeHandler(Clock.key, k, {
-    state: 0,
+    initial: 0,
     onOp: (ms, resume, now) => resume(undefined, now + ms),
     onSuccess: (a, now) => Kyoot.succeed([a, now] as const),
   });

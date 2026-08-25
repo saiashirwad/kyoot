@@ -37,7 +37,7 @@ Kyoot.runSync(mixed);
 const syncProg = Sync.defer(() => 1);
 // @ts-expect-error runSync requires an empty row
 Kyoot.runSync(syncProg);
-const s1: number = Kyoot.runSync(syncProg.pipe(Sync.run()));
+const s1: number = Kyoot.runSync(syncProg.pipe(Sync.run));
 
 const p1: Promise<number> = Kyoot.runPromise(Async.fromPromise(() => Promise.resolve(1)));
 
@@ -63,7 +63,7 @@ const g2: [string, Greeter] = Kyoot.runSync(greeted);
 const handled = Kyoot.gen(function* () {
   yield* Fail.fail(new FetchFailed());
   return 1;
-}).pipe(Fail.run());
+}).pipe(Fail.run);
 const f1: Result<FetchFailed, number> = Kyoot.runSync(handled);
 
 const counted = Kyoot.gen(function* () {
@@ -75,7 +75,7 @@ const v1: [number, number] = Kyoot.runSync(counted);
 const emitted = Kyoot.gen(function* () {
   yield* Emit.value("a");
   return 1;
-}).pipe(Emit.run());
+}).pipe(Emit.run);
 const e1: [number, string[]] = Kyoot.runSync(emitted);
 
 const logOp = makeOp("log", "hello") as KyootT<void, { log: string }>;

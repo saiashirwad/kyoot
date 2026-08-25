@@ -15,7 +15,7 @@ test("Resource: release runs on success", () => {
     events.push(`use ${conn}`);
     return "done";
   });
-  assert.equal(Kyoot.runSync(prog.pipe(Resource.run())), "done");
+  assert.equal(Kyoot.runSync(prog.pipe(Resource.run)), "done");
   assert.deepEqual(events, ["acquire", "use conn", "release"]);
 });
 
@@ -32,7 +32,7 @@ test("Resource: finalizers run in LIFO order", () => {
     );
     return null;
   });
-  Kyoot.runSync(prog.pipe(Resource.run()));
+  Kyoot.runSync(prog.pipe(Resource.run));
   assert.deepEqual(events, ["release b", "release a"]);
 });
 
@@ -45,7 +45,7 @@ test("Resource: release runs on typed failure (Resource outside Fail)", () => {
     );
     yield* Fail.fail("boom");
     return "unreachable";
-  }).pipe(Fail.run(), Resource.run());
+  }).pipe(Fail.run, Resource.run);
   assert.deepEqual(Kyoot.runSync(prog), { ok: false, cause: { _tag: "Fail", error: "boom" } });
   assert.deepEqual(events, ["release"]);
 });
@@ -62,7 +62,7 @@ test("Resource: release runs on defect", () => {
       throw boom;
     });
     return "unreachable";
-  }).pipe(Resource.run());
+  }).pipe(Resource.run);
   assert.throws(
     () => Kyoot.runSync(prog),
     (e) => e === boom,

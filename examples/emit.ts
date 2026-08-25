@@ -6,7 +6,7 @@ const program = Kyoot.gen(function* () {
   return "done";
 });
 
-const [result, events] = Kyoot.runSync(program.pipe(Emit.run()));
+const [result, events] = Kyoot.runSync(program.pipe(Emit.run));
 
 console.log(result);
 console.log(events);

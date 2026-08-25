@@ -18,4 +18,4 @@ const etl = (fail: boolean) =>
     return "done";
   });
 
-console.log(Kyoot.runSync(etl(true).pipe(Fail.run(), Resource.run())));
+console.log(Kyoot.runSync(etl(true).pipe(Fail.run, Resource.run)));

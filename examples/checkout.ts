@@ -72,8 +72,8 @@ export const productionEdge = (
       Inventory.provide(deps.inventory),
       Payments.provide(deps.payments),
       Emit.forEach(deps.publish),
-      Fail.run(),
-      Sync.run(),
+      Fail.run,
+      Sync.run,
     ),
   );
 
@@ -85,8 +85,8 @@ export const testEdge = (
   checkout(order, card).pipe(
     Inventory.provide(deps.inventory),
     Payments.provide(deps.payments),
-    Emit.discard(),
-    Fail.orThrow(),
-    Sync.run(),
+    Emit.discard,
+    Fail.orThrow,
+    Sync.run,
     Kyoot.runSync,
   );

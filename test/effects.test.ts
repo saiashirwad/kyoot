@@ -97,7 +97,7 @@ test("Emit.run collects everything emitted", () => {
     yield* Emit.value("b");
     return 7;
   });
-  assert.deepEqual(Kyoot.runSync(prog.pipe(Emit.run())), [7, ["a", "b"]]);
+  assert.deepEqual(Kyoot.runSync(prog.pipe(Emit.run)), [7, ["a", "b"]]);
 });
 
 test("Emit.forEach consumes values as they happen", () => {
@@ -117,7 +117,7 @@ test("Emit.discard drops the stream", () => {
     yield* Emit.value(1);
     return "ok";
   });
-  assert.equal(Kyoot.runSync(prog.pipe(Emit.discard())), "ok");
+  assert.equal(Kyoot.runSync(prog.pipe(Emit.discard)), "ok");
 });
 
 test("Sync.defer is lazy and Sync.run discharges it", () => {
@@ -130,7 +130,7 @@ test("Sync.defer is lazy and Sync.run discharges it", () => {
     return a * 2;
   });
   assert.equal(calls, 0);
-  const r = Kyoot.runSync(prog.pipe(Sync.run()));
+  const r = Kyoot.runSync(prog.pipe(Sync.run));
   assert.equal(r, 6);
   assert.equal(calls, 1);
 });
@@ -141,7 +141,7 @@ test("Sync.defer: a throwing thunk is a defect, not a typed failure", () => {
     throw boom;
   });
   assert.throws(
-    () => Kyoot.runSync(prog.pipe(Sync.run())),
+    () => Kyoot.runSync(prog.pipe(Sync.run)),
     (e) => e === boom,
   );
 });

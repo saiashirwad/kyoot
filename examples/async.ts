@@ -51,15 +51,15 @@ const show = (p: Pokemon) => `${p.name} — ${p.types.join("/")}, ${p.heightCm}c
 const main = Kyoot.gen(function* () {
   console.log("racing pikachu vs slowpoke (loser gets interrupted)...");
   const winner = yield* Async.race(
-    pokemon("pikachu").pipe(Fail.run()),
-    pokemon("slowpoke").pipe(Fail.run()),
+    pokemon("pikachu").pipe(Fail.run),
+    pokemon("slowpoke").pipe(Fail.run),
   );
   console.log(winner.ok ? `winner: ${show(winner.value)}` : "race failed");
 
   console.log("\nfetching the starters in parallel...");
   const fibers: Async.Fiber<Result<FetchFailed, Pokemon>>[] = [];
   for (const name of ["bulbasaur", "charmander", "squirtle"]) {
-    fibers.push(yield* Async.fork(pokemon(name).pipe(Fail.run())));
+    fibers.push(yield* Async.fork(pokemon(name).pipe(Fail.run)));
   }
   for (const fiber of fibers) {
     const r = yield* fiber.join;
@@ -67,7 +67,7 @@ const main = Kyoot.gen(function* () {
   }
 
   console.log("\nditto, with a 5s timeout...");
-  const timed = yield* Async.timeout(5000, pokemon("ditto").pipe(Fail.run())).pipe(Fail.run());
+  const timed = yield* Async.timeout(5000, pokemon("ditto").pipe(Fail.run)).pipe(Fail.run);
   console.log(
     timed.ok
       ? timed.value.ok

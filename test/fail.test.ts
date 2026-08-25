@@ -9,12 +9,12 @@ test("Fail.run: success becomes Result.ok", () => {
     if (false) yield* Fail.fail("never");
     return 42;
   });
-  const r = Kyoot.runSync(prog.pipe(Fail.run()));
+  const r = Kyoot.runSync(prog.pipe(Fail.run));
   assert.deepEqual(r, { ok: true, value: 42 });
 });
 
 test("Fail.run: typed failure becomes Result with a Fail cause", () => {
-  const r = Kyoot.runSync(Fail.fail("nope").pipe(Fail.run()));
+  const r = Kyoot.runSync(Fail.fail("nope").pipe(Fail.run));
   assert.deepEqual(r, { ok: false, cause: { _tag: "Fail", error: "nope" } });
 });
 
@@ -23,7 +23,7 @@ test("Fail.run: a defect lands in the defect channel, not the error channel", ()
   const k = Kyoot.gen(function* () {
     yield* Kyoot.succeed(1);
     throw boom;
-  }).pipe(Fail.run());
+  }).pipe(Fail.run);
   const r = Kyoot.runSync(k);
   assert.equal(r.ok, false);
   assert.equal(!r.ok && r.cause._tag, "Defect");
@@ -54,7 +54,7 @@ test("Fail.catchAll replaces a typed failure with a new computation", () => {
 test("Fail.orThrow throws the error value at the edge", () => {
   const err = new RangeError("too big");
   assert.throws(
-    () => Kyoot.runSync(Fail.fail(err).pipe(Fail.orThrow())),
+    () => Kyoot.runSync(Fail.fail(err).pipe(Fail.orThrow)),
     (e) => e === err,
   );
 });
@@ -65,7 +65,7 @@ test("handler order: Var before Fail is transactional — failure carries no sta
     yield* Fail.fail("out of stock");
     return "unreachable";
   });
-  const r = Kyoot.runSync(prog.pipe(Total.run(0), Fail.run()));
+  const r = Kyoot.runSync(prog.pipe(Total.run(0), Fail.run));
   assert.equal(r.ok, false);
 });
 
@@ -75,7 +75,7 @@ test("handler order: Fail before Var — state survives failure", () => {
     yield* Fail.fail("out of stock");
     return "unreachable";
   });
-  const [r, state] = Kyoot.runSync(prog.pipe(Fail.run(), Total.run(0)));
+  const [r, state] = Kyoot.runSync(prog.pipe(Fail.run, Total.run(0)));
   assert.equal(r.ok, false);
   assert.equal(state, 10);
 });

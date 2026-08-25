@@ -185,8 +185,8 @@ class ResumeNode {
   }
 }
 
-/** Stack entries: map/flatMap nodes (their mapper runs on delivery), handler frames, generator frames. */
-type Entry = KyootImpl<any, any> | Frame | GenFrame;
+/** Stack entries: map functions, flatMap nodes, handler frames, generator frames. */
+type Entry = ((v: any) => any) | KyootImpl<any, any> | Frame | GenFrame;
 
 export type Status = 0 | 1 | 2;
 export const Status = { Done: 0 as const, Suspended: 1 as const, Running: 2 as const };
@@ -233,7 +233,7 @@ export class Interp {
     const interrupted = e instanceof InterruptedError;
     while (stack.length > 0) {
       const top = stack.pop()!;
-      if (top.tag !== T_FRAME) continue;
+      if (typeof top === "function" || top.tag !== T_FRAME) continue;
       const frame = top as Frame;
       if (interrupted) {
         const { onInterrupt } = frame.h;
@@ -262,7 +262,11 @@ export class Interp {
           value = node.a;
           break;
         }
-        case T_MAP:
+        case T_MAP: {
+          stack.push(node.b);
+          current = node.a;
+          continue;
+        }
         case T_FLATMAP: {
           stack.push(node);
           current = node.a;
@@ -279,7 +283,7 @@ export class Interp {
           let h = stack.length - 1;
           for (; h >= 0; h--) {
             const f = stack[h]!;
-            if (f.tag === T_FRAME && (f as Frame).h.effectKey === key) break;
+            if (typeof f !== "function" && f.tag === T_FRAME && (f as Frame).h.effectKey === key) break;
           }
           if (h < 0) {
             this.status = Status.Suspended;
@@ -356,8 +360,8 @@ export class Interp {
           this.value = value;
           return;
         }
-        if (top.tag === T_MAP) {
-          value = (top as KyootImpl<any, any>).b(value);
+        if (typeof top === "function") {
+          value = top(value);
         } else if (top.tag === T_FLATMAP) {
           current = (top as KyootImpl<any, any>).b(value);
           break;

@@ -1,28 +1,63 @@
-import { Async, effect, Emit, Fail, Kyoot, Log } from "kyoot";
-import { ApiKey, ask, Deepseek, Tool } from "@kyoot/ai";
+import { Async, Fail, Kyoot, Log, Random, Var } from "kyoot";
+import { AI, Deepseek, Events, Mode, Schema } from "@kyoot/ai";
 
-const Calc = effect<{ expression: string }, number>()("calc");
+const motions = [
+  "Tabs are better than spaces",
+  "Pineapple belongs on pizza",
+  "Cats make better pets than dogs",
+  "Remote work beats the office",
+];
 
-const calc = Tool(
-  {
-    name: "calc",
-    description: "Evaluate an arithmetic expression",
-    parameters: {
-      type: "object",
-      properties: { expression: { type: "string" } },
-      required: ["expression"],
-    },
-  },
-  Calc,
-);
+const debater = (name: string, stance: string) =>
+  AI.init({
+    prompt: `You are ${name}, debating ${stance} the motion. Two punchy sentences per turn. Rebut your opponent and never concede.`,
+  });
 
-const program = ask("write me a poem about the meaning of life", [calc]).pipe(
-  Deepseek("deepseek-chat"),
-  Calc.handle({ onOp: ({ expression }, resume) => resume(Function(`return (${expression})`)()) }),
-  ApiKey.provide(process.env.DEEPSEEK_API_KEY!),
-  Emit.forEach((token: string) => process.stdout.write(token)),
+const Verdict = Schema.object({
+  winner: Schema.literal("Ada", "Linus"),
+  reason: Schema.string("one sentence"),
+});
+
+const judge = (transcript: string) =>
+  AI.gen(Verdict, `Who won this exchange?\n\n${transcript}`, {
+    prompt: "You are a strict debate judge.",
+  }).pipe(Mode.config({ temperature: 1.3 }), Deepseek(), Events.discard, Fail.orThrow);
+
+const Score = Var.tag<Record<"Ada" | "Linus", number>>()("score");
+
+const speakers = [
+  ["Ada", debater("Ada", "for"), "deepseek-chat"],
+  ["Linus", debater("Linus", "against"), "deepseek-chat"],
+] as const;
+
+const debate = Kyoot.gen(function* () {
+  const motion = motions[yield* Random.int(motions.length)]!;
+  yield* Log.info(`Motion: ${motion}`);
+  let transcript = "";
+  let cue = `The motion: "${motion}". Make your opening statement.`;
+  for (let round = 1; round <= 2; round++) {
+    for (const [name, speaker, model] of speakers) {
+      yield* Log.info(`\n${name}:`);
+      const speech = yield* speaker.ask(cue).pipe(Deepseek({ model }));
+      transcript += `${name}: ${speech}\n`;
+      cue = `Your opponent said: "${speech}". Respond.`;
+    }
+    const verdicts = yield* Async.all([judge(transcript), judge(transcript), judge(transcript)]);
+    yield* Score.update((s) =>
+      verdicts.reduce((s, { winner }) => ({ ...s, [winner]: s[winner] + 1 }), s),
+    );
+    yield* Log.info(`\n\nRound ${round} judges:`);
+    for (const { winner, reason } of verdicts) yield* Log.info(`  ${winner} — ${reason}`);
+  }
+});
+
+const [, score] = await debate.pipe(
+  Score.run({ Ada: 0, Linus: 0 }),
+  Events.print,
   Log.print,
-  Fail.run,
+  Random.live,
+  Fail.orThrow,
+  Kyoot.runPromise,
 );
 
-console.log("\n", await Async.timeout(60_000, program).pipe(Fail.orThrow, Kyoot.runPromise));
+console.log("\nFinal score:", score);

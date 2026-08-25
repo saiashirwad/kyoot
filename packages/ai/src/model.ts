@@ -24,11 +24,20 @@ export interface ToolSchema {
 export interface Request {
   readonly messages: readonly Message[];
   readonly tools?: readonly ToolSchema[];
+  readonly toolChoice?: "auto" | "required";
+  readonly temperature?: number;
+  readonly maxTokens?: number;
+}
+
+export interface Usage {
+  readonly input: number;
+  readonly output: number;
 }
 
 export interface Completion {
   readonly text: string;
   readonly toolCalls: readonly ToolCall[];
+  readonly usage?: Usage;
 }
 
 export const Model = effect<Request, Completion>()("ai/model");

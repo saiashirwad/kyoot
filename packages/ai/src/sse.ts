@@ -1,4 +1,4 @@
-export async function* events(body: ReadableStream): AsyncGenerator<unknown> {
+export async function* events<T = unknown>(body: ReadableStream): AsyncGenerator<T> {
   let buffer = "";
   for await (const chunk of body.pipeThrough(new TextDecoderStream())) {
     buffer += chunk;

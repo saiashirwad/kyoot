@@ -35,7 +35,7 @@ export class KyootImpl<A, S extends Row = {}> implements Kyoot<A, S> {
   }
 }
 
-const isKyoot = (value: unknown): value is AnyKyoot => value instanceof KyootImpl;
+export const isKyoot = (value: unknown): value is AnyKyoot => value instanceof KyootImpl;
 
 export const succeed = <A>(value: A): Kyoot<A, {}> => new KyootImpl({ _tag: "pure", value });
 
@@ -201,23 +201,24 @@ export function stepAll(k: AnyKyoot): unknown {
           inner = stepAll(handler.self);
         } catch (e) {
           if (e instanceof InterruptedError) {
-            const { onInterrupt } = handler;
-            if (onInterrupt !== undefined) {
-              try {
-                onInterrupt(handler.state);
-              } catch {
-                /* finalizer errors must not mask interrupt */
-              }
-            }
-            throw e;
+            const fin = handler.onInterrupt?.(handler.state);
+            if (!isKyoot(fin)) throw e;
+            current = fin.map(() => {
+              throw e;
+            });
+            break;
           }
           if (e instanceof EscapedOp) {
             if (e.key === handler.effectKey) {
-              current = handler.onOp(
-                e.payload,
-                (v, ...next) => rewrap(e.resume(v), next.length > 0 ? next[0] : handler.state),
-                handler.state,
-              );
+              const resume = (v: unknown, ...next: unknown[]) =>
+                rewrap(e.resume(v), next.length > 0 ? next[0] : handler.state);
+              try {
+                current = handler.onOp(e.payload, resume, handler.state);
+              } catch (d) {
+                // A throw inside onOp is a defect of this handler's scope.
+                if (handler.onDefect === undefined) throw d;
+                current = handler.onDefect(d, handler.state);
+              }
               break;
             }
             const captured = continuations.splice(0);

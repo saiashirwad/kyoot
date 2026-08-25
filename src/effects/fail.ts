@@ -1,7 +1,7 @@
 import { makeHandler, op, succeed } from "../core.ts";
-import type { Kyoot } from "../model.ts";
+import type { AnyKyoot, Kyoot } from "../model.ts";
 import { Result } from "../result.ts";
-import type { Row } from "../types.ts";
+import type { MergeAll, Row } from "../types.ts";
 
 export const fail = <E>(e: E) => op<never>()("fail", e);
 
@@ -23,3 +23,26 @@ export const orThrow = <A, S extends Row & { fail?: unknown }>(k: Kyoot<A, S>) =
       throw e;
     },
   });
+
+type Tagged = { readonly _tag: string };
+
+type Refail<S extends Row, E> = [E] extends [never]
+  ? Omit<S, "fail">
+  : Omit<S, "fail"> | { fail: E };
+
+export const catchTag =
+  <T extends string, E extends { _tag: T }, A2, S2 extends Row>(
+    tag: T,
+    f: (e: E) => Kyoot<A2, S2>,
+  ) =>
+  <A, S extends Row & { fail?: Tagged }>(
+    k: Kyoot<A, S>,
+  ): Kyoot<A | A2, MergeAll<Refail<S, Exclude<S["fail"], { _tag: T } | undefined>> | S2>> =>
+    makeHandler("fail", k, {
+      onOp: (e): AnyKyoot => (e._tag === tag ? f(e as unknown as E) : fail(e)),
+    }) as never;
+
+export const mapError =
+  <E, E2>(f: (e: E) => E2) =>
+  <A, S extends Row & { fail?: E }>(k: Kyoot<A, S>) =>
+    makeHandler("fail", k, { onOp: (e) => fail(f(e as E)) });

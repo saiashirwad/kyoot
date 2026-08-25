@@ -11,13 +11,15 @@ export type { Pipeable } from "./pipe.ts";
 export { Result } from "./result.ts";
 export type { Cause, DefectCause, Err, FailCause, InterruptedCause, Ok } from "./result.ts";
 export type { Merge, MergeAll, Only, Row, Simplify, Unhandled } from "./types.ts";
-export type { AnyKyoot, MapResult, RowsOf } from "./model.ts";
+export type { AnyKyoot, MapResult, RowOf, RowsOf } from "./model.ts";
 
 export * as Async from "./effects/async.ts";
 export * as Clock from "./effects/clock.ts";
 export * as Emit from "./effects/emit.ts";
 export * as Env from "./effects/env.ts";
 export * as Fail from "./effects/fail.ts";
+export * as Log from "./effects/log.ts";
+export * as Random from "./effects/random.ts";
 export * as Resource from "./effects/resource.ts";
 export * as Retry from "./effects/retry.ts";
 export * as Sync from "./effects/sync.ts";

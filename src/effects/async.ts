@@ -6,15 +6,13 @@ import type { Kyoot } from "../model.ts";
 import type { AsyncOp, AsyncRuntime, FiberHandle } from "../runtime.ts";
 import type { Only, Row } from "../types.ts";
 
-const async = <A>(execute: (rt: AsyncRuntime) => Promise<A>) =>
+const asyncOp = <A>(execute: (rt: AsyncRuntime) => Promise<A>) =>
   op<A>()("async", { execute } as AsyncOp);
 
 export const fromPromise = <A>(f: (signal: AbortSignal) => Promise<A>) =>
-  async((rt) => f(rt.signal));
+  asyncOp((rt) => f(rt.signal));
 
 export const never = fromPromise<never>(() => new Promise(() => {}));
-
-export const runtime = async((rt) => Promise.resolve(rt));
 
 export interface Fiber<A> {
   readonly join: Kyoot<A, { async: AsyncOp }>;
@@ -23,13 +21,13 @@ export interface Fiber<A> {
 }
 
 const fiber = <A>(h: FiberHandle<A>): Fiber<A> => ({
-  join: async(() => h.promise),
-  await: async(() =>
+  join: asyncOp(() => h.promise),
+  await: asyncOp(() =>
     h.promise.then(Result.ok, (e) =>
       e instanceof InterruptedError ? Result.interrupted() : Result.defect(e),
     ),
   ),
-  interrupt: async(async () => h.interrupt()),
+  interrupt: asyncOp(async () => h.interrupt()),
 });
 
 type Forkable<A, S extends Row> = Kyoot<A, S> & Only<S, "async" | "clock">;
@@ -38,21 +36,46 @@ const settle = (fibers: ReadonlyArray<FiberHandle>) =>
   Promise.allSettled(fibers.map((f) => (f.interrupt(), f.promise)));
 
 export const fork = <A, S extends Row>(k: Forkable<A, S>) =>
-  async((rt) => Promise.resolve(fiber(rt.spawn(k))));
+  asyncOp((rt) => Promise.resolve(fiber(rt.spawn(k))));
 
 export const race = <A, B, S1 extends Row, S2 extends Row>(
   a: Forkable<A, S1>,
   b: Forkable<B, S2>,
 ) =>
-  async<A | B>((rt) => {
+  asyncOp<A | B>((rt) => {
     const fibers = [rt.spawn(a), rt.spawn(b)];
     return Promise.race(fibers.map((f) => f.promise)).finally(() => settle(fibers));
   });
 
-export const all = <A, S extends Row>(ks: ReadonlyArray<Forkable<A, S>>) =>
-  async((rt) => {
-    const fibers = ks.map((k) => rt.spawn(k));
-    return Promise.all(fibers.map((f) => f.promise)).finally(() => settle(fibers));
+export const all = <A, S extends Row>(
+  ks: ReadonlyArray<Forkable<A, S>>,
+  options: { readonly concurrency?: number } = {},
+) =>
+  asyncOp(async (rt) => {
+    const results: A[] = new Array(ks.length);
+    const fibers: FiberHandle[] = [];
+    let next = 0;
+    let failed = false;
+    const worker = async () => {
+      while (!failed && next < ks.length) {
+        const i = next++;
+        const f = rt.spawn(ks[i]!);
+        fibers.push(f);
+        try {
+          results[i] = await f.promise;
+        } catch (e) {
+          failed = true;
+          throw e;
+        }
+      }
+    };
+    const workers = Math.max(1, Math.min(options.concurrency ?? Infinity, ks.length));
+    try {
+      await Promise.all(Array.from({ length: workers }, worker));
+      return results;
+    } finally {
+      await settle(fibers);
+    }
   });
 
 export class TimeoutError extends Error {

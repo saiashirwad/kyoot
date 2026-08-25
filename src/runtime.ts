@@ -67,6 +67,26 @@ export function asyncDrive<A>(k: Kyoot<A, any>, parent: AsyncRuntime): FiberHand
       return h;
     },
   };
+  // An interrupt is delivered once, at the next op. Ops after that are cleanup
+  // (finalizers) and run to completion with a live signal.
+  let interrupted = false;
+  const serve = async (e: EscapedOp): Promise<AnyKyoot> => {
+    const signal = interrupted ? new AbortController().signal : rt.signal;
+    const work =
+      e.key === "async"
+        ? (e.payload as AsyncOp).execute({ ...rt, signal })
+        : realSleep(e.payload as number, signal);
+    try {
+      const raced = interrupted
+        ? { done: true, value: await work }
+        : await raceSignal(work, signal);
+      if (raced.done) return e.resume(raced.value);
+      interrupted = true;
+      return e.resumeError(new InterruptedError());
+    } catch (err) {
+      return e.resumeError(err);
+    }
+  };
   const drive = (async (): Promise<A> => {
     let current: AnyKyoot = k;
     while (true) {
@@ -74,12 +94,7 @@ export function asyncDrive<A>(k: Kyoot<A, any>, parent: AsyncRuntime): FiberHand
         return stepAll(current) as A;
       } catch (e) {
         if (!(e instanceof EscapedOp) || (e.key !== "async" && e.key !== "clock")) throw e;
-        const work =
-          e.key === "async"
-            ? (e.payload as AsyncOp).execute(rt)
-            : realSleep(e.payload as number, rt.signal);
-        const raced = await raceSignal(work, rt.signal);
-        current = raced.done ? e.resume(raced.value) : e.resumeError(new InterruptedError());
+        current = await serve(e);
       }
     }
   })();
@@ -105,9 +120,13 @@ export function runPromise<A, S extends Row>(
   k: Kyoot<A, S> & Only<S, "async" | "clock">,
 ): Promise<A>;
 export function runPromise<A>(k: AnyKyoot): Promise<A> {
+  return runFiber<A>(k).promise.catch((e: unknown): never => rethrowAtEdge(e, "runPromise"));
+}
+
+export function runFiber<A>(k: Kyoot<A, any>): FiberHandle<A> {
   const seed: AsyncRuntime = {
     signal: new AbortController().signal,
     spawn: (k2) => asyncDrive(k2, seed),
   };
-  return asyncDrive(k, seed).promise.catch((e: unknown): never => rethrowAtEdge(e, "runPromise"));
+  return asyncDrive(k, seed);
 }

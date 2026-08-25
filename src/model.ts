@@ -27,7 +27,7 @@ export type RuntimeNode =
       readonly onOp: OnOp;
       readonly onSuccess?: (a: any, state: any) => AnyKyoot;
       readonly onDefect?: (d: unknown, state: any) => AnyKyoot;
-      readonly onInterrupt?: (state: any) => void;
+      readonly onInterrupt?: (state: any) => void | AnyKyoot;
     }
   | { readonly _tag: "raise"; readonly error: unknown };
 
@@ -57,3 +57,6 @@ export interface Kyoot<A, S extends Row = {}> extends Pipeable {
 }
 
 export type RowsOf<Y> = Y extends Kyoot<any, infer S> ? S : never;
+
+// The row of a callback's result: a program's row, or nothing for a plain value.
+export type RowOf<R> = R extends Kyoot<any, infer S> ? (S extends Row ? S : {}) : {};

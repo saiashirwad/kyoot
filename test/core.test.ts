@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { KyootImpl, makeOp, succeed } from "../src/core.ts";
+import { KyootImpl, makeHandler, makeOp, succeed } from "../src/core.ts";
 import { Kyoot, Var } from "../src/index.ts";
 
 const Count = Var.tag<number>()("Count");
@@ -123,4 +123,15 @@ test("an op escaping a yielded handler node keeps the outer continuation", () =>
     onOp: (_p, resume) => resume("handled"),
   });
   assert.equal(Kyoot.runSync(k as never), "handled continued");
+});
+
+test("a throw inside onOp goes to the same handler's onDefect", () => {
+  const boom = new Error("boom");
+  const k = makeHandler("myfx", makeOp("myfx", undefined) as never, {
+    onOp: () => {
+      throw boom;
+    },
+    onDefect: (d) => succeed(d === boom ? "caught" : "wrong"),
+  });
+  assert.equal(Kyoot.runSync(k as never), "caught");
 });

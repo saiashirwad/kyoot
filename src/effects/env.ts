@@ -7,6 +7,7 @@ type EnvRow<Id extends string, E> = {
 };
 
 export interface Tag<Id extends string, E> extends Iterable<Kyoot<unknown, EnvRow<Id, E>>, E> {
+  readonly key: `env/${Id}`;
   get(): Kyoot<E, EnvRow<Id, E>>;
   provide(
     impl: E,
@@ -21,6 +22,7 @@ export const tag =
     const effectKey = `env/${id}` as const;
     const get = () => makeOp(effectKey, undefined) as Kyoot<E, EnvRow<Id, E>>;
     return {
+      key: effectKey,
       get,
       [Symbol.iterator]: () => get()[Symbol.iterator](),
       provide: (impl) => (k) => makeHandler(effectKey, k, { onOp: (_, resume) => resume(impl) }),

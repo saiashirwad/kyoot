@@ -1,7 +1,7 @@
 import { InterruptedError } from "./core.ts";
 import { gen } from "./gen.ts";
 import type { Kyoot } from "./model.ts";
-import type { AsyncOp, AsyncRuntime, FiberHandle } from "./runtime.ts";
+import { asyncDrive, type AsyncOp, type AsyncRuntime, type FiberHandle } from "./runtime.ts";
 import type { Only, Row } from "./types.ts";
 import * as Async from "./effects/async.ts";
 import type * as Env from "./effects/env.ts";
@@ -10,7 +10,7 @@ import * as Resource from "./effects/resource.ts";
 type Tag<E> = Env.Tag<string, E>;
 type AnyTag = Tag<any>;
 
-export type Inject = Record<string, Tag<any>>;
+export type Inject = Record<string, AnyTag>;
 
 export type Resolve<I extends Inject> = {
   [N in keyof I]: I[N] extends Env.Tag<string, infer E> ? E : never;
@@ -40,29 +40,36 @@ interface Entry {
   readonly component: Component;
   target: boolean;
   active: boolean;
+  landed: boolean;
   fiber?: FiberHandle;
   inertia?: Promise<void>;
   error?: unknown;
 }
 
+type Outcome = { type: "landed" } | { type: "interrupted" } | { type: "failed"; error: unknown };
+
 const root: Entry = {
   component: { inject: {}, run: () => Async.never },
   target: true,
   active: true,
+  landed: true,
+};
+
+const detached = (): AsyncRuntime => {
+  const rt: AsyncRuntime = {
+    signal: new AbortController().signal,
+    spawn: (k) => asyncDrive(k, rt),
+  };
+  return rt;
 };
 
 export class Registry implements Ctx {
+  private readonly rt = detached();
   private readonly bindings = new Map<AnyTag, { impl: unknown; owner: Entry }>();
   private readonly entries: Entry[] = [];
 
-  private readonly rt: AsyncRuntime;
-
-  constructor(rt: AsyncRuntime) {
-    this.rt = rt;
-  }
-
   use(component: Component<any>): Kyoot<Handle, { async: AsyncOp }> {
-    const entry: Entry = { component, target: false, active: false };
+    const entry: Entry = { component, target: false, active: false, landed: false };
     return Async.fromPromise(async () => {
       this.entries.push(entry);
       await this.refresh(entry);
@@ -76,9 +83,9 @@ export class Registry implements Ctx {
         },
         remove: () =>
           Async.fromPromise(async () => {
-            entry.target = false;
-            await registry.transition(entry);
-            registry.entries.splice(registry.entries.indexOf(entry), 1);
+            await registry.retarget(entry, false);
+            const i = registry.entries.indexOf(entry);
+            if (i >= 0) registry.entries.splice(i, 1);
           }),
       };
     });
@@ -90,10 +97,7 @@ export class Registry implements Ctx {
 
   dispose(): Kyoot<void, { async: AsyncOp }> {
     return Async.fromPromise(async () => {
-      for (const entry of [...this.entries].reverse()) {
-        entry.target = false;
-        await this.transition(entry);
-      }
+      for (const entry of [...this.entries].reverse()) await this.retarget(entry, false);
       this.entries.length = 0;
     });
   }
@@ -107,10 +111,12 @@ export class Registry implements Ctx {
   private bind<E>(owner: Entry, tag: Tag<E>, impl: E) {
     return Resource.acquire(
       () => {
+        if (this.bindings.has(tag)) throw new Error(`duplicate provider for ${tag.key}`);
         this.bindings.set(tag, { impl, owner });
-        void this.notify([tag]);
+        if (owner.landed) void this.notify([tag]);
       },
       () => {
+        if (this.bindings.get(tag)?.owner !== owner) return;
         this.bindings.delete(tag);
         void this.notify([tag]);
       },
@@ -123,7 +129,7 @@ export class Registry implements Ctx {
 
   private satisfied(entry: Entry) {
     return Object.values(entry.component.inject).every(
-      (tag) => this.bindings.get(tag)?.owner.active ?? false,
+      (tag) => this.bindings.get(tag)?.owner.landed ?? false,
     );
   }
 
@@ -135,7 +141,12 @@ export class Registry implements Ctx {
   }
 
   private refresh(entry: Entry) {
-    entry.target = this.satisfied(entry);
+    return this.retarget(entry, this.satisfied(entry));
+  }
+
+  private retarget(entry: Entry, target: boolean) {
+    entry.target = target;
+    if (!target && entry.fiber && !entry.landed) entry.fiber.interrupt();
     return this.transition(entry);
   }
 
@@ -148,8 +159,9 @@ export class Registry implements Ctx {
         else await this.deactivate(entry);
       }
     };
-    entry.inertia = run().finally(() => {
+    entry.inertia = run().then(() => {
       entry.inertia = undefined;
+      if (entry.target !== entry.active) void this.transition(entry);
     });
     return entry.inertia;
   }
@@ -162,31 +174,39 @@ export class Registry implements Ctx {
       ]),
     );
     const ctx: Ctx = { set: (tag, impl) => this.bind(entry, tag, impl) };
-    let landed!: () => void;
-    const setup = new Promise<void>((resolve) => (landed = resolve));
+    let land!: () => void;
+    const landed = new Promise<Outcome>((resolve) => (land = () => resolve({ type: "landed" })));
     const program = gen(function* () {
       yield* entry.component.run(deps, ctx);
-      yield* Async.fromPromise(async () => landed());
+      yield* Async.fromPromise(async () => land());
       yield* Async.never;
     }).pipe(Resource.run);
     entry.active = true;
+    entry.landed = false;
     entry.error = undefined;
     entry.fiber = this.rt.spawn(program);
-    const failed = entry.fiber.promise.then(
-      () => undefined,
-      (e: unknown) => (e instanceof InterruptedError ? undefined : e),
+    const died = entry.fiber.promise.then(
+      (): Outcome => ({ type: "interrupted" }),
+      (e: unknown): Outcome =>
+        e instanceof InterruptedError ? { type: "interrupted" } : { type: "failed", error: e },
     );
-    const error = await Promise.race([setup.then(() => undefined), failed]);
-    if (error !== undefined) {
-      entry.error = error;
-      entry.active = false;
+    const outcome = await Promise.race([landed, died]);
+    if (outcome.type === "landed") {
+      entry.landed = true;
+      void this.notify(this.provided(entry));
+      return;
+    }
+    entry.active = false;
+    entry.fiber = undefined;
+    if (outcome.type === "failed") {
+      entry.error = outcome.error;
       entry.target = false;
-      entry.fiber = undefined;
     }
   }
 
   private async deactivate(entry: Entry) {
     entry.active = false;
+    entry.landed = false;
     await this.notify(this.provided(entry));
     entry.fiber?.interrupt();
     await entry.fiber?.promise.catch(() => {});
@@ -194,5 +214,8 @@ export class Registry implements Ctx {
   }
 }
 
-export const make = (): Kyoot<Registry, { async: AsyncOp }> =>
-  Async.runtime.map((rt) => new Registry(rt));
+export const make = () =>
+  Resource.acquire(
+    () => new Registry(),
+    (registry) => registry.dispose(),
+  );

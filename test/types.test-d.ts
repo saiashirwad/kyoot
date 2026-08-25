@@ -8,6 +8,7 @@ import {
   Kyoot,
   makeHandler,
   op,
+  Resource,
   Retry,
   Sync,
   Var,
@@ -181,3 +182,42 @@ const slowSync = Sync.defer(() => 1).pipe((k) =>
 );
 type _asyncHandlerValue = Expect<Equal<ValueOf<typeof slowSync>, number>>;
 type _asyncHandlerKeys = Expect<Equal<keyof RowsOf<typeof slowSync>, "clock">>;
+
+// catchTag removes only the handled tag from the fail row
+class Tagged1 {
+  readonly _tag = "One";
+}
+class Tagged2 {
+  readonly _tag = "Two";
+}
+const twoFails = Kyoot.gen(function* () {
+  if (Math.random() > 1) yield* Fail.fail(new Tagged1());
+  yield* Fail.fail(new Tagged2());
+  return 1;
+});
+const oneLeft = twoFails.pipe(Fail.catchTag("One", () => Kyoot.succeed("r" as const)));
+type _oneLeftFail = Expect<Equal<RowsOf<typeof oneLeft>["fail"], Tagged2>>;
+type _oneLeftValue = Expect<Equal<ValueOf<typeof oneLeft>, number | "r">>;
+const noneLeft = oneLeft.pipe(Fail.catchTag("Two", () => Kyoot.succeed(0)));
+type _noneLeftKeys = Expect<Equal<keyof RowsOf<typeof noneLeft>, never>>;
+
+// streams are programs that emit; the consumer's effects join the row
+const tokens = Emit.fromIterable(["a", "b"]);
+type _tokensRow = Expect<Equal<RowsOf<typeof tokens>, { emit: string }>>;
+const mapped = tokens.pipe(Emit.map((t: string) => t.length));
+type _mappedEmit = Expect<Equal<RowsOf<typeof mapped>["emit"], number>>;
+const consumed = mapped.pipe(Emit.forEach((n: number) => Clock.sleep(n)));
+type _consumedKeys = Expect<Equal<keyof RowsOf<typeof consumed>, "clock">>;
+const iter: AsyncIterable<number> = Emit.toAsyncIterable(mapped);
+
+// a program finalizer's effects join the row when the resource is run
+const scoped = Resource.acquire(
+  () => 1,
+  () => Clock.sleep(1),
+).pipe(Resource.run);
+type _scopedKeys = Expect<Equal<keyof RowsOf<typeof scoped>, "clock">>;
+const plainScoped = Resource.acquire(
+  () => 1,
+  () => {},
+).pipe(Resource.run);
+type _plainScopedKeys = Expect<Equal<keyof RowsOf<typeof plainScoped>, never>>;

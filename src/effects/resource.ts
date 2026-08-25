@@ -1,47 +1,50 @@
 import { makeHandler, op, succeed } from "../core.ts";
-import type { Kyoot } from "../model.ts";
-import type { Row } from "../types.ts";
+import { gen } from "../gen.ts";
+import type { Kyoot, RowOf } from "../model.ts";
+import type { MergeAll, Row } from "../types.ts";
 
-type Finalizer = () => void;
+type Finalizer = () => unknown;
 
-export interface ResourceOp {
+export interface ResourceOp<S extends Row = {}> {
+  readonly _?: (s: S) => void;
   readonly acquire: () => unknown;
-  readonly release: (r: unknown) => void;
+  readonly release: (r: unknown) => unknown;
 }
 
-export const acquire = <R>(acquire: () => R, release: (r: R) => void) =>
-  op<R>()("resource", { acquire, release } as ResourceOp);
+export const acquire = <R, C>(open: () => R, close: (r: R) => C) =>
+  op<R>()("resource", { acquire: open, release: close } as ResourceOp<RowOf<C>>);
 
-const runFinalizers = (finalizers: readonly Finalizer[]): void => {
-  let first: unknown;
-  for (let i = finalizers.length - 1; i >= 0; i--) {
-    try {
-      finalizers[i]!();
-    } catch (e) {
-      if (first === undefined) first = e;
-    }
-  }
-  if (first !== undefined) throw first;
-};
+const attempt = (f: Finalizer, errors: unknown[]) =>
+  makeHandler("resource/finalizer", succeed(undefined).map(f), {
+    onOp: (_, resume) => resume(undefined),
+    onDefect: (d) => {
+      errors.push(d);
+      return succeed(undefined);
+    },
+  });
 
-export const run = <A, S extends Row & { resource?: ResourceOp }>(k: Kyoot<A, S>) =>
+const finalize = (finalizers: readonly Finalizer[], rethrow: boolean) =>
+  gen(function* () {
+    const errors: unknown[] = [];
+    for (let i = finalizers.length - 1; i >= 0; i--) yield* attempt(finalizers[i]!, errors);
+    if (rethrow && errors.length > 0) throw errors[0];
+  });
+
+type ReleaseRow<R> = R extends ResourceOp<infer S> ? S : never;
+
+export const run = <A, S extends Row & { resource?: ResourceOp<any> }>(
+  k: Kyoot<A, S>,
+): Kyoot<A, MergeAll<Omit<S, "resource"> | ReleaseRow<S["resource"]>>> =>
   makeHandler("resource", k, {
     initial: [] as Finalizer[],
     onOp: (res, resume, finalizers) => {
       const r = res.acquire();
       return resume(r, [...finalizers, () => res.release(r)]);
     },
-    onSuccess: (a, finalizers) => {
-      runFinalizers(finalizers);
-      return succeed(a);
-    },
-    onDefect: (d, finalizers) => {
-      try {
-        runFinalizers(finalizers);
-      } catch {
-        /* prefer the original defect over a finalizer failure */
-      }
-      throw d;
-    },
-    onInterrupt: runFinalizers,
-  });
+    onSuccess: (a, finalizers) => finalize(finalizers, true).map(() => a),
+    onDefect: (d, finalizers) =>
+      finalize(finalizers, false).map(() => {
+        throw d;
+      }),
+    onInterrupt: (finalizers) => finalize(finalizers, false),
+  }) as never;

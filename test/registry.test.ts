@@ -40,8 +40,7 @@ test("a component activates when its dependencies appear", async () => {
       yield* registry.use(database("pg"));
       yield* registry.settled();
       assert.equal(srv.active, true);
-      yield* registry.dispose();
-    }),
+    }).pipe(Resource.run),
   );
   assert.deepEqual(events, ["open pg", "up on pg", "down", "close pg"]);
 });
@@ -56,8 +55,7 @@ test("withdrawing a provider tears down dependents first", async () => {
       assert.equal(srv.active, true);
       yield* db.remove();
       assert.equal(srv.active, false);
-      yield* registry.dispose();
-    }),
+    }).pipe(Resource.run),
   );
   assert.deepEqual(events, ["open pg", "up on pg", "down", "close pg"]);
 });
@@ -72,8 +70,7 @@ test("hot swap: a replacement provider reactivates dependents on the new value",
       yield* old.remove();
       yield* registry.use(database("pg-2"));
       yield* registry.settled();
-      yield* registry.dispose();
-    }),
+    }).pipe(Resource.run),
   );
   assert.deepEqual(events, [
     "open pg-1",
@@ -95,7 +92,6 @@ test("a root binding counts as a provider", async () => {
       yield* registry.use(server);
       yield* registry.set(Db, { name: "root" });
       yield* registry.settled();
-      yield* registry.dispose();
     }).pipe(Resource.run),
   );
   assert.deepEqual(events, ["up on root", "down"]);
@@ -120,8 +116,7 @@ test("a component whose setup throws is inactive with the error, and others keep
       assert.equal(bad.active, false);
       assert.equal(bad.error, boom);
       assert.equal(good.active, true);
-      yield* registry.dispose();
-    }),
+    }).pipe(Resource.run),
   );
   assert.deepEqual(events, ["open pg", "up on pg", "down", "close pg"]);
 });
@@ -145,8 +140,7 @@ test("dispose unloads in reverse order", async () => {
       yield* registry.use(database("pg"));
       yield* registry.use(cache);
       yield* registry.use(server);
-      yield* registry.dispose();
-    }),
+    }).pipe(Resource.run),
   );
   assert.deepEqual(events, ["open pg", "cache up", "up on pg", "down", "cache down", "close pg"]);
 });

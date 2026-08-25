@@ -259,3 +259,37 @@ test("joining an interrupted fiber interrupts the joiner", async () => {
   });
   await assert.rejects(Kyoot.runPromise(prog), (e) => e instanceof InterruptedError);
 });
+
+test("all: concurrency limit bounds in-flight fibers and keeps order", async () => {
+  let inflight = 0;
+  let peak = 0;
+  const task = (n: number) =>
+    Async.fromPromise(async () => {
+      inflight++;
+      peak = Math.max(peak, inflight);
+      await new Promise((r) => setTimeout(r, 5));
+      inflight--;
+      return n;
+    });
+  const r = await Kyoot.runPromise(Async.all([1, 2, 3, 4, 5].map(task), { concurrency: 2 }));
+  assert.deepEqual(r, [1, 2, 3, 4, 5]);
+  assert.equal(peak, 2);
+});
+
+test("all: a failure stops scheduling the rest", async () => {
+  let started = 0;
+  const boom = new Error("boom");
+  const task = (fail: boolean) =>
+    Async.fromPromise(async () => {
+      started++;
+      await new Promise((r) => setTimeout(r, 2));
+      if (fail) throw boom;
+    });
+  await assert.rejects(
+    Kyoot.runPromise(
+      Async.all([task(true), task(false), task(false), task(false)], { concurrency: 1 }),
+    ),
+    (e) => e === boom,
+  );
+  assert.equal(started, 1);
+});

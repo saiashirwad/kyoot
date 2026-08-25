@@ -71,21 +71,27 @@ The row is a plain object type with the payload type as each key's value. `yield
 
 ## Built-in effects
 
-| Module     | Op                                                 | Handlers                                       |
-| ---------- | -------------------------------------------------- | ---------------------------------------------- |
-| `Fail`     | `fail(e)`                                          | `run` (to `Result`), `catchAll(f)`, `orThrow`  |
-| `Env`      | `tag<T>()("id").get()`                             | `tag.provide(impl)`                            |
-| `Var`      | `tag.get()`, `tag.set(v)`, `tag.update(f)`         | `tag.run(initial)` (to `[A, V]`)               |
-| `Emit`     | `value(e)`                                         | `run` (to `[A, E[]]`), `forEach(f)`, `discard` |
-| `Sync`     | `defer(() => x)`                                   | `run`                                          |
-| `Resource` | `acquire(open, close)`                             | `run`                                          |
-| `Clock`    | `sleep(ms)`                                        | `virtual` (to `[A, elapsedMs]`), `runPromise`  |
-| `Retry`    |                                                    | `run({ times, delay })`                        |
-| `Async`    | `fromPromise(f)`, `fork`, `race`, `all`, `timeout` | `runPromise`                                   |
+| Module     | Op                                                                      | Handlers                                                                         |
+| ---------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `Fail`     | `fail(e)`                                                               | `run` (to `Result`), `catchAll(f)`, `catchTag(tag, f)`, `mapError(f)`, `orThrow` |
+| `Env`      | `tag<T>()("id").get()`                                                  | `tag.provide(impl)`                                                              |
+| `Var`      | `tag.get()`, `tag.set(v)`, `tag.update(f)`                              | `tag.run(initial)` (to `[A, V]`)                                                 |
+| `Log`      | `info(msg)`, `warn`, `error`, `debug`                                   | `print`, `collect` (to `[A, Entry[]]`), `discard`                                |
+| `Random`   | `next()`, `int(max)`                                                    | `live`, `seeded(seed)`                                                           |
+| `Emit`     | `value(e)`, `fromIterable(xs)`, `fromAsyncIterable(xs)`                 | `run` (to `[A, E[]]`), `forEach(f)`, `map(f)`, `discard`, `toAsyncIterable`      |
+| `Sync`     | `defer(() => x)`                                                        | `run`                                                                            |
+| `Resource` | `acquire(open, close)`                                                  | `run`                                                                            |
+| `Clock`    | `sleep(ms)`                                                             | `virtual` (to `[A, elapsedMs]`), `runPromise`                                    |
+| `Retry`    |                                                                         | `run({ times, delay })`                                                          |
+| `Async`    | `fromPromise(f)`, `fork`, `race`, `all(ks, { concurrency })`, `timeout` | `runPromise`                                                                     |
 
 Tags are keyed by id, so `Env.tag<A>()("a")` and `Env.tag<B>()("b")` are separate keys and one program can use both. `Var` threads state through its handler; `Env` hands out a constant.
 
 `Resource.run` releases in reverse order on success, defect, or interrupt. A failure in a finalizer never hides the original error.
+
+A stream is a program that emits. `Emit.fromAsyncIterable` turns an async source into one, `Emit.map` and `Emit.forEach` transform and consume it (a `forEach` callback may return a program, whose effects join the row), and `Emit.toAsyncIterable` runs it and hands the values out as they arrive; breaking out of the loop interrupts the producer.
+
+`Resource.acquire`'s `close` may return a program, so a finalizer can do async work. Finalizers run to completion on success, defect, and interrupt; after an interrupt is delivered, the ops a fiber performs are treated as cleanup and are not interrupted again.
 
 `Clock.sleep` is served by `runPromise` with real timers unless a handler is closer; `Clock.virtual` makes every sleep instant and reports the elapsed time, so a program that waits can run under `runSync` in tests. `Retry.run` re-runs a program on a typed failure, sleeping between attempts (`delay` is a number or `(attempt) => ms`); defects are not retried, and the last failure stays in the row.
 
@@ -131,14 +137,16 @@ const server = Registry.component({
   run: ({ db }) => Resource.acquire(() => listen(db), stop),
 });
 
-const registry = yield * Registry.make();
-const srv = yield * registry.use(server); // inactive: nothing provides Db yet
-const db = yield * registry.use(database); // server activates
-yield * db.remove(); // server deactivates, then the database closes
-yield * registry.use(database2); // server comes back on the new one
+const main = Kyoot.gen(function* () {
+  const registry = yield* Registry.make(); // a resource: disposed when the scope ends
+  const srv = yield* registry.use(server); // inactive: nothing provides Db yet
+  const db = yield* registry.use(database); // server activates once the database has landed
+  yield* db.remove(); // server deactivates, then the database closes
+  yield* registry.use(database2); // server comes back on the new one
+}).pipe(Resource.run);
 ```
 
-`use` returns a handle with `active`, `error`, and `remove`. A component's `run` may use `resource`, `async`, and `clock`; anything else must be handled inside it. A component whose setup throws is left inactive with the error on its handle. `examples/registry.ts` runs this sequence.
+`use` returns a handle with `active`, `error`, and `remove`, and resolves once the component has landed (its setup finished) or been found to be waiting. A component's bindings become visible to dependents only when it lands, so activation is atomic; a target change during setup interrupts it and releases what it acquired. A component's `run` may use `resource`, `async`, and `clock`; anything else must be handled inside it. A component whose setup throws — including providing a tag another component already provides — is left inactive with the error on its handle. The registry itself is a resource, so interrupting the program that made it unloads every component in reverse order. `examples/registry.ts` runs this sequence.
 
 ## Your own effect
 
@@ -151,6 +159,30 @@ const declineAll = (reason: string) =>
 ```
 
 `op<A>()(key, payload)` is the one-off form underneath `effect`, for ops whose payload type varies per call (`Fail.fail`, `Emit.value`).
+
+## An agent
+
+`examples/agent.ts` shows the shape for an AI library: the model call is an effect, tools are effects, providers and test doubles are handlers. A provider handler may itself retry, stream tokens with `Emit`, log, and fail with a typed error, and every one of those shows up in the row at the step that introduces it.
+
+```ts
+const Model = effect<Prompt, string>()("model");
+const Search = effect<{ query: string }, string[]>()("search");
+
+const agent = (question: string) =>
+  Kyoot.gen(function* () {
+    const query = yield* Model({ messages: [`search query for: ${question}`] });
+    const results = yield* Search({ query });
+    return yield* Model({ messages: [question, ...results] });
+  });
+
+agent("why is the sky blue?").pipe(
+  Model.handle({ onOp: (prompt, resume) => complete(prompt).pipe(Retry.run(policy)).map(resume) }),
+  Search.handle({ onOp: ({ query }, resume) => resume(search(query)) }),
+  Emit.forEach((token: string) => process.stdout.write(token)),
+  Log.print,
+  Fail.run,
+);
+```
 
 ## Rules
 

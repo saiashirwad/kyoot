@@ -35,6 +35,5 @@ await Kyoot.runPromise(
     yield* db.remove();
     yield* registry.use(database("pg-2"));
     yield* registry.settled();
-    yield* registry.dispose();
-  }),
+  }).pipe(Resource.run),
 );

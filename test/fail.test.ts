@@ -79,3 +79,31 @@ test("handler order: Fail before Var — state survives failure", () => {
   assert.equal(r.ok, false);
   assert.equal(state, 10);
 });
+
+class NotFound {
+  readonly _tag = "NotFound";
+}
+class Timeout {
+  readonly _tag = "Timeout";
+}
+
+test("Fail.catchTag: handles one tag and re-fails the rest", () => {
+  const prog = (e: NotFound | Timeout) =>
+    Fail.fail(e).pipe(
+      Fail.catchTag("NotFound", () => Kyoot.succeed("recovered")),
+      Fail.run,
+    );
+  assert.deepEqual(Kyoot.runSync(prog(new NotFound())), { ok: true, value: "recovered" });
+  const r = Kyoot.runSync(prog(new Timeout()));
+  assert.ok(!r.ok && r.cause._tag === "Fail" && r.cause.error instanceof Timeout);
+});
+
+test("Fail.mapError: rewrites the failure", () => {
+  const r = Kyoot.runSync(
+    Fail.fail(404).pipe(
+      Fail.mapError((code: number) => `http ${code}`),
+      Fail.run,
+    ),
+  );
+  assert.deepEqual(r, { ok: false, cause: { _tag: "Fail", error: "http 404" } });
+});

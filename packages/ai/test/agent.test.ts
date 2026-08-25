@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { effect, Emit, Fail, Kyoot, Log } from "kyoot";
-import { ask, Model, TooManyRounds, tool, type Completion, type Request } from "@kyoot/ai";
+import { ask, Model, TooManyRounds, Tool, type Completion, type Request } from "@kyoot/ai";
 
 const Calc = effect<{ expression: string }, number>()("calc");
-const calc = tool({ name: "calc", description: "arithmetic", parameters: {} }, Calc);
+const calc = Tool({ name: "calc", description: "arithmetic", parameters: {} }, Calc);
 
 const scripted = (script: readonly Completion[], seen: Request[] = []) =>
   Model.handle({

@@ -82,8 +82,8 @@ export const chatCompletions = ({
     onOp: (req, resume) => complete(url, model, req).pipe(Retry.run(retry)).map(resume),
   });
 
-export const deepseek = (model = "deepseek-chat") =>
+export const Deepseek = (model = "deepseek-chat") =>
   chatCompletions({ url: "https://api.deepseek.com/chat/completions", model });
 
-export const openai = (model = "gpt-4o-mini") =>
+export const OpenAI = (model = "gpt-4o-mini") =>
   chatCompletions({ url: "https://api.openai.com/v1/chat/completions", model });

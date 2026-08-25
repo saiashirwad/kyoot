@@ -6,7 +6,7 @@ export interface Tool<A = any, R = unknown, S extends Row = any> {
   readonly run: (args: A) => Kyoot<R, S>;
 }
 
-export const tool = <A, R, S extends Row>(
+export const Tool = <A, R, S extends Row>(
   schema: ToolSchema,
   run: (args: A) => Kyoot<R, S>,
 ): Tool<A, R, S> => ({

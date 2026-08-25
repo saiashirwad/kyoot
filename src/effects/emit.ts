@@ -1,10 +1,8 @@
-import { makeHandler, makeOp, succeed } from "../core.ts";
+import { makeHandler, op, succeed } from "../core.ts";
 import type { Kyoot } from "../model.ts";
 import type { Row } from "../types.ts";
 
-export function value<E>(e: E): Kyoot<void, { emit: E }> {
-  return makeOp("emit", e) as Kyoot<void, { emit: E }>;
-}
+export const value = <E>(e: E) => op<void>()("emit", e);
 
 export const run = <A, S extends Row & { emit?: unknown }>(k: Kyoot<A, S>) =>
   makeHandler({

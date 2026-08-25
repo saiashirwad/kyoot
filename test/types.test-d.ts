@@ -1,5 +1,5 @@
-import { Async, Emit, Env, Fail, Kyoot, makeOp, Sync, Var, makeHandler } from "../src/index.ts";
-import type { Kyoot as KyootT, Result, RowsOf } from "../src/index.ts";
+import { Async, Emit, Env, Fail, Kyoot, op, Sync, Var, makeHandler } from "../src/index.ts";
+import type { AsyncOp, Kyoot as KyootT, Result, RowsOf } from "../src/index.ts";
 import { sleep, testClock } from "../examples/clock.ts";
 
 type Expect<T extends true> = T;
@@ -25,7 +25,9 @@ const mixed = Kyoot.gen(function* () {
 type MixedRows = RowsOf<typeof mixed>;
 type _mixedKeys = Expect<Equal<keyof MixedRows, "fail" | "async" | "sync">>;
 type _mixedFail = Expect<Equal<MixedRows["fail"], FetchFailed>>;
-type _mixedAsync = Expect<Equal<MixedRows["async"], true>>;
+// the row value is the op's payload type
+type _mixedAsync = Expect<Equal<MixedRows["async"], AsyncOp>>;
+type _mixedSync = Expect<Equal<MixedRows["sync"], () => unknown>>;
 type _mixedValue = Expect<Equal<typeof mixed extends KyootT<infer A, any> ? A : never, string>>;
 
 // @ts-expect-error runSync rejects async rows
@@ -78,8 +80,9 @@ const emitted = Kyoot.gen(function* () {
 }).pipe(Emit.run);
 const e1: readonly [number, string[]] = Kyoot.runSync(emitted);
 
-const logOp = makeOp("log", "hello") as KyootT<void, { log: string }>;
+const logOp = op<void>()("log", "hello");
 type _logKeys = Expect<Equal<keyof RowsOf<typeof logOp>, "log">>;
+type _logPayload = Expect<Equal<RowsOf<typeof logOp>["log"], string>>;
 // @ts-expect-error runSync names the unhandled custom effect: Unhandled<"log">
 Kyoot.runSync(logOp);
 
@@ -131,7 +134,7 @@ const slowSync = Sync.defer(() => 1).pipe((k) =>
   makeHandler({
     effectKey: "sync",
     self: k,
-    onOp: (f: () => unknown, resume) => Async.sleep(1).map(() => resume(f())),
+    onOp: (f, resume) => Async.sleep(1).map(() => resume(f())), // f: () => unknown, from the row
   }),
 );
 type _asyncHandlerValue = Expect<Equal<ValueOf<typeof slowSync>, number>>;

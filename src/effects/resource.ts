@@ -1,14 +1,16 @@
-import { makeHandler, makeOp, succeed } from "../core.ts";
+import { makeHandler, op, succeed } from "../core.ts";
 import type { Kyoot } from "../model.ts";
 import type { Row } from "../types.ts";
 
 type Finalizer = () => void;
 
-export const acquire = <R>(
-  acquire: () => R,
-  release: (r: R) => void,
-): Kyoot<R, { resource: true }> =>
-  makeOp("resource", { acquire, release }) as Kyoot<R, { resource: true }>;
+export interface ResourceOp {
+  readonly acquire: () => unknown;
+  readonly release: (r: unknown) => void;
+}
+
+export const acquire = <R>(acquire: () => R, release: (r: R) => void) =>
+  op<R>()("resource", { acquire, release } as ResourceOp);
 
 const runFinalizers = (finalizers: readonly Finalizer[]): void => {
   let first: unknown;
@@ -22,14 +24,14 @@ const runFinalizers = (finalizers: readonly Finalizer[]): void => {
   if (first !== undefined) throw first;
 };
 
-export const run = <A, S extends Row & { resource?: unknown }>(k: Kyoot<A, S>) =>
+export const run = <A, S extends Row & { resource?: ResourceOp }>(k: Kyoot<A, S>) =>
   makeHandler({
     effectKey: "resource",
     self: k,
     state: [] as Finalizer[],
-    onOp: (op: { acquire: () => unknown; release: (r: any) => void }, resume, finalizers) => {
-      const r = op.acquire();
-      return resume(r, [...finalizers, () => op.release(r)]);
+    onOp: (res, resume, finalizers) => {
+      const r = res.acquire();
+      return resume(r, [...finalizers, () => res.release(r)]);
     },
     onSuccess: (a, finalizers) => {
       runFinalizers(finalizers);

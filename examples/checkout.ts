@@ -29,11 +29,14 @@ export interface Card {
 export type OrderEvent = { type: "reserved"; sku: string };
 
 export interface Inventory {
-  reserve(sku: string, qty: number): KyootT<boolean, { sync: true }>;
+  reserve(sku: string, qty: number): KyootT<boolean, { sync: () => unknown }>;
 }
 
 export interface Payments {
-  charge(totalCents: number, card: Card): KyootT<string, { sync: true; fail: PaymentDeclined }>;
+  charge(
+    totalCents: number,
+    card: Card,
+  ): KyootT<string, { sync: () => unknown; fail: PaymentDeclined }>;
 }
 
 export const Inventory = Env.tag<Inventory>()("inventory");

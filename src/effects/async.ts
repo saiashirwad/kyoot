@@ -1,4 +1,4 @@
-import { InterruptedError, makeOp, succeed } from "../core.ts";
+import { InterruptedError, op, succeed } from "../core.ts";
 import { fail } from "./fail.ts";
 import { Result } from "../result.ts";
 import type { AnyKyoot, Kyoot } from "../model.ts";
@@ -11,15 +11,17 @@ import type { Merge, Only, Row } from "../types.ts";
 // queue, no ops budget, no preemption (a hot loop in one fiber starves the
 // rest — documented sharp edge).
 
-function asyncOp(op: AsyncOp): Kyoot<any, { async: true }> {
-  return makeOp("async", op) as Kyoot<any, { async: true }>;
+function asyncOp(o: AsyncOp): Kyoot<any, { async: AsyncOp }> {
+  return op<any>()("async", o);
 }
 
-export function fromPromise<A>(f: (signal: AbortSignal) => Promise<A>): Kyoot<A, { async: true }> {
+export function fromPromise<A>(
+  f: (signal: AbortSignal) => Promise<A>,
+): Kyoot<A, { async: AsyncOp }> {
   return asyncOp({ execute: (rt) => f(rt.signal) });
 }
 
-export function sleep(ms: number): Kyoot<void, { async: true }> {
+export function sleep(ms: number): Kyoot<void, { async: AsyncOp }> {
   return fromPromise(
     (signal) =>
       new Promise((resume) => {
@@ -35,10 +37,10 @@ export function sleep(ms: number): Kyoot<void, { async: true }> {
 
 export interface Fiber<A> {
   // Join: wait for the fiber's value, rethrowing its failure.
-  readonly join: Kyoot<A, { async: true }>;
+  readonly join: Kyoot<A, { async: AsyncOp }>;
   // Await: wait for the fiber's outcome as a Result.
-  readonly await: Kyoot<Result<unknown, A>, { async: true }>;
-  readonly interrupt: Kyoot<void, { async: true }>;
+  readonly await: Kyoot<Result<unknown, A>, { async: AsyncOp }>;
+  readonly interrupt: Kyoot<void, { async: AsyncOp }>;
 }
 
 class FiberImpl<A> implements Fiber<A> {
@@ -50,11 +52,11 @@ class FiberImpl<A> implements Fiber<A> {
     this.interruptFiber = interruptFiber;
   }
 
-  get join(): Kyoot<A, { async: true }> {
+  get join(): Kyoot<A, { async: AsyncOp }> {
     return asyncOp({ execute: () => this.promise });
   }
 
-  get await(): Kyoot<Result<unknown, A>, { async: true }> {
+  get await(): Kyoot<Result<unknown, A>, { async: AsyncOp }> {
     return asyncOp({
       execute: () =>
         this.promise.then(
@@ -65,7 +67,7 @@ class FiberImpl<A> implements Fiber<A> {
     });
   }
 
-  get interrupt(): Kyoot<void, { async: true }> {
+  get interrupt(): Kyoot<void, { async: AsyncOp }> {
     return asyncOp({
       execute: () => {
         this.interruptFiber();
@@ -79,20 +81,20 @@ class FiberImpl<A> implements Fiber<A> {
 // an independent interpreter loop, so no outer handler can see its ops.
 export function fork<A, S extends Row>(
   k: Kyoot<A, S> & Only<S, "async">,
-): Kyoot<Fiber<A>, Merge<S, { async: true }>> {
+): Kyoot<Fiber<A>, Merge<S, { async: AsyncOp }>> {
   return asyncOp({
     execute: (rt) => {
       const h = rt.spawn(k as AnyKyoot);
       return Promise.resolve(new FiberImpl(h.promise as Promise<A>, h.interrupt));
     },
-  }) as Kyoot<Fiber<A>, Merge<S, { async: true }>>;
+  }) as Kyoot<Fiber<A>, Merge<S, { async: AsyncOp }>>;
 }
 
 // First to complete wins.
 export function race<A, S1 extends Row, S2 extends Row>(
   a: Kyoot<A, S1> & Only<S1, "async">,
   b: Kyoot<A, S2> & Only<S2, "async">,
-): Kyoot<A, Merge<Merge<S1, S2>, { async: true }>> {
+): Kyoot<A, Merge<Merge<S1, S2>, { async: AsyncOp }>> {
   return asyncOp({
     execute: (rt) => {
       const fibers = [rt.spawn(a as AnyKyoot), rt.spawn(b as AnyKyoot)];
@@ -103,13 +105,13 @@ export function race<A, S1 extends Row, S2 extends Row>(
         },
       ) as Promise<A>;
     },
-  }) as Kyoot<A, Merge<Merge<S1, S2>, { async: true }>>;
+  }) as Kyoot<A, Merge<Merge<S1, S2>, { async: AsyncOp }>>;
 }
 
-export function all(ks: []): Kyoot<readonly [], { async: true }>;
+export function all(ks: []): Kyoot<readonly [], { async: AsyncOp }>;
 export function all<A, S extends Row = {}>(
   ks: ReadonlyArray<Kyoot<A, S> & Only<S, "async">>,
-): Kyoot<ReadonlyArray<A>, Merge<S, { async: true }>>;
+): Kyoot<ReadonlyArray<A>, Merge<S, { async: AsyncOp }>>;
 export function all(ks: ReadonlyArray<AnyKyoot>): AnyKyoot {
   return asyncOp({
     execute: (rt) => {
@@ -148,7 +150,7 @@ const TIMEOUT: unique symbol = Symbol("kyoot.timeout");
 export function timeout<A, S extends Row>(
   ms: number,
   k: Kyoot<A, S> & Only<S, "async">,
-): Kyoot<A, Merge<S, { async: true; fail: TimeoutError }>> {
+): Kyoot<A, Merge<S, { async: AsyncOp; fail: TimeoutError }>> {
   return asyncOp({
     execute: (rt) => {
       const f = rt.spawn(k as AnyKyoot);
@@ -173,6 +175,6 @@ export function timeout<A, S extends Row>(
     },
   }).map((r) => (r === TIMEOUT ? (fail(new TimeoutError(ms)) as AnyKyoot) : succeed(r))) as Kyoot<
     A,
-    Merge<S, { async: true; fail: TimeoutError }>
+    Merge<S, { async: AsyncOp; fail: TimeoutError }>
   >;
 }

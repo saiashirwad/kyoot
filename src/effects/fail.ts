@@ -1,10 +1,9 @@
-import { makeHandler, makeOp, succeed } from "../core.ts";
+import { makeHandler, op, succeed } from "../core.ts";
 import type { Kyoot } from "../model.ts";
 import { Result } from "../result.ts";
 import type { Row } from "../types.ts";
 
-export const fail = <E>(e: E): Kyoot<never, { fail: E }> =>
-  makeOp("fail", e) as Kyoot<never, { fail: E }>;
+export const fail = <E>(e: E) => op<never>()("fail", e);
 
 export const run = <A, S extends Row & { fail?: unknown }>(k: Kyoot<A, S>) =>
   makeHandler({

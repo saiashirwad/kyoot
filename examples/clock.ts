@@ -1,8 +1,7 @@
-import { Async, Kyoot, makeHandler, makeOp } from "../src/index.ts";
+import { Async, Kyoot, makeHandler, op } from "../src/index.ts";
 import type { Row } from "../src/index.ts";
 
-export const sleep = (ms: number): Kyoot<void, { clock: number }> =>
-  makeOp("clock", ms) as Kyoot<void, { clock: number }>;
+export const sleep = (ms: number) => op<void>()("clock", ms);
 
 export const liveClock = <A, S extends Row & { clock?: number }>(k: Kyoot<A, S>) =>
   makeHandler({

@@ -42,6 +42,14 @@ export const succeed = <A>(value: A): Kyoot<A, {}> => new KyootImpl({ _tag: "pur
 export const makeOp = (key: PropertyKey, payload: unknown) =>
   new KyootImpl({ _tag: "op", effectKey: key, payload });
 
+// Typed op constructor. The row records the key and the payload type, so a
+// handler's `onOp` can read the payload type back off the row. `A` is what
+// the op resumes with; TS can't infer it, hence the two-step call.
+export const op =
+  <A>() =>
+  <const K extends string, P>(key: K, payload: P): Kyoot<A, { [k in K]: P }> =>
+    makeOp(key, payload) as Kyoot<A, { [k in K]: P }>;
+
 // The payload type an effect key carries in the row, if the row has it.
 type Payload<S, K extends PropertyKey> = K extends keyof S ? Exclude<S[K], undefined> : never;
 
@@ -58,6 +66,9 @@ export function makeHandler<
   A,
   S extends Row,
   St = undefined,
+  // Ops built with `op` put their payload type in the row, so this default is
+  // right for them. Env and Var record something else (the service / state
+  // type) and annotate the payload themselves.
   P = Payload<S, K>,
   B = A,
   B2 = never,

@@ -1,16 +1,11 @@
 {
-  "name": "kyoot",
-  "version": "0.1.0",
-  "description": "A minimal TypeScript core for the Kyo effect model",
-  "license": "MIT",
+  "name": "kyoot-workspace",
+  "private": true,
   "type": "module",
-  "exports": {
-    ".": "./src/index.ts"
-  },
   "scripts": {
     "format": "oxfmt --write .",
-    "typecheck": "tsc -p tsconfig.json",
-    "test": "node --test test/*.test.ts"
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test"
   },
   "devDependencies": {
     "@types/node": "^26.1.2",

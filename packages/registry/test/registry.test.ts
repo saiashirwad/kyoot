@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Env, Kyoot, Registry, Resource, Sync } from "../src/index.ts";
+import { Env, Kyoot, Resource, Sync } from "kyoot";
+import * as Registry from "@kyoot/registry";
 
 const Db = Env.tag<{ name: string }>()("db");
 const Cache = Env.tag<{ size: number }>()("cache");

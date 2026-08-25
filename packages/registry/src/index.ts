@@ -1,11 +1,5 @@
-import { InterruptedError } from "./core.ts";
-import { gen } from "./gen.ts";
-import type { Kyoot } from "./model.ts";
-import { asyncDrive, type AsyncOp, type AsyncRuntime, type FiberHandle } from "./runtime.ts";
-import type { Only, Row } from "./types.ts";
-import * as Async from "./effects/async.ts";
-import type * as Env from "./effects/env.ts";
-import * as Resource from "./effects/resource.ts";
+import { Async, InterruptedError, Kyoot, Resource, runFiber } from "kyoot";
+import type { AsyncOp, Env, FiberHandle, Kyoot as K, Only, Row } from "kyoot";
 
 type Tag<E> = Env.Tag<string, E>;
 type AnyTag = Tag<any>;
@@ -17,23 +11,23 @@ export type Resolve<I extends Inject> = {
 };
 
 export interface Ctx {
-  set<E>(tag: Tag<E>, impl: E): Kyoot<void, { resource: Resource.ResourceOp }>;
+  set<E>(tag: Tag<E>, impl: E): K<void, { resource: Resource.ResourceOp }>;
 }
 
 export interface Component<I extends Inject = Inject> {
   readonly inject: I;
-  readonly run: (deps: Resolve<I>, ctx: Ctx) => Kyoot<unknown, any>;
+  readonly run: (deps: Resolve<I>, ctx: Ctx) => K<unknown, any>;
 }
 
 export const component = <I extends Inject, S extends Row>(spec: {
   inject: I;
-  run: (deps: Resolve<I>, ctx: Ctx) => Kyoot<unknown, S> & Only<S, "resource" | "async" | "clock">;
+  run: (deps: Resolve<I>, ctx: Ctx) => K<unknown, S> & Only<S, "resource" | "async" | "clock">;
 }): Component<I> => spec as Component<I>;
 
 export interface Handle {
   readonly active: boolean;
   readonly error: unknown;
-  remove(): Kyoot<void, { async: AsyncOp }>;
+  remove(): K<void, { async: AsyncOp }>;
 }
 
 interface Entry {
@@ -55,20 +49,11 @@ const root: Entry = {
   landed: true,
 };
 
-const detached = (): AsyncRuntime => {
-  const rt: AsyncRuntime = {
-    signal: new AbortController().signal,
-    spawn: (k) => asyncDrive(k, rt),
-  };
-  return rt;
-};
-
 export class Registry implements Ctx {
-  private readonly rt = detached();
   private readonly bindings = new Map<AnyTag, { impl: unknown; owner: Entry }>();
   private readonly entries: Entry[] = [];
 
-  use(component: Component<any>): Kyoot<Handle, { async: AsyncOp }> {
+  use(component: Component<any>): K<Handle, { async: AsyncOp }> {
     const entry: Entry = { component, target: false, active: false, landed: false };
     return Async.fromPromise(async () => {
       this.entries.push(entry);
@@ -95,14 +80,14 @@ export class Registry implements Ctx {
     return this.bind(root, tag, impl);
   }
 
-  dispose(): Kyoot<void, { async: AsyncOp }> {
+  dispose(): K<void, { async: AsyncOp }> {
     return Async.fromPromise(async () => {
       for (const entry of [...this.entries].reverse()) await this.retarget(entry, false);
       this.entries.length = 0;
     });
   }
 
-  settled(): Kyoot<void, { async: AsyncOp }> {
+  settled(): K<void, { async: AsyncOp }> {
     return Async.fromPromise(async () => {
       await Promise.all(this.entries.map((e) => e.inertia));
     });
@@ -176,7 +161,7 @@ export class Registry implements Ctx {
     const ctx: Ctx = { set: (tag, impl) => this.bind(entry, tag, impl) };
     let land!: () => void;
     const landed = new Promise<Outcome>((resolve) => (land = () => resolve({ type: "landed" })));
-    const program = gen(function* () {
+    const program = Kyoot.gen(function* () {
       yield* entry.component.run(deps, ctx);
       yield* Async.fromPromise(async () => land());
       yield* Async.never;
@@ -184,7 +169,7 @@ export class Registry implements Ctx {
     entry.active = true;
     entry.landed = false;
     entry.error = undefined;
-    entry.fiber = this.rt.spawn(program);
+    entry.fiber = runFiber(program);
     const died = entry.fiber.promise.then(
       (): Outcome => ({ type: "interrupted" }),
       (e: unknown): Outcome =>

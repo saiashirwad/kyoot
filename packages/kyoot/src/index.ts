@@ -1,10 +1,11 @@
 import { succeed } from "./core.ts";
 import { gen } from "./gen.ts";
 import type { Kyoot as KyootType } from "./model.ts";
-import { runPromise, runSync } from "./runtime.ts";
+import { runFiber, runPromise, runSync } from "./runtime.ts";
 import type { Row } from "./types.ts";
 
 export { effect, InterruptedError, makeHandler, op } from "./core.ts";
+export { runFiber } from "./runtime.ts";
 export type { Resume } from "./core.ts";
 export type { AsyncOp, AsyncRuntime, FiberHandle } from "./runtime.ts";
 export type { Pipeable } from "./pipe.ts";
@@ -24,7 +25,6 @@ export * as Resource from "./effects/resource.ts";
 export * as Retry from "./effects/retry.ts";
 export * as Sync from "./effects/sync.ts";
 export * as Var from "./effects/var.ts";
-export * as Registry from "./registry.ts";
 
 export type Kyoot<A, S extends Row = {}> = KyootType<A, S>;
 export const Kyoot = { succeed, gen, runSync, runPromise };

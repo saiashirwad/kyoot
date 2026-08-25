@@ -1,4 +1,5 @@
-import { Env, Kyoot, Registry, Resource } from "../src/index.ts";
+import { Env, Kyoot, Resource } from "kyoot";
+import * as Registry from "@kyoot/registry";
 
 const Db = Env.tag<{ query: (sql: string) => string }>()("db");
 

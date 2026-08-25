@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Async, Clock, Env, Kyoot, Registry, Resource, Sync } from "../src/index.ts";
+import { Async, Clock, Env, Kyoot, Resource, Sync } from "kyoot";
+import * as Registry from "@kyoot/registry";
 
 const X = Env.tag<{ name: string }>()("stress-x");
 const Y = Env.tag<{ name: string }>()("stress-y");

@@ -141,13 +141,14 @@ export class TimeoutError extends Error {
   }
 }
 
+const TIMEOUT: unique symbol = Symbol("kyoot.timeout");
+
 // Race k against the clock; on timeout the computation fails with a typed
 // TimeoutError in the `fail` slot.
 export function timeout<A, S extends Row>(
   ms: number,
   k: Kyoot<A, S> & Only<S, "async">,
 ): Kyoot<A, Merge<S, { async: true; fail: TimeoutError }>> {
-  const TIMEOUT: unique symbol = Symbol("kyoot.timeout");
   return asyncOp({
     execute: (rt) => {
       const f = rt.spawn(k as AnyKyoot);

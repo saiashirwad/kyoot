@@ -26,7 +26,7 @@ const result = lookup("42").pipe(
   Sync.run,
   Kyoot.runSync,
 );
-// { ok: true, value: "douglas" }
+// Result<NotFound, string>, here { ok: true, value: "douglas" }
 ```
 
 The second type parameter is the row: one key per effect the program still needs handled. `runSync` and `runPromise` reject a program with keys left, and the error names them:

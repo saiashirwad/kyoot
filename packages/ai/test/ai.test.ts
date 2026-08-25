@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { effect, Fail, Kyoot } from "kyoot";
+import { z } from "zod";
 import {
   AI,
   Approve,
@@ -9,7 +10,6 @@ import {
   Mode,
   Model,
   needsApproval,
-  Schema,
   TooManyRounds,
   Tool,
   type Completion,
@@ -17,7 +17,7 @@ import {
 } from "@kyoot/ai";
 
 const Calc = effect<{ expression: string }, number>()("calc");
-const calc = Tool("calc", "arithmetic", Schema.object({ expression: Schema.string() }), Calc);
+const calc = Tool("calc", "arithmetic", z.object({ expression: z.string() }), Calc);
 const evaluate = Calc.handle({
   onOp: ({ expression }, resume) => resume(expression === "2+2" ? 4 : NaN),
 });
@@ -61,7 +61,7 @@ test("ask: runs tool calls as effects and feeds results back", () => {
 
 test("gen: decodes the answer tool, sending bad arguments back", () => {
   const seen: Request[] = [];
-  const Answer = Schema.object({ value: Schema.number() });
+  const Answer = z.object({ value: z.number() });
   const answer = Kyoot.runSync(
     AI.gen(Answer, "2+2?").pipe(
       scripted([call("answer", { value: "four" }), call("answer", { value: 4 })], seen),
@@ -72,13 +72,6 @@ test("gen: decodes the answer tool, sending bad arguments back", () => {
   assert.deepEqual(answer, { value: 4 });
   assert.equal(seen[0]!.toolChoice, "required");
   assert.match((seen[1]!.messages.at(-1) as { content: string }).content, /expected number/);
-});
-
-test("schema: literal accepts only its values", () => {
-  const Side = Schema.literal("for", "against");
-  assert.equal(Side.parse("for"), "for");
-  assert.throws(() => Side.parse("maybe"), /expected "for" \| "against"/);
-  assert.deepEqual(Side.jsonSchema, { enum: ["for", "against"] });
 });
 
 test("ask: gives up with TooManyRounds", () => {
@@ -107,11 +100,8 @@ test("generate: one shot, returns the new messages", () => {
 
 test("instances keep history; agents compose as tools with their own model", () => {
   const critic = AI.init({ prompt: "You critique." });
-  const consult = Tool(
-    "critic",
-    "ask the critic",
-    Schema.object({ draft: Schema.string() }),
-    ({ draft }) => critic.ask(draft).pipe(scripted([say("too long")])),
+  const consult = Tool("critic", "ask the critic", z.object({ draft: z.string() }), ({ draft }) =>
+    critic.ask(draft).pipe(scripted([say("too long")])),
   );
   const writer = AI.init({ tools: [consult] });
   const seen: Request[] = [];
@@ -195,7 +185,7 @@ test("approval is an effect the tool performs", () => {
 
 test("a tool's typed failure goes back to the model, not up the stack", () => {
   const seen: Request[] = [];
-  const flaky = Tool("flaky", "fails", Schema.object({}), () => Fail.fail({ _tag: "Boom" }));
+  const flaky = Tool("flaky", "fails", z.object({}), () => Fail.fail({ _tag: "Boom" }));
   const answer = Kyoot.runSync(
     AI.ask("try", { tools: [flaky] }).pipe(
       scripted([call("flaky", {}), say("it failed")], seen),

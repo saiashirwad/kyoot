@@ -1,7 +1,7 @@
 import { effect, Kyoot } from "kyoot";
 import type { Kyoot as K, Row } from "kyoot";
 import type { ToolSchema } from "./model.ts";
-import type { Schema } from "./schema.ts";
+import { jsonSchema, type Schema } from "./schema.ts";
 
 export interface Tool<A = any, R = unknown, S extends Row = any> {
   readonly name: string;
@@ -20,7 +20,7 @@ export const Tool = <A, R, S extends Row>(
 export const schemaOf = (t: Tool): ToolSchema => ({
   name: t.name,
   description: t.description,
-  parameters: t.args.jsonSchema,
+  parameters: jsonSchema(t.args),
 });
 
 export const Approve = effect<{ readonly tool: string; readonly args: unknown }, boolean>()(

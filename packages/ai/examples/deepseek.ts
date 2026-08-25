@@ -1,5 +1,6 @@
 import { Async, Fail, Kyoot, Log, Random, Var } from "kyoot";
-import { AI, Deepseek, Events, Mode, Schema } from "@kyoot/ai";
+import { AI, Deepseek, Events, Mode } from "@kyoot/ai";
+import { z } from "zod";
 
 const motions = [
   "Tabs are better than spaces",
@@ -13,9 +14,9 @@ const debater = (name: string, stance: string) =>
     prompt: `You are ${name}, debating ${stance} the motion. Two punchy sentences per turn. Rebut your opponent and never concede.`,
   });
 
-const Verdict = Schema.object({
-  winner: Schema.literal("Ada", "Linus"),
-  reason: Schema.string("one sentence"),
+const Verdict = z.object({
+  winner: z.enum(["Ada", "Linus"]),
+  reason: z.string().describe("one sentence"),
 });
 
 const judge = (transcript: string) =>

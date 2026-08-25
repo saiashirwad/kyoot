@@ -4,16 +4,17 @@ Language models as kyoot effects, after [kyo-ai](https://github.com/getkyo/kyo/t
 
 ```ts
 import { Fail, Kyoot } from "kyoot";
-import { AI, Deepseek, Events, Schema, Tool } from "@kyoot/ai";
+import { AI, Deepseek, Events, Tool } from "@kyoot/ai";
+import { z } from "zod";
 
 const calc = Tool(
   "calc",
   "Evaluate an arithmetic expression",
-  Schema.object({ expression: Schema.string() }),
+  z.object({ expression: z.string() }),
   ({ expression }) => Kyoot.succeed(eval(expression)),
 );
 
-const Answer = Schema.object({ value: Schema.number() });
+const Answer = z.object({ value: z.number() });
 
 const answer = await AI.gen(Answer, "What is 12 * 34?", { tools: [calc] })
   .pipe(Deepseek(), Events.print, Fail.orThrow)
@@ -28,18 +29,15 @@ const answer = await AI.gen(Answer, "What is 12 * 34?", { tools: [calc] })
 - `Tool(name, description, argsSchema, run)` — a typed function the model may call. `run` returns a program, so a tool's row shows up in the program's row, and the handler can be piped in anywhere. An `AI` instance wrapped in a `Tool` is an agent another agent can consult.
 - `needsApproval(tool)` — wraps a tool so it performs `Approve({ tool, args })` first. Handle it with `Approve.handle(...)`: always yes in tests, a prompt in a CLI. Denied calls tell the model `{"denied":true}`. The loop knows nothing about it.
 - `Events` — what happened, as a stream: `text` deltas from the provider, `call` and `result` from the loop. `Events.print`, `Events.forEach(f)`, `Events.discard`.
-- `Schema` — the small JSON schema + decoder pair `gen` and tools use: `string`, `number`, `boolean`, `literal(...values)`, `array`, `object`. Bring your own by providing `{ jsonSchema, parse }`.
+- `Schema<A>` — any [Standard Schema](https://standardschema.dev) that also implements Standard JSON Schema: zod 4.2+, ArkType, Valibot with `toStandardJsonSchema`. Nothing to import; the type is structural.
 - `Mode` — middleware around `Model`: `Mode.system(text)`, `Mode.config({ temperature, maxTokens })`, `Mode.usage` (returns `[answer, { input, output }]`), or `Mode.init((req, next) => …)` for your own. Modes go inside the provider in a pipe.
 - Providers — `Deepseek(options)`, `OpenAI(options)`, or `chatCompletions({ url, model, apiKey })` for anything OpenAI-shaped. They retry on 429/5xx and leave `RateLimited` in the row.
 
 Handlers scope, so a tool can pipe its own model or mode:
 
 ```ts
-const askPoet = Tool(
-  "poet",
-  "Ask the poet",
-  Schema.object({ request: Schema.string() }),
-  ({ request }) => poet.ask(request).pipe(Deepseek({ model: "deepseek-reasoner" })),
+const askPoet = Tool("poet", "Ask the poet", z.object({ request: z.string() }), ({ request }) =>
+  poet.ask(request).pipe(Deepseek({ model: "deepseek-reasoner" })),
 );
 ```
 

@@ -2,7 +2,7 @@ import { Fail, InterruptedError, Kyoot } from "kyoot";
 import type { Kyoot as K, MergeAll } from "kyoot";
 import * as Events from "./events.ts";
 import { Model, type Message, type Request } from "./model.ts";
-import type { Schema } from "./schema.ts";
+import * as Schema from "./schema.ts";
 import { schemaOf, type Tool } from "./tool.ts";
 
 export class TooManyRounds {
@@ -12,7 +12,7 @@ export class TooManyRounds {
 export interface Options<A, T extends Tool> {
   readonly tools?: readonly T[];
   readonly rounds?: number;
-  readonly schema?: Schema<A>;
+  readonly schema?: Schema.Schema<A>;
 }
 
 export type Requires<T extends Tool> = MergeAll<
@@ -22,9 +22,9 @@ export type Requires<T extends Tool> = MergeAll<
 
 const show = (e: unknown) => (e instanceof Error ? e.message : JSON.stringify(e));
 
-const parse = <A>(schema: Schema<A>, raw: string): { args: A } | { error: string } => {
+const parse = <A>(schema: Schema.Schema<A>, raw: string): { args: A } | { error: string } => {
   try {
-    return { args: schema.parse(JSON.parse(raw)) };
+    return { args: Schema.parse(schema, JSON.parse(raw)) };
   } catch (e) {
     return { error: show(e) };
   }
@@ -50,7 +50,7 @@ export const generate = <A = string, T extends Tool = never>(
       schemas.push({
         name: "answer",
         description: "Give the final answer",
-        parameters: schema.jsonSchema,
+        parameters: Schema.jsonSchema(schema),
       });
     const added: Message[] = [];
     for (let round = 0; round < rounds; round++) {

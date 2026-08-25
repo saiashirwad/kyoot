@@ -40,9 +40,6 @@ export class KyootImpl<A, S extends Row = {}> implements Kyoot<A, S> {
 
 const isKyoot = (value: unknown): value is AnyKyoot => value instanceof KyootImpl;
 
-const makeGenCont = (gen: Generator<AnyKyoot, any, unknown>, input: unknown): AnyKyoot =>
-  new KyootImpl({ _tag: "gen-cont", gen, nextInput: input });
-
 export const succeed = <A>(value: A): Kyoot<A, {}> => new KyootImpl({ _tag: "pure", value });
 
 export const makeOp = (key: PropertyKey, payload: unknown) =>
@@ -99,20 +96,6 @@ export function stepAll(k: AnyKyoot): unknown {
       case "map": {
         continuations.push(currentNode.mapper);
         current = currentNode.self;
-        break;
-      }
-      case "gen": {
-        current = makeGenCont(currentNode.factory(), undefined);
-        break;
-      }
-      case "gen-cont": {
-        const step = currentNode.gen.next(currentNode.nextInput);
-        if (step.done === true) {
-          current = succeed(step.value);
-        } else {
-          continuations.push((input) => makeGenCont(currentNode.gen, input));
-          current = step.value;
-        }
         break;
       }
       case "op": {

@@ -46,6 +46,19 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
 
+  packages/platform:
+    dependencies:
+      kyoot:
+        specifier: workspace:*
+        version: link:../kyoot
+    devDependencies:
+      '@types/node':
+        specifier: ^26.1.2
+        version: 26.1.2
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+
   packages/registry:
     dependencies:
       kyoot:

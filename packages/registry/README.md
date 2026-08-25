@@ -33,4 +33,3 @@ const main = Kyoot.gen(function* () {
 ```
 
 `use` returns a handle with `active`, `error`, and `remove`, and resolves once the component has landed (its setup finished) or been found to be waiting. A component's bindings become visible to dependents only when it lands, so activation is atomic; a target change during setup interrupts it and releases what it acquired. A component's `run` may use `resource`, `async`, and `clock`; anything else must be handled inside it. A component whose setup throws — including providing a tag another component already provides — is left inactive with the error on its handle. The registry itself is a resource, so interrupting the program that made it unloads every component in reverse order. `examples/registry.ts` runs this sequence. The design follows the component calculus of the Cordis paper: revertible effects (`Resource`) plus reactive dependencies.
-

@@ -8,6 +8,8 @@ import {
 import { pipeArguments, type Pipeable } from "./pipe.ts";
 import type { MergeAll, Row } from "./types.ts";
 
+// The interface carries pipe's overloads; the class merges with it.
+// oxlint-disable-next-line no-unused-vars, typescript/no-unsafe-declaration-merging
 export interface KyootImpl<A, S extends Row = {}> extends Pipeable {}
 export class KyootImpl<A, S extends Row = {}> implements Kyoot<A, S> {
   readonly [NodeSym]: RuntimeNode;
@@ -24,12 +26,11 @@ export class KyootImpl<A, S extends Row = {}> implements Kyoot<A, S> {
 
   [Symbol.iterator]() {
     let used = false;
-    const self = this;
     return {
-      next(v: unknown): IteratorResult<Kyoot<unknown, S>, A> {
+      next: (v: unknown): IteratorResult<Kyoot<unknown, S>, A> => {
         if (used) return { done: true, value: v as A };
         used = true;
-        return { done: false, value: self };
+        return { done: false, value: this };
       },
     };
   }

@@ -4,12 +4,16 @@
   "type": "module",
   "scripts": {
     "format": "oxfmt --write .",
+    "format:check": "oxfmt --check .",
+    "lint": "oxlint",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test"
+    "test": "pnpm -r test",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test"
   },
   "devDependencies": {
     "@types/node": "^26.1.2",
-    "oxfmt": "^0.61.0",
+    "oxfmt": "^0.64.0",
+    "oxlint": "^1.79.0",
     "typescript": "^7.0.2"
   }
 }

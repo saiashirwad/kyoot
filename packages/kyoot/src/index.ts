@@ -1,7 +1,7 @@
 import { succeed } from "./core.ts";
 import { gen } from "./gen.ts";
 import type { Kyoot as KyootType } from "./model.ts";
-import { runFiber, runPromise, runSync } from "./runtime.ts";
+import { runPromise, runSync } from "./runtime.ts";
 import type { Row } from "./types.ts";
 
 export { effect, InterruptedError, makeHandler, op } from "./core.ts";

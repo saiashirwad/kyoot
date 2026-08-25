@@ -58,7 +58,6 @@ export class Registry implements Ctx {
     return Async.fromPromise(async () => {
       this.entries.push(entry);
       await this.refresh(entry);
-      const registry = this;
       return {
         get active() {
           return entry.active;
@@ -68,9 +67,9 @@ export class Registry implements Ctx {
         },
         remove: () =>
           Async.fromPromise(async () => {
-            await registry.retarget(entry, false);
-            const i = registry.entries.indexOf(entry);
-            if (i >= 0) registry.entries.splice(i, 1);
+            await this.retarget(entry, false);
+            const i = this.entries.indexOf(entry);
+            if (i >= 0) this.entries.splice(i, 1);
           }),
       };
     });

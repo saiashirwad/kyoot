@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Fail, Kyoot, Result, Var } from "../src/index.ts";
+import { Fail, Kyoot, Var } from "../src/index.ts";
 
 const Total = Var.tag<number>()("Total");
 
 test("Fail.run: success becomes Result.ok", () => {
   const prog = Kyoot.gen(function* () {
-    if (false) yield* Fail.fail("never");
+    if (Math.random() > 2) yield* Fail.fail("never");
     return 42;
   });
   const r = Kyoot.runSync(prog.pipe(Fail.run));

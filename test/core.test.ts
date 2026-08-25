@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { KyootImpl, makeOp, succeed } from "../src/core.ts";
 import { Kyoot, Var } from "../src/index.ts";
 
-class Count extends Var.Tag<number>()("Count") {}
+const Count = Var.tag<number>()("Count");
 
 test("map auto-flattens a returned Kyo", () => {
   const n = Kyoot.runSync(Kyoot.succeed(1).map((x) => Kyoot.succeed(x + 1)));

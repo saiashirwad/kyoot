@@ -6,29 +6,24 @@ type EnvRow<Id extends string, E> = {
   [K in `env/${Id}`]: E;
 };
 
-export function Tag<E>() {
-  return function <const Id extends string>(id: Id) {
+export interface Tag<Id extends string, E> extends Iterable<Kyoot<unknown, EnvRow<Id, E>>, E> {
+  get(): Kyoot<E, EnvRow<Id, E>>;
+  provide(
+    impl: E,
+  ): <A, S extends Row & Partial<EnvRow<Id, E>> = {}>(
+    k: Kyoot<A, S>,
+  ) => Kyoot<A, Simplify<Omit<S, `env/${Id}`>>>;
+}
+
+export const tag =
+  <E>() =>
+  <const Id extends string>(id: Id): Tag<Id, E> => {
     const effectKey = `env/${id}`;
-    return class {
-      static service(): Kyoot<E, EnvRow<Id, E>> {
-        return makeOp(effectKey, undefined) as Kyoot<E, EnvRow<Id, E>>;
-      }
-
-      static [Symbol.iterator](): Iterator<Kyoot<unknown, EnvRow<Id, E>>, E, unknown> {
-        return this.service()[Symbol.iterator]();
-      }
-
-      static provide(impl: E) {
-        return <A, S extends Row & Partial<EnvRow<Id, E>> = {}>(
-          k: Kyoot<A, S>,
-        ): Kyoot<A, Simplify<Omit<S, `env/${Id}`>>> =>
-          new KyootImpl({
-            _tag: "handler",
-            effectKey,
-            self: k,
-            onOp: (_, resume) => resume(impl),
-          });
-      }
+    const get = () => makeOp(effectKey, undefined) as Kyoot<E, EnvRow<Id, E>>;
+    return {
+      get,
+      [Symbol.iterator]: () => get()[Symbol.iterator](),
+      provide: (impl) => (k) =>
+        new KyootImpl({ _tag: "handler", effectKey, self: k, onOp: (_, resume) => resume(impl) }),
     };
   };
-}

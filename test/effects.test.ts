@@ -2,16 +2,16 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Emit, Env, Kyoot, Sync, Var } from "../src/index.ts";
 
-class Count extends Var.Tag<number>()("Count") {}
-class Retries extends Var.Tag<number>()("Retries") {}
+const Count = Var.tag<number>()("Count");
+const Retries = Var.tag<number>()("Retries");
 
 test("Env: provide answers the service key", () => {
   interface Greeter {
     greet(name: string): string;
   }
-  class Greeter extends Env.Tag<Greeter>()("greeter") {}
+  const Greeter = Env.tag<Greeter>()("greeter");
   const prog = Kyoot.gen(function* () {
-    const g = yield* Greeter.service();
+    const g = yield* Greeter.get();
     return g.greet("kyo");
   });
   const r = Kyoot.runSync(prog.pipe(Greeter.provide({ greet: (n: string) => `hi ${n}` })));
@@ -22,7 +22,7 @@ test("Env: tags yield directly", () => {
   interface Greeter {
     greet(name: string): string;
   }
-  class Greeter extends Env.Tag<Greeter>()("greeter") {}
+  const Greeter = Env.tag<Greeter>()("greeter");
   const prog = Kyoot.gen(function* () {
     const g = yield* Greeter;
     return g.greet("kyo");
@@ -32,11 +32,11 @@ test("Env: tags yield directly", () => {
 });
 
 test("Env: multiple services get distinct keys", () => {
-  class A extends Env.Tag<{ a: number }>()("a") {}
-  class B extends Env.Tag<{ b: number }>()("b") {}
+  const A = Env.tag<{ a: number }>()("a");
+  const B = Env.tag<{ b: number }>()("b");
   const prog = Kyoot.gen(function* () {
-    const { a } = yield* A.service();
-    const { b } = yield* B.service();
+    const { a } = yield* A.get();
+    const { b } = yield* B.get();
     return a + b;
   });
   const r = Kyoot.runSync(prog.pipe(A.provide({ a: 1 }), B.provide({ b: 2 })));

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Fail, Kyoot, Result, Var } from "../src/index.ts";
 
-class Total extends Var.Tag<number>()("Total") {}
+const Total = Var.tag<number>()("Total");
 
 test("Fail.run: success becomes Result.ok", () => {
   const prog = Kyoot.gen(function* () {

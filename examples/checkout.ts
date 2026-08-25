@@ -36,10 +36,10 @@ export interface Payments {
   charge(totalCents: number, card: Card): KyootT<string, { sync: true; fail: PaymentDeclined }>;
 }
 
-export class Inventory extends Env.Tag<Inventory>()("inventory") {}
-export class Payments extends Env.Tag<Payments>()("payments") {}
+export const Inventory = Env.tag<Inventory>()("inventory");
+export const Payments = Env.tag<Payments>()("payments");
 
-class Total extends Var.Tag<number>()("Total") {}
+const Total = Var.tag<number>()("Total");
 
 export interface Receipt {
   readonly orderId: string;
@@ -49,8 +49,8 @@ export interface Receipt {
 
 export const checkout = (order: Order, card: Card) =>
   Kyoot.gen(function* () {
-    const inventory = yield* Inventory.service();
-    const payments = yield* Payments.service();
+    const inventory = yield* Inventory.get();
+    const payments = yield* Payments.get();
     for (const item of order.items) {
       const ok = yield* inventory.reserve(item.sku, item.qty);
       if (!ok) yield* Fail.fail(new OutOfStock(item.sku));

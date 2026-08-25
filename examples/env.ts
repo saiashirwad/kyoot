@@ -1,11 +1,11 @@
 import { Env, Kyoot } from "../src/index.ts";
 
-class Config extends Env.Tag<{ id: string; name: string }>()("Config") {}
-class Greeting extends Env.Tag<string>()("greeting") {}
+const Config = Env.tag<{ id: string; name: string }>()("Config");
+const Greeting = Env.tag<string>()("greeting");
 
 const program = Kyoot.gen(function* () {
-  const config = yield* Config.service();
-  const greeting = yield* Greeting.service();
+  const config = yield* Config;
+  const greeting = yield* Greeting.get();
 
   return { config, greeting };
 });

@@ -12,9 +12,9 @@ class FetchFailed {
 interface Greeter {
   greet(name: string): string;
 }
-class Greeter extends Env.Tag<Greeter>()("greeter") {}
+const Greeter = Env.tag<Greeter>()("greeter");
 
-class Total extends Var.Tag<number>()("Total") {}
+const Total = Var.tag<number>()("Total");
 
 const mixed = Kyoot.gen(function* () {
   yield* Fail.fail(new FetchFailed());

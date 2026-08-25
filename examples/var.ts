@@ -1,7 +1,7 @@
 import { Kyoot, Var } from "../src/index.ts";
 
-class Count extends Var.Tag<number>()("Count") {}
-class Name extends Var.Tag<string>()("Name") {}
+const Count = Var.tag<number>()("Count");
+const Name = Var.tag<string>()("Name");
 
 const program = Kyoot.gen(function* () {
   const before = yield* Count.get();

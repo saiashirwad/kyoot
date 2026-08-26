@@ -59,11 +59,18 @@ export const fs =
         }
         case "exists":
           return files.has(path) || dirs.has(path);
-        case "mkdir":
-          if (op.recursive) return mkdirp(path);
+        case "mkdir": {
+          if (op.recursive) {
+            if (files.has(path)) fail("AlreadyExists", `${path} exists`);
+            for (let d = dirname(path); !dirs.has(d); d = dirname(d)) {
+              if (files.has(d)) fail("NotADirectory", `${d} is a file`);
+            }
+            return mkdirp(path);
+          }
           if (files.has(path) || dirs.has(path)) fail("AlreadyExists", `${path} exists`);
           requireDir(dirname(path));
           return dirs.add(path);
+        }
         case "remove":
           if (files.delete(path)) return;
           if (!dirs.has(path)) fail("NotFound", `${path} does not exist`);

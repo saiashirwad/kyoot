@@ -16,7 +16,7 @@ export interface Options<A, T extends Tool> {
 }
 
 export type Requires<T extends Tool> = MergeAll<
-  | { "ai/model": Request; "ai/event": Events.Event; fail: TooManyRounds }
+  | { "ai/model": Request; emit: Events.Event; fail: TooManyRounds }
   | (T extends Tool<any, any, infer S> ? Omit<S, "fail"> : never)
 >;
 
@@ -40,11 +40,19 @@ const run = (tool: Tool, args: unknown) =>
       throw r.cause._tag === "Defect" ? r.cause.defect : new InterruptedError();
     });
 
-export const generate = <A = string, T extends Tool = never>(
+export function generate<T extends Tool = never>(
+  messages: readonly Message[],
+  options?: Options<string, T> & { readonly schema?: undefined },
+): K<readonly [string, Message[]], Requires<T>>;
+export function generate<A, T extends Tool = never>(
+  messages: readonly Message[],
+  options: Options<A, T> & { readonly schema: Schema.Schema<A> },
+): K<readonly [A, Message[]], Requires<T>>;
+export function generate<A = string, T extends Tool = never>(
   messages: readonly Message[],
   { tools = [], rounds = 8, schema }: Options<A, T> = {},
-): K<readonly [A, readonly Message[]], Requires<T>> =>
-  Kyoot.gen(function* () {
+): K<readonly [A, Message[]], Requires<T>> {
+  return Kyoot.gen(function* () {
     const schemas = tools.map(schemaOf);
     if (schema)
       schemas.push({
@@ -74,3 +82,4 @@ export const generate = <A = string, T extends Tool = never>(
     }
     return yield* Fail.fail(new TooManyRounds());
   }) as never;
+}

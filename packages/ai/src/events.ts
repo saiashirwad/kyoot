@@ -1,5 +1,4 @@
-import { makeHandler, op } from "kyoot";
-import type { Kyoot, Row } from "kyoot";
+import { Emit } from "kyoot";
 import type { ToolCall } from "./model.ts";
 
 export type Event =
@@ -7,14 +6,9 @@ export type Event =
   | { readonly type: "call"; readonly call: ToolCall }
   | { readonly type: "result"; readonly call: ToolCall; readonly content: string };
 
-export const emit = (event: Event) => op<void>()("ai/event", event);
+export const emit = (e: Event) => Emit.value(e);
 
-export const forEach =
-  (f: (event: Event) => void) =>
-  <A, S extends Row & { "ai/event"?: Event }>(k: Kyoot<A, S>) =>
-    makeHandler("ai/event", k, { onOp: (event, resume) => (f(event), resume(undefined)) });
-
-export const print = forEach((e) =>
+export const print = Emit.forEach((e: Event) =>
   process.stdout.write(
     e.type === "text"
       ? e.text
@@ -23,5 +17,3 @@ export const print = forEach((e) =>
         : `← ${e.content}\n`,
   ),
 );
-
-export const discard = forEach(() => {});

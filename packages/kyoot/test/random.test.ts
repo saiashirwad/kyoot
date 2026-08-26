@@ -17,6 +17,16 @@ test("Random.seeded is deterministic and in range", () => {
 });
 
 test("Random.live draws from Math.random", () => {
-  const [x] = Kyoot.runSync(three.pipe(Random.live));
-  assert.ok(x! >= 0 && x! < 1);
+  const random = Math.random;
+  let calls = 0;
+  Math.random = () => {
+    calls++;
+    return 0.25;
+  };
+  try {
+    assert.deepEqual(Kyoot.runSync(three.pipe(Random.live)), [0.25, 0.25, 2]);
+    assert.equal(calls, 3);
+  } finally {
+    Math.random = random;
+  }
 });

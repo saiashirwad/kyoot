@@ -103,11 +103,11 @@ export function asyncDrive<A>(k: Kyoot<A, any>, parent: AsyncRuntime): FiberHand
       await yieldNow();
       return signal.aborted ? interrupt(e) : e.resume(undefined);
     }
-    const work =
-      e.key === "clock"
-        ? realSleep(e.payload as number, signal)
-        : (e.payload as AsyncOp).execute({ ...rt, signal, handlers: e.handlers });
     try {
+      const work =
+        e.key === "clock"
+          ? realSleep(e.payload as number, signal)
+          : (e.payload as AsyncOp).execute({ ...rt, signal, handlers: e.handlers });
       const raced = interrupted
         ? { done: true, value: await work }
         : await raceSignal(work, signal);

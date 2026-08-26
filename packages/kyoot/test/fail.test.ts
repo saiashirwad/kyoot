@@ -5,8 +5,9 @@ import { Fail, Kyoot, Var } from "../src/index.ts";
 const Total = Var.tag<number>()("Total");
 
 test("Fail.run: success becomes Result.ok", () => {
+  const flag = false as boolean;
   const prog = Kyoot.gen(function* () {
-    if (Math.random() > 2) yield* Fail.fail("never");
+    if (flag) yield* Fail.fail("never");
     return 42;
   });
   const r = Kyoot.runSync(prog.pipe(Fail.run));

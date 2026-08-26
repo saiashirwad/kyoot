@@ -3,11 +3,13 @@ import { Model, type Message, type Request, type ToolCall } from "./model.ts";
 import { events } from "./sse.ts";
 import * as Events from "./events.ts";
 
-export class RateLimited {
-  readonly _tag = "RateLimited";
+export class ProviderError {
+  readonly _tag = "ProviderError";
   readonly status: number;
-  constructor(status: number) {
+  readonly message: string;
+  constructor(status: number, message: string) {
     this.status = status;
+    this.message = message;
   }
 }
 
@@ -66,9 +68,10 @@ const complete = ({ url, model, apiKey }: Options, req: Request) =>
         }),
       }),
     );
-    if (res.status === 429 || res.status >= 500) yield* Fail.fail(new RateLimited(res.status));
-    if (!res.ok)
-      throw new Error(`${url} ${res.status}: ${yield* Async.fromPromise(() => res.text())}`);
+    if (!res.ok) {
+      const message = yield* Async.fromPromise(() => res.text());
+      yield* Fail.fail(new ProviderError(res.status, message));
+    }
     const it = events<Chunk>(res.body!)[Symbol.asyncIterator]();
     let text = "";
     let usage = { input: 0, output: 0 };
@@ -97,22 +100,36 @@ export const chatCompletions = (options: Options) =>
   Model.handle({
     onOp: (req, resume) =>
       complete(options, req)
-        .pipe(Retry.run(options.retry ?? { times: 3, delay: (n) => 500 * 2 ** n }))
+        .pipe(
+          Retry.run(
+            options.retry ?? {
+              times: 3,
+              delay: (n) => 500 * 2 ** n,
+              while: (e) => e instanceof ProviderError && (e.status === 429 || e.status >= 500),
+            },
+          ),
+        )
         .map(resume),
   });
 
-export const Deepseek = (options: Partial<Options> = {}) =>
-  chatCompletions({
+export const Deepseek = (options: Partial<Options> = {}) => {
+  const apiKey = options.apiKey ?? process.env.DEEPSEEK_API_KEY;
+  if (!apiKey) throw new Error("DEEPSEEK_API_KEY is not set");
+  return chatCompletions({
     url: "https://api.deepseek.com/chat/completions",
     model: "deepseek-chat",
-    apiKey: process.env.DEEPSEEK_API_KEY!,
     ...options,
+    apiKey,
   });
+};
 
-export const OpenAI = (options: Partial<Options> = {}) =>
-  chatCompletions({
+export const OpenAI = (options: Partial<Options> = {}) => {
+  const apiKey = options.apiKey ?? process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("OPENAI_API_KEY is not set");
+  return chatCompletions({
     url: "https://api.openai.com/v1/chat/completions",
     model: "gpt-4o-mini",
-    apiKey: process.env.OPENAI_API_KEY!,
     ...options,
+    apiKey,
   });
+};

@@ -16,9 +16,14 @@ export const fromAsyncIterable = <E>(items: AsyncIterable<E>) =>
   gen(function* () {
     const it = items[Symbol.asyncIterator]();
     while (true) {
-      const r = yield* Async.fromPromise((signal) => {
-        signal.addEventListener("abort", () => void it.return?.(), { once: true });
-        return it.next();
+      const r = yield* Async.fromPromise(async (signal) => {
+        const onAbort = () => void it.return?.();
+        signal.addEventListener("abort", onAbort, { once: true });
+        try {
+          return await it.next();
+        } finally {
+          signal.removeEventListener("abort", onAbort);
+        }
       });
       if (r.done) return;
       yield* value(r.value);
@@ -27,7 +32,7 @@ export const fromAsyncIterable = <E>(items: AsyncIterable<E>) =>
 
 // The list is a cell made per run, so fibers forked under the handler emit
 // into the same list.
-export const run = <A, S extends Row & { emit?: unknown }>(k: Kyoot<A, S>) =>
+export const collect = <A, S extends Row & { emit?: unknown }>(k: Kyoot<A, S>) =>
   makeHandler("emit", k, {
     create: () => [] as Array<S["emit"]>,
     onOp: (e, resume, acc) => {

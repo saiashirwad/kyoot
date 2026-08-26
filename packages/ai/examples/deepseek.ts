@@ -1,4 +1,4 @@
-import { Async, Fail, Kyoot, Log, Random, Var } from "kyoot";
+import { Async, Emit, Fail, Kyoot, Log, Random, Var } from "kyoot";
 import { AI, Deepseek, Events, Mode } from "@kyoot/ai";
 import { z } from "zod";
 
@@ -10,7 +10,7 @@ const motions = [
 ];
 
 const debater = (name: string, stance: string) =>
-  AI.init({
+  AI.make({
     prompt: `You are ${name}, debating ${stance} the motion. Two punchy sentences per turn. Rebut your opponent and never concede.`,
   });
 
@@ -22,7 +22,7 @@ const Verdict = z.object({
 const judge = (transcript: string) =>
   AI.gen(Verdict, `Who won this exchange?\n\n${transcript}`, {
     prompt: "You are a strict debate judge.",
-  }).pipe(Mode.config({ temperature: 1.3 }), Deepseek(), Events.discard, Fail.orThrow);
+  }).pipe(Mode.config({ temperature: 1.3 }), Deepseek(), Emit.discard, Fail.orThrow);
 
 const Score = Var.tag<Record<"Ada" | "Linus", number>>()("score");
 

@@ -16,24 +16,31 @@ export interface AI<T extends Tool = never> {
   gen<A>(schema: Schema<A>, input?: string): K<A, Requires<T>>;
 }
 
-export const init = <T extends Tool = never>(options: Options<T> = {}): AI<T> => {
+export const make = <T extends Tool = never>(options: Options<T> = {}): AI<T> => {
   const messages: Message[] = [...(options.messages ?? [])];
   const system: Message[] = options.prompt ? [{ role: "system", content: options.prompt }] : [];
   const step = <A>(input: string | undefined, schema?: Schema<A>): K<A, Requires<T>> =>
     Kyoot.gen(function* () {
       if (input !== undefined) messages.push({ role: "user", content: input });
-      const [value, added] = yield* generate([...system, ...messages], { ...options, schema });
+      const all = [...system, ...messages];
+      const [value, added] = yield* schema
+        ? generate(all, { ...options, schema })
+        : generate(all, options);
       messages.push(...added);
-      return value;
+      return value as A;
     }) as never;
-  return { messages, ask: (input) => step(input), gen: (schema, input) => step(input, schema) };
+  return {
+    messages,
+    ask: (input) => step<string>(input),
+    gen: (schema, input) => step(input, schema),
+  };
 };
 
 export const ask = <T extends Tool = never>(input: string, options?: Options<T>) =>
-  init(options).ask(input);
+  make(options).ask(input);
 
 export const gen = <A, T extends Tool = never>(
   schema: Schema<A>,
   input: string,
   options?: Options<T>,
-) => init(options).gen(schema, input);
+) => make(options).gen(schema, input);

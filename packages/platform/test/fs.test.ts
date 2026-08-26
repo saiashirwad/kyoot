@@ -65,9 +65,30 @@ test("memory: errors carry codes", () => {
   assert.equal(code(FileSystem.rename("/d", "/e")), "ok");
 });
 
+test("memory: recursive mkdir does not replace a file", () => {
+  const r = Kyoot.runSync(
+    FileSystem.mkdir("/file", { recursive: true }).pipe(Memory.fs({ "/file": "x" }), Fail.run),
+  );
+  assert.ok(!r.ok && r.cause._tag === "Fail");
+  assert.equal(r.cause.error.code, "AlreadyExists");
+});
+
 test("node: errors carry codes", async () => {
   const r = await Kyoot.runPromise(FileSystem.readFile("/nope/nope").pipe(Node.fs, Fail.run));
   assert.ok(!r.ok && r.cause._tag === "Fail");
   assert.equal(r.cause.error.code, "NotFound");
   assert.equal(r.cause.error.op, "readFile");
+});
+
+test("node: exists returns false when a path component is not a directory", async () => {
+  const root = await fsp.mkdtemp(join(tmpdir(), "kyoot-"));
+  try {
+    await fsp.writeFile(`${root}/file`, "x");
+    const r = await Kyoot.runPromise(
+      FileSystem.exists(`${root}/file/child`).pipe(Node.fs, Fail.orThrow),
+    );
+    assert.equal(r, false);
+  } finally {
+    await fsp.rm(root, { recursive: true });
+  }
 });

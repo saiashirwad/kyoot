@@ -58,7 +58,10 @@ const printLogs = Log.handle({
 `intercept` sits between the program and the handlers outside it. It gets the payload and a `next` that performs the op again for them to answer; whatever it returns is delivered where the op was performed. A cache, a sandbox, or a system prompt is an intercept.
 
 ```ts
+const Fetch = effect<string, string>()("fetch");
+const program = Fetch("hot");
 const cache = Fetch.intercept((url, next) => (url === "hot" ? Kyoot.succeed("cached") : next(url)));
+const live = Fetch.handle({ onOp: (url, resume) => resume(`fetched ${url}`) });
 program.pipe(cache, live);
 ```
 
@@ -85,20 +88,20 @@ The row is a plain object type: each key maps to its payload type. `yield*` unio
 | `Var`      | `tag.get()`, `tag.set(v)`, `tag.update(f)`                              | `tag.run(initial)` (to `[A, V]`)                                                 |
 | `Log`      | `info(msg)`, `warn`, `error`, `debug`                                   | `print`, `collect` (to `[A, Entry[]]`), `discard`                                |
 | `Random`   | `next()`, `int(max)`                                                    | `live`, `seeded(seed)`                                                           |
-| `Emit`     | `value(e)`, `fromIterable(xs)`, `fromAsyncIterable(xs)`                 | `run` (to `[A, E[]]`), `forEach(f)`, `map(f)`, `discard`, `toAsyncIterable`      |
+| `Emit`     | `value(e)`, `fromIterable(xs)`, `fromAsyncIterable(xs)`                 | `collect` (to `[A, E[]]`), `forEach(f)`, `map(f)`, `discard`, `toAsyncIterable`  |
 | `Sync`     | `defer(() => x)`                                                        | `run`                                                                            |
 | `Resource` | `acquire(open, close)`                                                  | `run`                                                                            |
-| `Clock`    | `sleep(ms)`                                                             | `virtual` (to `[A, elapsedMs]`), `runPromise`                                    |
-| `Retry`    |                                                                         | `run({ times, delay })`                                                          |
-| `Async`    | `fromPromise(f)`, `fork`, `race`, `all(ks, { concurrency })`, `timeout` | `runPromise`                                                                     |
+| `Clock`    | `sleep(ms)`                                                             | `virtual` (to `[A, elapsedMs]`), served by `Kyoot.runPromise`                    |
+| `Retry`    |                                                                         | `run({ times, delay, while })`                                                   |
+| `Async`    | `fromPromise(f)`, `fork`, `race`, `all(ks, { concurrency })`, `timeout` | served by `Kyoot.runPromise`; `timeout` can fail with `Timeout`                  |
 
 Tags are keyed by id: `Env.tag<A>()("a")` and `Env.tag<B>()("b")` are separate keys. `Env` hands out a constant; `Var` threads state.
 
-`Resource.run` releases in reverse order on success, defect, or interrupt. `close` may return a program, so a finalizer can do async work. A failure in a finalizer never hides the original error.
+`Resource.run` releases in reverse order on success, defect, or interrupt. `close` may return a program, so a finalizer can do async work. A finalizer that throws never hides a defect or an interrupt. After a success it is raised — and a typed failure that `Fail.run` inside has already turned into a `Result` counts as a success.
 
 `Clock.sleep` runs on real timers under `runPromise` unless a handler is closer. `Clock.virtual` makes every sleep instant and reports the elapsed time, so a program that waits can run under `runSync` in tests.
 
-`Retry.run` re-runs a program on a typed failure, sleeping between attempts (`delay` is a number or `(attempt) => ms`). Defects are not retried; the last failure stays in the row.
+`Retry.run` re-runs a program on a typed failure, sleeping between attempts (`delay` is a number or `(attempt) => ms`). Set `while` to retry only some failures. Defects are not retried; the last failure stays in the row.
 
 ## Streams
 
@@ -119,7 +122,7 @@ const main = Kyoot.gen(function* () {
 await Kyoot.runPromise(main);
 ```
 
-`fork` returns a fiber with `join`, `await` (a `Result`), and `interrupt`. A fiber inherits the handlers around the fork, so the forked program's row lands on the parent's: fork something that needs `env/db`, and the `provide` outside the fork answers inside it. The fiber keeps only `async` and `clock`, which its driver serves; a typed failure crosses `join` (`Fiber<A, E>`). `race`, `all`, and `timeout` merge their branches' rows the same way.
+`fork` returns a fiber with `join`, `await` (a `Result`), and `interrupt`. A fiber inherits the handlers around the fork, so the forked program's row lands on the parent's: fork something that needs `env/db`, and the `provide` outside the fork answers inside it. The fiber keeps only `async` and `clock`, which its driver serves; a typed failure crosses `join` (`Fiber<A, E>`). `race`, `all`, and `timeout` merge their branches' rows the same way. `all` runs all branches at once by default; set `concurrency` to limit them. If time runs out, `timeout` fails with `Timeout`.
 
 ```ts
 const main = Kyoot.gen(function* () {
@@ -130,7 +133,7 @@ const main = Kyoot.gen(function* () {
 
 A handler says what it does at a fork with `fork`:
 
-- `"copy"` (default): the fiber gets `onOp` with the frame's state. A `create` cell is shared, so `Log.collect` and `Emit.run` see the fiber's output; threaded state is a snapshot, so a `Var` set in a fiber is not seen after `join`.
+- `"copy"` (default): the fiber gets `onOp` with the frame's state. A `create` cell is shared, so `Log.collect` and `Emit.collect` see the fiber's output; threaded state is a snapshot, so a `Var` set in a fiber is not seen after `join`.
 - `"scope"`: the fiber gets a frame of its own, with `onSuccess` at its end. `Resource.run` does this, so each fiber has its own scope.
 - `"none"`: the handler stops at the fiber.
 
@@ -160,7 +163,7 @@ const declineAll = (reason: string) =>
 
 `op<A>()(key, payload)` is the one-off form underneath `effect`, for ops whose payload type varies per call.
 
-`examples/agent.ts` shows the shape for an AI library: the model call and the tools are effects; providers and test doubles are handlers that may retry, stream tokens with `Emit`, log, and fail with a typed error, each showing in the row at the step that adds it.
+`examples/service.ts` shows the shape for a service library: the model call and search are effects; providers and test doubles are handlers that may retry, stream tokens with `Emit`, log, and fail with a typed error, each showing in the row at the step that adds it. See `@kyoot/ai` for the real AI library.
 
 ## Rules
 
@@ -168,6 +171,7 @@ const declineAll = (reason: string) =>
 - A thrown exception is a defect: it skips `onOp` and goes to the nearest `onDefect`, or out of `runSync`. Use `Fail` for errors you expect.
 - A handler that does not resume drops the rest of the program, so handlers inside it never finish. Put `Fail.run` inside `Resource.run`; the other order leaves resources open on failure.
 - A handler that returns a value instead of resuming must be `fork: "none"`, since a fiber's value is its own. A copy that does so anyway is reported as a defect.
+- A handler's `onInterrupt` hook may return a program. Its effects join the handler's row.
 
 ## Name
 

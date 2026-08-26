@@ -6,4 +6,3 @@ export * as AI from "./ai.ts";
 export * as Mode from "./mode.ts";
 export * as Events from "./events.ts";
 export * from "./providers.ts";
-export { events as sseEvents } from "./sse.ts";

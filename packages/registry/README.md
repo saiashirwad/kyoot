@@ -2,9 +2,12 @@
 
 ```ts
 import * as Registry from "@kyoot/registry";
+import { Env, Kyoot, Resource } from "kyoot";
 ```
 
 `@kyoot/registry` turns programs into components that can be loaded, unloaded, and swapped while the rest keeps running. A component declares the `Env` tags it needs and a program that sets it up; the setup's `Resource.acquire`s are undone in reverse when the component is unloaded. A component provides a value to others with `ctx.set(tag, impl)`, which is itself a resource, so it is withdrawn on unload. When a provider appears, dependents whose needs are now met activate; when it goes, they deactivate first, while its bindings are still readable.
+
+Here, `open`, `close`, `listen`, `stop`, and `database2` stand in for app code.
 
 ```ts
 const Db = Env.tag<{ query: (sql: string) => string }>()("db");

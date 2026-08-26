@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { effect, Fail, Kyoot } from "kyoot";
+import { effect, Emit, Fail, Kyoot } from "kyoot";
 import { z } from "zod";
 import {
   AI,
@@ -13,11 +13,17 @@ import {
   TooManyRounds,
   Tool,
   type Completion,
+  type Requires,
   type Request,
 } from "@kyoot/ai";
 
+type Expect<T extends true> = T;
+type Equal<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+
 const Calc = effect<{ expression: string }, number>()("calc");
 const calc = Tool("calc", "arithmetic", z.object({ expression: z.string() }), Calc);
+const emitting = Tool("emitting", "emits numbers", z.object({}), () => Emit.value(1));
+type _emittingRow = Expect<Equal<Requires<typeof emitting>["emit"], Events.Event | number>>;
 const evaluate = Calc.handle({
   onOp: ({ expression }, resume) => resume(expression === "2+2" ? 4 : NaN),
 });
@@ -47,7 +53,7 @@ test("ask: runs tool calls as effects and feeds results back", () => {
     AI.ask("what is 2+2?", { tools: [calc] }).pipe(
       scripted([call("calc", { expression: "2+2" }), say("it is 4")], seen),
       evaluate,
-      Events.discard,
+      Emit.discard,
       Fail.orThrow,
     ),
   );
@@ -65,7 +71,7 @@ test("gen: decodes the answer tool, sending bad arguments back", () => {
   const answer = Kyoot.runSync(
     AI.gen(Answer, "2+2?").pipe(
       scripted([call("answer", { value: "four" }), call("answer", { value: 4 })], seen),
-      Events.discard,
+      Emit.discard,
       Fail.orThrow,
     ),
   );
@@ -79,7 +85,7 @@ test("ask: gives up with TooManyRounds", () => {
     AI.ask("loop", { tools: [calc], rounds: 2 }).pipe(
       scripted([call("calc", { expression: "1" })]),
       evaluate,
-      Events.discard,
+      Emit.discard,
       Fail.run,
     ),
   );
@@ -90,7 +96,7 @@ test("generate: one shot, returns the new messages", () => {
   const [value, added] = Kyoot.runSync(
     generate([{ role: "user", content: "hi" }]).pipe(
       scripted([say("hey")]),
-      Events.discard,
+      Emit.discard,
       Fail.orThrow,
     ),
   );
@@ -99,11 +105,11 @@ test("generate: one shot, returns the new messages", () => {
 });
 
 test("instances keep history; agents compose as tools with their own model", () => {
-  const critic = AI.init({ prompt: "You critique." });
+  const critic = AI.make({ prompt: "You critique." });
   const consult = Tool("critic", "ask the critic", z.object({ draft: z.string() }), ({ draft }) =>
     critic.ask(draft).pipe(scripted([say("too long")])),
   );
-  const writer = AI.init({ tools: [consult] });
+  const writer = AI.make({ tools: [consult] });
   const seen: Request[] = [];
   const [answer, usage] = Kyoot.runSync(
     Kyoot.gen(function* () {
@@ -115,7 +121,7 @@ test("instances keep history; agents compose as tools with their own model", () 
         [call("critic", { draft: "roses are red" }), say("ok", { input: 3, output: 1 })],
         seen,
       ),
-      Events.discard,
+      Emit.discard,
       Fail.orThrow,
     ),
   );
@@ -133,7 +139,7 @@ test("modes: system prompts and config layer around the model", () => {
       Mode.system("outer"),
       Mode.config({ temperature: 0 }),
       scripted([say("hey")], seen),
-      Events.discard,
+      Emit.discard,
       Fail.orThrow,
     ),
   );
@@ -151,12 +157,12 @@ test("events: text from the provider, calls and results from the loop", () => {
       Model.handle({
         initial: 0,
         onOp: (_req, resume, i) =>
-          Events.emit({ type: "text", text: "hm" }).map(() =>
+          Emit.value<Events.Event>({ type: "text", text: "hm" }).map(() =>
             resume(i === 0 ? call("calc", { expression: "2+2" }) : say("4"), i + 1),
           ),
       }),
       evaluate,
-      Events.forEach((e) => events.push(e)),
+      Emit.forEach((e: Events.Event) => events.push(e)),
       Fail.orThrow,
     ),
   );
@@ -171,7 +177,7 @@ test("approval is an effect the tool performs", () => {
   const program = AI.ask("2+2?", { tools: [needsApproval(calc)] }).pipe(
     scripted([call("calc", { expression: "2+2" }), say("done")], seen),
     evaluate,
-    Events.discard,
+    Emit.discard,
     Fail.orThrow,
   );
   const result = (content: string) => ({ role: "tool", toolCallId: "1", content });
@@ -189,7 +195,7 @@ test("a tool's typed failure goes back to the model, not up the stack", () => {
   const answer = Kyoot.runSync(
     AI.ask("try", { tools: [flaky] }).pipe(
       scripted([call("flaky", {}), say("it failed")], seen),
-      Events.discard,
+      Emit.discard,
       Fail.orThrow,
     ),
   );

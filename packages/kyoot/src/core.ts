@@ -68,13 +68,13 @@ type Performed<K extends string, P, A, E> = Kyoot<A, Simplify<{ [k in K]: P } & 
 // What a handler is made of. State is `initial`, threaded through `resume`,
 // or `create()`, called when the frame is entered: a cell that is fresh per
 // run and shared with fibers forked under the handler.
-export interface Hooks<P, A, St, X1, R1 extends Row, X2, R2 extends Row> {
+export interface Hooks<P, A, St, X1, R1 extends Row, X2, R2 extends Row, R3 extends Row> {
   initial?: St;
   create?: () => St;
   fork?: ForkMode;
   onOp: (payload: P, resume: Resume<A, St>, state: St) => Kyoot<X1, R1>;
   onDefect?: (d: unknown, state: St) => Kyoot<X2, R2>;
-  onInterrupt?: (state: St) => void;
+  onInterrupt?: (state: St) => void | Kyoot<unknown, R3>;
 }
 
 // A declared effect: key, payload type, answer type, and the failure type a
@@ -88,12 +88,19 @@ export const effect =
   <const K extends string>(key: K) => {
     const perform = (payload: P) => makeOp(key, payload) as Performed<K, P, A, E>;
     const handle =
-      <St = undefined, X1 = never, X2 = never, R1 extends Row = {}, R2 extends Row = {}>(
-        hooks: Hooks<P, A, St, X1, R1, X2, R2>,
+      <
+        St = undefined,
+        X1 = never,
+        X2 = never,
+        R1 extends Row = {},
+        R2 extends Row = {},
+        R3 extends Row = {},
+      >(
+        hooks: Hooks<P, A, St, X1, R1, X2, R2, R3>,
       ) =>
       <B, S extends Row & { [k in K]?: P }>(
         k: Kyoot<B, S>,
-      ): Kyoot<B | X1 | X2, MergeAll<Omit<S, K> | R1 | R2>> =>
+      ): Kyoot<B | X1 | X2, MergeAll<Omit<S, K> | R1 | R2 | R3>> =>
         makeHandler(key, k, hooks);
     // Whatever `f` does, its outcome is delivered where the op was performed:
     // a value resumes, a failure is raised there for the program to catch.
@@ -134,13 +141,14 @@ export function makeHandler<
   R1 extends Row = {},
   R2 extends Row = {},
   R3 extends Row = {},
+  R4 extends Row = {},
 >(
   effectKey: K,
   self: Kyoot<A, S>,
-  hooks: Hooks<P, any, St, B2, R1, B3, R3> & {
+  hooks: Hooks<P, any, St, B2, R1, B3, R3, R4> & {
     onSuccess?: (a: A, state: St) => Kyoot<B, R2>;
   },
-): Kyoot<B | B2 | B3, MergeAll<Omit<S, K> | R1 | R2 | R3>> {
+): Kyoot<B | B2 | B3, MergeAll<Omit<S, K> | R1 | R2 | R3 | R4>> {
   const { initial } = hooks;
   const h = hooks as unknown as HandlerNode;
   const create = h.create ?? (initial === undefined ? undefined : () => initial);

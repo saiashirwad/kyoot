@@ -1,32 +1,31 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Clock, Emit, Kyoot } from "../src/index.ts";
+import { Clock, Emit, InterruptedError, Kyoot, runFiber } from "../src/index.ts";
 
 test("Emit.fromIterable + map + run", () => {
   const r = Kyoot.runSync(
     Emit.fromIterable([1, 2, 3]).pipe(
       Emit.map((n: number) => n * 10),
-      Emit.run,
+      Emit.collect,
     ),
   );
   assert.deepEqual(r, [undefined, [10, 20, 30]]);
 });
 
-test("Emit.forEach with an effectful callback", async () => {
+test("Emit.forEach with an effectful callback", () => {
   const seen: string[] = [];
-  await Kyoot.runPromise(
+  const r = Kyoot.runSync(
     Emit.fromIterable(["a", "b"]).pipe(
       Emit.forEach((s: string) => Clock.sleep(1).map(() => void seen.push(s))),
+      Clock.virtual,
     ),
   );
   assert.deepEqual(seen, ["a", "b"]);
+  assert.deepEqual(r, [undefined, 2]);
 });
 
 async function* source(n: number) {
-  for (let i = 0; i < n; i++) {
-    await new Promise((r) => setTimeout(r, 1));
-    yield i;
-  }
+  for (let i = 0; i < n; i++) yield i;
 }
 
 test("Emit.fromAsyncIterable → toAsyncIterable round trip", async () => {
@@ -35,21 +34,45 @@ test("Emit.fromAsyncIterable → toAsyncIterable round trip", async () => {
   assert.deepEqual(out, [0, 1, 2, 3]);
 });
 
+test("fromAsyncIterable removes settled abort listeners", async () => {
+  const count = 10;
+  let next = 0;
+  let returns = 0;
+  let finish = (_r: IteratorResult<number>) => {};
+  let waiting = () => {};
+  const wait = new Promise<void>((resolve) => (waiting = resolve));
+  const it: AsyncIterableIterator<number> = {
+    [Symbol.asyncIterator]() {
+      return this;
+    },
+    next() {
+      if (next++ < count) return Promise.resolve({ value: next, done: false });
+      waiting();
+      return new Promise((resolve) => (finish = resolve));
+    },
+    return() {
+      returns++;
+      finish({ value: undefined, done: true });
+      return Promise.resolve({ value: undefined, done: true });
+    },
+  };
+  const fiber = runFiber(Emit.fromAsyncIterable(it).pipe(Emit.discard));
+  await wait;
+  fiber.interrupt();
+  await assert.rejects(fiber.promise, (e) => e instanceof InterruptedError);
+  assert.equal(returns, 1);
+});
+
 test("toAsyncIterable: breaking early interrupts the producer", async () => {
   let produced = 0;
   const stream = Emit.fromAsyncIterable(
     (async function* () {
-      while (true) {
-        await new Promise((r) => setTimeout(r, 1));
-        produced++;
-        yield produced;
-      }
+      while (true) yield ++produced;
     })(),
   );
-  for await (const x of Emit.toAsyncIterable(stream)) if (x >= 3) break;
-  await new Promise((r) => setTimeout(r, 30));
+  for await (const x of Emit.toAsyncIterable(stream, { buffer: 1 })) if (x >= 3) break;
   const at = produced;
-  await new Promise((r) => setTimeout(r, 30));
+  await Promise.resolve();
   assert.ok(at <= 4, "at most the in-flight item after the break");
   assert.equal(produced, at, "and nothing after that");
 });
@@ -80,7 +103,7 @@ test("toAsyncIterable: the producer runs at most `buffer` items ahead", async ()
   for await (const _ of Emit.toAsyncIterable(stream, { buffer: 3 })) {
     consumed++;
     maxAhead = Math.max(maxAhead, produced - consumed);
-    await new Promise((r) => setTimeout(r, 1));
+    await Promise.resolve();
   }
   assert.equal(consumed, 50);
   assert.equal(produced, 50);
@@ -97,7 +120,6 @@ test("toAsyncIterable: breaking while the producer is parked interrupts it", asy
   });
   for await (const x of Emit.toAsyncIterable(stream, { buffer: 2 })) if (x >= 5) break;
   const at = produced;
-  await new Promise((r) => setTimeout(r, 20));
   assert.equal(produced, at);
   assert.ok(at <= 8);
 });

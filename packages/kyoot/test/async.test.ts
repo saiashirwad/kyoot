@@ -23,6 +23,16 @@ test("fromPromise exposes an AbortSignal from day one", async () => {
   assert.equal(r, false);
 });
 
+test("fromPromise sends a synchronous throw to Fail.run as a defect", async () => {
+  const boom = new Error("boom");
+  const r = await Kyoot.runPromise(
+    Async.fromPromise(() => {
+      throw boom;
+    }).pipe(Fail.run),
+  );
+  assert.ok(!r.ok && r.cause._tag === "Defect" && r.cause.defect === boom);
+});
+
 test("fork/join: a fiber is an independent interpreter loop", async () => {
   const prog = Kyoot.gen(function* () {
     const fiber = yield* Async.fork(
@@ -57,10 +67,10 @@ test("race: first to complete wins", async () => {
   assert.equal(await Kyoot.runPromise(Async.race(slow, fast)), "fast");
 });
 
-test("timeout: a slow computation fails with a typed TimeoutError", async () => {
+test("timeout: a slow computation fails with a typed Timeout", async () => {
   const r = await Kyoot.runPromise(Async.timeout(5, Clock.sleep(50)).pipe(Fail.run));
   assert.equal(r.ok, false);
-  assert.ok(!r.ok && r.cause._tag === "Fail" && r.cause.error instanceof Async.TimeoutError);
+  assert.ok(!r.ok && r.cause._tag === "Fail" && r.cause.error instanceof Async.Timeout);
 });
 
 test("timeout: a fast computation wins", async () => {
@@ -169,6 +179,11 @@ test("all: branches run concurrently", async () => {
 
 test("all: empty array resolves immediately", async () => {
   assert.deepEqual(await Kyoot.runPromise(Async.all([])), []);
+});
+
+test("all: NaN concurrency runs every branch", async () => {
+  const ks = [1, 2, 3].map((n) => Async.fromPromise(() => Promise.resolve(n)));
+  assert.deepEqual(await Kyoot.runPromise(Async.all(ks, { concurrency: NaN })), [1, 2, 3]);
 });
 
 test("all: first failure interrupts the rest and runs their finalizers", async () => {
@@ -334,12 +349,12 @@ test("fork: Log.collect around the fork gathers the fiber's entries", async () =
   );
 });
 
-test("fork: Emit.run around the fork collects what fibers emit", async () => {
+test("fork: Emit.collect around the fork collects what fibers emit", async () => {
   const prog = Kyoot.gen(function* () {
     const fibers = yield* Async.all([Emit.value(1), Emit.value(2)]);
     yield* Emit.value(3);
     return fibers.length;
-  }).pipe(Emit.run);
+  }).pipe(Emit.collect);
   const [n, emitted] = await Kyoot.runPromise(prog);
   assert.equal(n, 2);
   assert.deepEqual([...emitted].sort(), [1, 2, 3]);
@@ -433,14 +448,11 @@ test("fork: Resource.run outside the fork gives the fiber a scope of its own", a
 });
 
 test("fork: Clock.virtual outside the fork makes the fiber's sleeps instant", async () => {
-  const t0 = Date.now();
   const prog = Kyoot.gen(function* () {
     const fiber = yield* Async.fork(Clock.sleep(10_000).map(() => "woke"));
     return yield* fiber.join;
   }).pipe(Clock.virtual);
-  const [a] = await Kyoot.runPromise(prog);
-  assert.equal(a, "woke");
-  assert.ok(Date.now() - t0 < 1_000);
+  assert.deepEqual(await Kyoot.runPromise(prog), ["woke", 0]);
 });
 
 test("fork: a copied handler that returns instead of resuming is a defect", async () => {

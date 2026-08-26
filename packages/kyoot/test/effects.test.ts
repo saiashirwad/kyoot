@@ -91,13 +91,13 @@ test("Var: each execution gets a fresh state frame", () => {
   assert.deepEqual(Kyoot.runSync(prog), [1, 1]);
 });
 
-test("Emit.run collects everything emitted", () => {
+test("Emit.collect collects everything emitted", () => {
   const prog = Kyoot.gen(function* () {
     yield* Emit.value("a");
     yield* Emit.value("b");
     return 7;
   });
-  assert.deepEqual(Kyoot.runSync(prog.pipe(Emit.run)), [7, ["a", "b"]]);
+  assert.deepEqual(Kyoot.runSync(prog.pipe(Emit.collect)), [7, ["a", "b"]]);
 });
 
 test("Emit.forEach consumes values as they happen", () => {

@@ -7,6 +7,7 @@ import * as Fail from "./fail.ts";
 export interface Policy {
   readonly times: number;
   readonly delay?: number | ((attempt: number) => number);
+  readonly while?: (error: unknown) => boolean;
 }
 
 const delayOf = ({ delay = 0 }: Policy, attempt: number) =>
@@ -21,7 +22,8 @@ export const run =
       for (let attempt = 0; ; attempt++) {
         const r = yield* k.pipe(Fail.run);
         if (r.ok) return r.value;
-        if (r.cause._tag !== "Fail" || attempt >= policy.times) return yield* Fail.fromResult(r);
+        const stop = r.cause._tag !== "Fail" || policy.while?.(r.cause.error) === false;
+        if (stop || attempt >= policy.times) return yield* Fail.fromResult(r);
         yield* Clock.sleep(delayOf(policy, attempt));
       }
     });

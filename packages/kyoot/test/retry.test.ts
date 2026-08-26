@@ -36,6 +36,20 @@ test("Retry: gives up after `times` retries with the last failure", () => {
   assert.equal(calls(), 3);
 });
 
+test("Retry: gives up when `while` rejects the failure", () => {
+  const { prog, calls } = failingFor(10);
+  const [r, elapsed] = Kyoot.runSync(
+    prog.pipe(
+      Retry.run({ times: 3, delay: 100, while: (e) => !(e instanceof Flaky) }),
+      Fail.run,
+      Clock.virtual,
+    ),
+  );
+  assert.ok(!r.ok && r.cause._tag === "Fail" && r.cause.error instanceof Flaky);
+  assert.equal(calls(), 1);
+  assert.equal(elapsed, 0);
+});
+
 test("Retry: defects are not retried", () => {
   let calls = 0;
   const boom = new Error("boom");

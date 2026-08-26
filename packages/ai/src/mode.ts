@@ -2,13 +2,13 @@ import { Kyoot, makeHandler } from "kyoot";
 import type { Kyoot as K, Row } from "kyoot";
 import { Model, type Request, type Usage } from "./model.ts";
 
-export const init = Model.intercept;
-
 export const system = (content: string) =>
-  init((req, next) => next({ ...req, messages: [{ role: "system", content }, ...req.messages] }));
+  Model.intercept((req, next) =>
+    next({ ...req, messages: [{ role: "system", content }, ...req.messages] }),
+  );
 
 export const config = (patch: Pick<Request, "temperature" | "maxTokens">) =>
-  init((req, next) => next({ ...req, ...patch }));
+  Model.intercept((req, next) => next({ ...req, ...patch }));
 
 export const usage = <A, S extends Row & { "ai/model"?: Request }>(k: K<A, S>) =>
   makeHandler("ai/model", k, {

@@ -3,7 +3,7 @@
 The file system and processes as kyoot effects. A program says `FileSystem.readFile(path)`; which file system that is gets decided by the handler you pipe in.
 
 ```ts
-import { Fail, Kyoot } from "kyoot";
+import { Fail, Kyoot, Log } from "kyoot";
 import { Command, FileSystem } from "@kyoot/platform";
 import * as Node from "@kyoot/platform/node";
 
@@ -32,6 +32,8 @@ await program.pipe(Node.provide, Fail.orThrow, Kyoot.runPromise);
 Every call is a value passing through one point, so a policy over all file access is a handler. `intercept` sees the op and a `next` that performs it for the handlers outside; `handle` with `resume.with` hands the program a failure it can catch itself.
 
 ```ts
+const writes = new Set(["writeFile", "appendFile", "mkdir", "remove", "rename"]);
+
 const audit = FileSystem.intercept((op, next) =>
   Log.info(`${op.kind} ${op.path}`).map(() => next(op)),
 );

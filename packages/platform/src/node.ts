@@ -47,7 +47,11 @@ const performFs = (op: FileSystem.Op): Promise<unknown> => {
     case "exists":
       return fsp.access(op.path).then(
         () => true,
-        () => false,
+        (e: unknown) => {
+          const code = (e as { code?: string }).code;
+          if (code === "ENOENT" || code === "ENOTDIR") return false;
+          throw e;
+        },
       );
     case "mkdir":
       return fsp.mkdir(op.path, { recursive: op.recursive });

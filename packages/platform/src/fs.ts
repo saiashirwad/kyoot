@@ -41,32 +41,44 @@ export interface Stat {
   readonly mtime: Date;
 }
 
-const fs = effect<Op, any, FsError>()("fs");
+type Answer = {
+  readFile: string;
+  writeFile: void;
+  appendFile: void;
+  readDir: string[];
+  stat: Stat;
+  exists: boolean;
+  mkdir: void;
+  remove: void;
+  rename: void;
+};
+
+const fs = effect<Op, unknown, FsError>()("fs");
 
 export const handle = fs.handle;
 
 export const intercept = fs.intercept;
 
-const perform = <A>(op: Op) => fs(op) as Kyoot<A, { fs: Op; fail: FsError }>;
+const perform = <O extends Op>(op: O) =>
+  fs(op) as Kyoot<Answer[O["kind"]], { fs: Op; fail: FsError }>;
 
-export const readFile = (path: string) => perform<string>({ kind: "readFile", path });
+export const readFile = (path: string) => perform({ kind: "readFile", path });
 
-export const writeFile = (path: string, data: string) =>
-  perform<void>({ kind: "writeFile", path, data });
+export const writeFile = (path: string, data: string) => perform({ kind: "writeFile", path, data });
 
 export const appendFile = (path: string, data: string) =>
-  perform<void>({ kind: "appendFile", path, data });
+  perform({ kind: "appendFile", path, data });
 
-export const readDir = (path: string) => perform<string[]>({ kind: "readDir", path });
+export const readDir = (path: string) => perform({ kind: "readDir", path });
 
-export const stat = (path: string) => perform<Stat>({ kind: "stat", path });
+export const stat = (path: string) => perform({ kind: "stat", path });
 
-export const exists = (path: string) => perform<boolean>({ kind: "exists", path });
+export const exists = (path: string) => perform({ kind: "exists", path });
 
 export const mkdir = (path: string, { recursive = false } = {}) =>
-  perform<void>({ kind: "mkdir", path, recursive });
+  perform({ kind: "mkdir", path, recursive });
 
 export const remove = (path: string, { recursive = false } = {}) =>
-  perform<void>({ kind: "remove", path, recursive });
+  perform({ kind: "remove", path, recursive });
 
-export const rename = (path: string, to: string) => perform<void>({ kind: "rename", path, to });
+export const rename = (path: string, to: string) => perform({ kind: "rename", path, to });

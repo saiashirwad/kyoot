@@ -69,7 +69,7 @@ type _fpValue = Expect<Equal<typeof fp extends KyootT<infer A, any> ? A : never,
 // the branches run in fibers, whose driver serves `clock`, so it does not surface
 const timed = Async.timeout(100, Clock.sleep(1));
 type _timedKeys = Expect<Equal<keyof RowsOf<typeof timed>, "async" | "fail">>;
-type _timedFail = Expect<Equal<RowsOf<typeof timed>["fail"], Async.TimeoutError>>;
+type _timedFail = Expect<Equal<RowsOf<typeof timed>["fail"], Async.Timeout>>;
 
 const greeted = Kyoot.gen(function* () {
   const g = yield* Greeter;
@@ -94,7 +94,7 @@ const v1: readonly [number, number] = Kyoot.runSync(counted);
 const emitted = Kyoot.gen(function* () {
   yield* Emit.value("a");
   return 1;
-}).pipe(Emit.run);
+}).pipe(Emit.collect);
 const e1: readonly [number, string[]] = Kyoot.runSync(emitted);
 
 const logOp = op<void>()("log", "hello");
@@ -178,10 +178,11 @@ type _catchAllKeys = Expect<Equal<keyof RowsOf<typeof recovered>, "clock">>;
 const slowSync = Sync.defer(() => 1).pipe((k) =>
   makeHandler("sync", k, {
     onOp: (f, resume) => Clock.sleep(1).map(() => resume(f())), // f: () => unknown, from the row
+    onInterrupt: () => Async.fromPromise(() => Promise.resolve()),
   }),
 );
 type _asyncHandlerValue = Expect<Equal<ValueOf<typeof slowSync>, number>>;
-type _asyncHandlerKeys = Expect<Equal<keyof RowsOf<typeof slowSync>, "clock">>;
+type _asyncHandlerKeys = Expect<Equal<keyof RowsOf<typeof slowSync>, "async" | "clock">>;
 
 // catchTag removes only the handled tag from the fail row
 class Tagged1 {
@@ -190,8 +191,9 @@ class Tagged1 {
 class Tagged2 {
   readonly _tag = "Two";
 }
+declare const flag: boolean;
 const twoFails = Kyoot.gen(function* () {
-  if (Math.random() > 1) yield* Fail.fail(new Tagged1());
+  if (flag) yield* Fail.fail(new Tagged1());
   yield* Fail.fail(new Tagged2());
   return 1;
 });

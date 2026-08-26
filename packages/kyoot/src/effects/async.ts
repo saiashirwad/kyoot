@@ -95,6 +95,11 @@ export const all = <A, S extends Row = {}>(
   options: { readonly concurrency?: number } = {},
 ): Kyoot<A[], MergeAll<{ async: AsyncOp } | Leftover<S> | FailRow<FailOf<S>>>> =>
   asyncOp(async (rt): Promise<Result<unknown, A[]>> => {
+    const concurrency = options.concurrency ?? ks.length;
+    const workers = Math.min(
+      ks.length,
+      Math.max(1, Number.isNaN(concurrency) ? ks.length : Math.floor(concurrency)),
+    );
     const results: A[] = new Array(ks.length);
     const fibers: FiberHandle[] = [];
     let next = 0;
@@ -116,29 +121,24 @@ export const all = <A, S extends Row = {}>(
         }
       }
     };
-    const workers = Math.max(1, Math.min(options.concurrency ?? Infinity, ks.length));
     await Promise.all(Array.from({ length: workers }, worker));
     if (stopped === undefined) return Result.ok(results);
     await settle(fibers);
     return stopped;
   }).map(fromResult) as never;
 
-export class TimeoutError extends Error {
-  readonly _tag = "TimeoutError";
+export class Timeout {
+  readonly _tag = "Timeout";
   readonly ms: number;
   constructor(ms: number) {
-    super(`timed out after ${ms}ms`);
-    this.name = "TimeoutError";
     this.ms = ms;
   }
 }
 
-class Timeout {
-  readonly _tag = "Timeout";
-}
+const timedOut = Symbol("timeout");
 
 export const timeout = <A, S extends Row>(ms: number, k: Kyoot<A, S>) =>
   race(
     k,
-    sleep(ms).map(() => new Timeout()),
-  ).map((r) => (r instanceof Timeout ? fail(new TimeoutError(ms)) : succeed(r)));
+    sleep(ms).map(() => timedOut),
+  ).map((r) => (r === timedOut ? fail(new Timeout(ms)) : succeed(r as A)));

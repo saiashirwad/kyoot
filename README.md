@@ -1,6 +1,6 @@
 # kyoot
 
-A pnpm workspace.
+An experimental, minimal Effects system for Typescript heavily inspired by Kyo
 
 | Package                                | What                                                                                   |
 | -------------------------------------- | -------------------------------------------------------------------------------------- |
@@ -14,5 +14,3 @@ pnpm install
 pnpm typecheck
 pnpm test
 ```
-
-Examples run directly: `node packages/kyoot/examples/checkout.ts`.

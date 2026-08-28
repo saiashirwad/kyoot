@@ -10,7 +10,7 @@ import {
   type RuntimeNode,
 } from "./model.ts";
 import { pipeArguments, type Pipeable } from "./pipe.ts";
-import type { FailRow, MergeAll, Row, Simplify } from "./types.ts";
+import type { MergeAll, Only, Row, Simplify } from "./types.ts";
 
 // One `yield*` on a program: hand the program out, then hand the answer
 // back. The iterator is also its result object; `yield*` reads it before `next`.
@@ -122,13 +122,18 @@ export const op =
 // resume's result is opaque: the handler's type comes from `self`, not from
 // what resume hands back. Returning `never` keeps it out of inference.
 // `resume.with` continues the program with a computation instead of a value,
-// run where the op was performed, so the program's own handlers see it.
-export interface Resume<A, St> {
+// run where the op was performed, so the program's own handlers see it. `C`
+// is the effect's contract: the row a handed-back program may use, since the
+// op site was told to expect it. A key outside it is named in the error.
+export interface Resume<A, St, C extends Row = Row> {
   (value: A, state?: St): Kyoot<never, {}>;
-  with(program: Kyoot<A, any>, state?: St): Kyoot<never, {}>;
+  with<S extends Row & Partial<C>>(
+    program: Kyoot<A, S> & Only<S, keyof C>,
+    state?: St,
+  ): Kyoot<never, {}>;
 }
 
-type Performed<K extends string, V, A, E> = Kyoot<A, Simplify<{ [k in K]: V } & FailRow<E>>>;
+type Performed<K extends string, V, A, C extends Row> = Kyoot<A, Simplify<{ [k in K]: V } & C>>;
 
 // A cell for `intercept`: `create` runs when the frame is entered, so each
 // run gets its own; `fork` says what a fiber gets (see Hooks).
@@ -137,9 +142,9 @@ export interface Cell<St> {
   readonly fork?: ForkMode;
 }
 
-type Interceptor<K extends string, P, V, A, E, St, Ret> = (
+type Interceptor<K extends string, P, V, A, C extends Row, St, Ret> = (
   payload: P,
-  next: (payload: P) => Performed<K, V, A, E>,
+  next: (payload: P) => Performed<K, V, A, C>,
   state: St,
 ) => Ret;
 
@@ -148,13 +153,13 @@ type Interception<K extends string, V, Ret> = <B, S extends Row & { [k in K]?: V
   k: Kyoot<B, S>,
 ) => Kyoot<B, MergeAll<Omit<S, K> | RowOf<Ret>>>;
 
-export interface Intercept<K extends string, P, A, E = never, V = P> {
+export interface Intercept<K extends string, P, A, C extends Row = {}, V = P> {
   <Ret extends Kyoot<A, any>>(
-    f: Interceptor<K, P, V, A, E, undefined, Ret>,
+    f: Interceptor<K, P, V, A, C, undefined, Ret>,
   ): Interception<K, V, Ret>;
   <St, Ret extends Kyoot<A, any>>(
     cell: Cell<St>,
-    f: Interceptor<K, P, V, A, E, St, Ret>,
+    f: Interceptor<K, P, V, A, C, St, Ret>,
   ): Interception<K, V, Ret>;
 }
 
@@ -166,10 +171,10 @@ export interface Intercept<K extends string, P, A, E = never, V = P> {
 // the failure itself, so `f`'s program is the answer and runs outside the
 // frame. `next` re-performs the op with the frames it had crossed, so a
 // fiber forked through an interceptor inherits them, and the interceptor.
-export const makeIntercept = <K extends string, P, A, E = never, V = P>(
+export const makeIntercept = <K extends string, P, A, C extends Row = {}, V = P>(
   key: K,
-): Intercept<K, P, A, E, V> => {
-  type F = Interceptor<K, P, V, A, E, any, AnyKyoot>;
+): Intercept<K, P, A, C, V> => {
+  type F = Interceptor<K, P, V, A, C, any, AnyKyoot>;
   const deliver =
     key === "fail"
       ? (k: AnyKyoot) => k
@@ -194,27 +199,38 @@ export const makeIntercept = <K extends string, P, A, E = never, V = P>(
 // What a handler is made of. State is `initial`, threaded through `resume`,
 // or `create()`, called when the frame is entered: a cell that is fresh per
 // run and shared with fibers forked under the handler.
-export interface Hooks<P, A, St, X1, R1 extends Row, X2, R2 extends Row, R3 extends Row> {
+export interface Hooks<
+  P,
+  A,
+  St,
+  X1,
+  R1 extends Row,
+  X2,
+  R2 extends Row,
+  R3 extends Row,
+  C extends Row = Row,
+> {
   initial?: St;
   create?: () => St;
   fork?: ForkMode;
-  onOp: (payload: P, resume: Resume<A, St>, state: St) => Kyoot<X1, R1>;
+  onOp: (payload: P, resume: Resume<A, St, C>, state: St) => Kyoot<X1, R1>;
   onDefect?: (d: unknown, state: St) => Kyoot<X2, R2>;
   onInterrupt?: (state: St) => void | Kyoot<unknown, R3>;
 }
 
-// A declared effect: key, payload type, answer type, and the failure type a
-// handler may hand back with `resume.with(Fail.fail(e))`. `V` is what the
-// row records for the key: the payload, unless the module records something
-// else, as Env and Var do. Calling it performs the op; `handle` builds a
+// A declared effect: key, payload type, answer type, and the contract: the
+// row a handler may hand back with `resume.with`, `{ fail: E }` for a
+// failure the op site can catch. Performing the op puts the key and the
+// contract in the row. `V` is what the row records for the key: the
+// payload, unless the module records something else, as Env and Var do. Calling it performs the op; `handle` builds a
 // handler whose `resume` is typed to the answer. Like makeHandler, a
 // callback that returns instead of resuming adds its value and row to the
 // result. `intercept` sits between the program and the handlers outside it:
 // `next` performs the op again for them to answer.
 export const effect =
-  <P, A, E = never, V = P>() =>
+  <P, A, C extends Row = {}, V = P>() =>
   <const K extends string>(key: K) => {
-    const perform = (payload: P) => makeOp(key, payload) as Performed<K, V, A, E>;
+    const perform = (payload: P) => makeOp(key, payload) as Performed<K, V, A, C>;
     const handle =
       <
         St = undefined,
@@ -224,7 +240,7 @@ export const effect =
         R2 extends Row = {},
         R3 extends Row = {},
       >(
-        hooks: Hooks<P, A, St, X1, R1, X2, R2, R3>,
+        hooks: Hooks<P, A, St, X1, R1, X2, R2, R3, C>,
       ) =>
       <B, S extends Row & { [k in K]?: V }>(
         k: Kyoot<B, S>,
@@ -232,7 +248,7 @@ export const effect =
         makeHandler(key, k, hooks);
     // `intercept({ create }, f)` hands `f` a cell as its third argument: made
     // fresh per run, shared with fibers forked under it. A cache is one.
-    const intercept = makeIntercept<K, P, A, E, V>(key);
+    const intercept = makeIntercept<K, P, A, C, V>(key);
     return Object.assign(perform, { key, handle, intercept });
   };
 
@@ -260,10 +276,11 @@ export function makeHandler<
   R2 extends Row = {},
   R3 extends Row = {},
   R4 extends Row = {},
+  C extends Row = Row,
 >(
   effectKey: K,
   self: Kyoot<A, S>,
-  hooks: Hooks<P, any, St, B2, R1, B3, R3, R4> & {
+  hooks: Hooks<P, any, St, B2, R1, B3, R3, R4, C> & {
     onSuccess?: (a: A, state: St) => Kyoot<B, R2>;
   },
 ): Kyoot<B | B2 | B3, MergeAll<Omit<S, K> | R1 | R2 | R3 | R4>> {

@@ -53,7 +53,7 @@ type Answer = {
   rename: void;
 };
 
-const fs = effect<Op, unknown, FsError>()("fs");
+const fs = effect<Op, unknown, { fail: FsError }>()("fs");
 
 export const handle = fs.handle;
 

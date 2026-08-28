@@ -27,7 +27,7 @@ export class CommandError {
   }
 }
 
-const command = effect<Op, Output, CommandError>()("command");
+const command = effect<Op, Output, { fail: CommandError }>()("command");
 
 export const handle = command.handle;
 

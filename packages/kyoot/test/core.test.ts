@@ -193,7 +193,7 @@ test("a throw inside onOp goes to the same handler's onDefect", () => {
 });
 
 test("resume.with continues the program at the op, where its own handlers see it", () => {
-  const Fetch = effect<string, string, string>()("fetch");
+  const Fetch = effect<string, string, { fail: string }>()("fetch");
   const program = Fetch("a").pipe(Fail.catchAll((e: string) => Kyoot.succeed(`caught ${e}`)));
   const failing = Fetch.handle({ onOp: (url, resume) => resume.with(Fail.fail(`no ${url}`)) });
   assert.equal(Kyoot.runSync(program.pipe(failing)), "caught no a");

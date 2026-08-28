@@ -38,7 +38,7 @@ Kyoot.runSync(lookup("42"));
 
 ## Effects and handlers
 
-An effect is a key, a payload type, and an answer type. Calling it performs an op.
+An effect is a key, a payload type, an answer type, and a contract: the row a handler may hand back to the op site, `{}` unless you say otherwise. Calling it performs an op.
 
 ```ts
 const Log = effect<string, void>()("log");
@@ -105,7 +105,7 @@ Kyoot.succeed(1).flatMap((n) => Log.info(String(n)));
 | Module     | Ops                                                                     | Handlers                                                                                           |
 | ---------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | `Fail`     | `fail(e)`                                                               | `run` (to `Result`), `catchAll(f)`, `catchTag(tag, f)`, `mapError(f)`, `orThrow`, `intercept<E>()` |
-| `Env`      | `tag<T>()("id").get()`                                                  | `tag.provide(impl)`, `tag.intercept`                                                               |
+| `Env`      | `tag<T>()("id").get()`                                                  | `tag.provide(impl)`, `tag.provide(make)`, `tag.intercept`                                          |
 | `Var`      | `tag.get()`, `tag.set(v)`, `tag.update(f)`                              | `tag.run(initial)` (to `[A, V]`), `tag.intercept`                                                  |
 | `Log`      | `info(msg)`, `warn`, `error`, `debug`                                   | `print`, `collect` (to `[A, Entry[]]`), `discard`, `intercept`                                     |
 | `Random`   | `next()`, `int(max)`                                                    | `live`, `seeded(seed)`, `intercept`                                                                |
@@ -123,6 +123,33 @@ Tags are keyed by id: `Env.tag<A>()("a")` and `Env.tag<B>()("b")` are separate k
 `Clock.sleep` runs on real timers under `runPromise` unless a handler is closer. `Clock.virtual` makes every sleep instant and reports the elapsed time, so a program that waits can run under `runSync` in tests.
 
 `Retry.run` re-runs a program on a typed failure, sleeping between attempts (`delay` is a number or `(attempt) => ms`). Set `while` to retry only some failures. Defects are not retried; the last failure stays in the row.
+
+## Services
+
+A service is a tag and a program that makes it. `tag.provide` takes either a value or a program: the program runs once, where the handler sits, so the handlers outside it answer what it needs. A service can read another service, open a resource, or fail while it is made, and each shows in the row until a handler outside takes it.
+
+```ts
+const Config = Env.tag<{ url: string }>()("config");
+const Db = Env.tag<{ query(sql: string): Kyoot<string[], { async: AsyncOp }> }>()("db");
+
+const memoryDb = Kyoot.gen(function* () {
+  const { url } = yield* Config;
+  const conn = yield* Resource.acquire(
+    () => connect(url),
+    (c) => c.close(),
+  );
+  return { query: (sql) => Async.fromPromise(() => conn.run(sql)) };
+});
+
+program.pipe(
+  Db.provide(memoryDb),
+  Config.provide({ url: "pg://" }),
+  Resource.run,
+  Kyoot.runPromise,
+);
+```
+
+Order is the dependency graph: `Db.provide` sits inside `Config.provide`, so what makes the db can read the config. Reverse them and `env/config` stays in the row. There is no layer type, merge, or memo table; a service is made once per handler, and providing it twice makes it twice. A method that returns a program leaves its row (`async`, `fail`) to the caller, not to the maker. `tag.intercept` wraps a service where it is looked up, within the row its methods declare. `examples/provide.ts` wires a config, a database, and a user service this way; `examples/effects.ts` does the same job with an effect and a handler in place of the service object, which is the smaller form when a service has one operation and you want to intercept it.
 
 ## Streams
 
@@ -174,10 +201,10 @@ const declineAll = (reason: string) =>
   Payments.handle({ onOp: () => Fail.fail(new PaymentDeclined(reason)) });
 ```
 
-When the failure is part of the effect's contract, declare it as the third type argument and hand it back with `resume.with`. It is raised where the op was performed, so the program's own `catchTag` sees it.
+When the failure is part of the effect's contract, put it in the contract row and hand it back with `resume.with`. It is raised where the op was performed, so the program's own `catchTag` sees it. `resume.with` accepts only a program within the contract; a key outside it is a type error that names the key.
 
 ```ts
-const Payments = effect<Charge, string, PaymentDeclined>()("payments");
+const Payments = effect<Charge, string, { fail: PaymentDeclined }>()("payments");
 const declineAll = (reason: string) =>
   Payments.handle({ onOp: (_, resume) => resume.with(Fail.fail(new PaymentDeclined(reason))) });
 ```

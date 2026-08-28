@@ -274,3 +274,41 @@ Ask2.handle({
 });
 // @ts-expect-error fork takes one of the three modes
 Ask2.handle({ fork: "share", onOp: (_q, resume) => resume(1) });
+
+const Config = Env.tag<{ url: string }>()("config");
+const Db = Env.tag<{ query(sql: string): KyootT<string, { async: AsyncOp }> }>()("db");
+const makeDb = Kyoot.gen(function* () {
+  const { url } = yield* Config;
+  yield* Resource.acquire(
+    () => url,
+    () => undefined,
+  );
+  return { query: (sql: string) => Async.fromPromise(async () => sql) };
+});
+
+const usesDb = Db.get().flatMap((db) => db.query("select 1"));
+const provided = usesDb.pipe(Db.provide(makeDb));
+type _providedRow = Expect<
+  Equal<keyof RowsOf<typeof provided>, "async" | "env/config" | "resource">
+>;
+const wired = usesDb.pipe(Db.provide(makeDb), Config.provide({ url: "" }), Resource.run);
+type _wiredRow = Expect<Equal<keyof RowsOf<typeof wired>, "async">>;
+const backwards = usesDb.pipe(Config.provide({ url: "" }), Db.provide(makeDb));
+type _backwardsRow = Expect<
+  Equal<keyof RowsOf<typeof backwards>, "async" | "env/config" | "resource">
+>;
+
+class Declined {
+  readonly _tag = "Declined";
+}
+const Pay = effect<number, string, { fail: Declined }>()("pay");
+type _payRow = Expect<Equal<keyof RowsOf<ReturnType<typeof Pay>>, "pay" | "fail">>;
+Pay.handle({ onOp: (_, resume) => resume.with(Fail.fail(new Declined())) });
+Pay.handle({ onOp: (_, resume) => resume.with(Kyoot.succeed("ok")) });
+// @ts-expect-error a failure outside the contract
+Pay.handle({ onOp: (_, resume) => resume.with(Fail.fail("wrong type")) });
+// @ts-expect-error an effect the op site was not told about
+Pay.handle({ onOp: (_, resume) => resume.with(Log.info("x").map(() => "ok")) });
+const Plain = effect<number, string>()("plain");
+// @ts-expect-error no contract: nothing may be handed back but a value
+Plain.handle({ onOp: (_, resume) => resume.with(Fail.fail(new Declined())) });

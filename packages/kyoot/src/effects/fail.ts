@@ -1,9 +1,9 @@
-import { InterruptedError, makeHandler, makeIntercept, op, succeed } from "../core.ts";
+import { fail, InterruptedError, makeHandler, makeIntercept, succeed } from "../core.ts";
 import type { AnyKyoot, Kyoot } from "../model.ts";
 import { Result } from "../result.ts";
 import type { FailRow, MergeAll, Row } from "../types.ts";
 
-export const fail = <E>(e: E) => op<never>()("fail", e);
+export { fail };
 
 // See a failure on its way out — log it, map it — and `next` it on. The
 // answer type is `never`, so `f` cannot recover; `catchAll` does that.
@@ -52,8 +52,6 @@ export const catchTag =
   <A, S extends Row & { fail?: Tagged }>(
     k: Kyoot<A, S>,
   ): Kyoot<A | A2, MergeAll<Refail<S, Exclude<S["fail"], { _tag: T } | undefined>> | S2>> =>
-    makeHandler("fail", k, {
-      onOp: (e): AnyKyoot => (e._tag === tag ? f(e as unknown as E) : fail(e)),
-    }) as never;
+    catchAll((e: Tagged): AnyKyoot => (e._tag === tag ? f(e as E) : fail(e)))(k) as never;
 
 export const mapError = <E, E2>(f: (e: E) => E2) => catchAll((e: E) => fail(f(e)));

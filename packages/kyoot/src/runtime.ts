@@ -4,16 +4,11 @@ import { NodeSym, type AnyKyoot, type Kyoot, type Snapshot } from "./model.ts";
 import type { Only, Row } from "./types.ts";
 
 // The keys the async driver serves itself.
-const SERVED = ["async", "clock"] as const;
-export type Served = (typeof SERVED)[number];
-const served = (key: PropertyKey): key is Served =>
-  (SERVED as readonly PropertyKey[]).includes(key);
+export type Served = "async" | "clock";
+const served = (key: PropertyKey): key is Served => key === "async" || key === "clock";
 
 const unhandledEffect = (edge: string, key: PropertyKey) =>
   new Error(`${edge} encountered unhandled effect '${String(key)}'`);
-
-// Shared by async ops that request inheritance but cross no handler frames.
-export const EMPTY_HANDLERS: readonly Snapshot[] = [];
 
 // One machine serves every runSync in turn; a nested call, from inside a
 // program, makes its own while the outer holds this one.
@@ -42,7 +37,8 @@ export interface FiberHandle<A = unknown> {
 export interface AsyncRuntime {
   readonly signal: AbortSignal;
   // The handlers the op being served crossed, innermost first, for a fiber
-  // spawned by the op to inherit (see `inherit`).
+  // spawned by the op to inherit (see `inherit`). Only an op that collects
+  // them has any.
   readonly handlers?: readonly Snapshot[];
   spawn<A>(k: Kyoot<A, any>): FiberHandle<A>;
 }
@@ -54,14 +50,16 @@ export interface AsyncOp {
 // Steps a fiber runs before it lets the event loop turn.
 const STEP_BUDGET = 4096;
 
-// A signal that never fires, for ops that run as cleanup.
+// A signal that never fires: the root fiber's parent, and what ops that run
+// as cleanup see.
 const NEVER = new AbortController().signal;
 
-const yieldNow = () =>
-  new Promise<void>((resolve) => {
-    if (typeof setImmediate === "function") setImmediate(resolve);
-    else setTimeout(resolve, 0);
-  });
+// `abort()` with no reason builds a DOMException, stack trace and all, on
+// every call, and every fiber ends with one. One shared reason skips that.
+const ABORTED = new DOMException("This operation was aborted", "AbortError");
+
+const schedule: (f: () => void) => void =
+  typeof setImmediate === "function" ? setImmediate : (f) => setTimeout(f, 0);
 
 const realSleep = (ms: number, signal: AbortSignal) =>
   new Promise<void>((resolve) => {
@@ -73,153 +71,168 @@ const realSleep = (ms: number, signal: AbortSignal) =>
     signal.addEventListener("abort", onAbort, { once: true });
   });
 
-function asyncDrive<A>(k: Kyoot<A, any>, parent: AsyncRuntime): FiberHandle<A> {
-  const controller = new AbortController();
-  const link = () => controller.abort();
-  parent.signal.addEventListener("abort", link, { once: true });
-  const children = new Set<Promise<unknown>>();
-  const rt: AsyncRuntime = {
-    signal: controller.signal,
-    handlers: EMPTY_HANDLERS,
-    spawn: (k2) => {
-      const h = asyncDrive(k2, rt);
-      children.add(h.promise);
-      void h.promise.then(
-        () => children.delete(h.promise),
-        () => children.delete(h.promise),
-      );
-      return h;
-    },
+// The functions a wait settles through. One set serves every sequential
+// wait; `generation` says which wait it is for, so a stale one is ignored.
+// An interrupt retires the set, leaving stale promises tied to it.
+interface Reactions {
+  generation: number;
+  readonly fulfilled: (value: unknown) => void;
+  readonly rejected: (error: unknown) => void;
+  readonly continued: () => void;
+}
+
+const reactionsFor = (fiber: Fiber<any>): Reactions => {
+  const r: Reactions = {
+    generation: 0,
+    fulfilled: (value) => fiber.settle(r.generation, "resume", value),
+    rejected: (error) => fiber.settle(r.generation, "raise", error),
+    continued: () => fiber.settle(r.generation, "continue", undefined),
   };
-  const machine = new Machine();
-  const drive = new Promise<A>((resolve, reject) => {
-    // Each wait owns a generation. An interrupt moves the machine on and
-    // bumps it, so the stale wait cannot resume the fiber when it settles.
-    let generation = 0;
-    let waiting = false;
-    // An interrupt is delivered once, at the next served op. Ops after that
-    // are cleanup (finalizers) and run to completion with a live signal.
-    let interrupted = false;
+  return r;
+};
 
-    function resume(current: number, value: unknown): void {
-      if (current !== generation) return;
-      waiting = false;
-      try {
-        pump(machine.resume(value, STEP_BUDGET));
-      } catch (error) {
-        reject(error);
-      }
+// One program, driven to its end: its machine, its abort signal, and the
+// fibers it spawned. The handle a caller keeps holds the controller and the
+// promise, not the program.
+class Fiber<A> implements FiberHandle<A> {
+  readonly promise: Promise<A>;
+  readonly interrupt: () => void;
+  private readonly controller = new AbortController();
+  private readonly machine = new Machine();
+  private readonly rt: AsyncRuntime;
+  private readonly parent: Fiber<any> | undefined;
+  private children: Set<Promise<unknown>> | undefined;
+  private reactions = reactionsFor(this);
+  private resolve!: (value: A) => void;
+  private reject!: (error: unknown) => void;
+  // Each wait owns a generation. An interrupt moves the machine on and
+  // bumps it, so the stale wait cannot resume the fiber when it settles.
+  private generation = 0;
+  private waiting = false;
+  // An interrupt is delivered once, at the next served op. Ops after that
+  // are cleanup (finalizers) and run to completion with a live signal.
+  private interrupted = false;
+
+  constructor(k: Kyoot<A, any>, parent: Fiber<any> | undefined) {
+    const { controller } = this;
+    this.parent = parent;
+    this.interrupt = () => controller.abort(ABORTED);
+    this.rt = { signal: controller.signal, spawn: (k2) => this.spawn(k2) };
+    const drive = new Promise<A>((resolve, reject) => {
+      this.resolve = resolve;
+      this.reject = reject;
+    });
+    this.promise = drive.finally(() => this.close());
+    controller.signal.addEventListener("abort", () => this.onAbort(), { once: true });
+    parent?.controller.signal.addEventListener("abort", this.interrupt, { once: true });
+    try {
+      this.pump(this.machine.start(k, STEP_BUDGET));
+    } catch (error) {
+      this.reject(error);
     }
+  }
 
-    function raise(current: number, error: unknown): void {
-      if (current !== generation) return;
-      waiting = false;
-      try {
-        pump(machine.raise(error, STEP_BUDGET));
-      } catch (defect) {
-        reject(defect);
-      }
+  private spawn<B>(k: Kyoot<B, any>): FiberHandle<B> {
+    const child = new Fiber(k, this);
+    (this.children ??= new Set()).add(child.promise);
+    return child;
+  }
+
+  // The program ended. Interrupt what it spawned and wait for it, then let
+  // the parent forget this fiber.
+  private async close(): Promise<void> {
+    this.controller.abort(ABORTED);
+    this.parent?.controller.signal.removeEventListener("abort", this.interrupt);
+    this.machine.reset();
+    if (this.children !== undefined && this.children.size > 0) {
+      await Promise.allSettled(this.children);
     }
-    // Sequential waits reuse one reaction pair. Interruption retires that
-    // pair before cleanup starts, leaving stale promises tied to its state.
-    const makeReactions = () => {
-      const state = { generation: 0 };
-      return {
-        state,
-        fulfilled: (value: unknown) => resume(state.generation, value),
-        rejected: (error: unknown) => raise(state.generation, error),
-      };
-    };
-    let reactions = makeReactions();
+    this.parent?.children?.delete(this.promise);
+  }
 
-    const pump = (initial: Outcome): void => {
-      let outcome = initial;
-      while (true) {
-        if (outcome === "done") {
-          resolve(machine.value as A);
-          return;
-        }
+  // A wait ended; move the machine on, unless the wait is stale.
+  settle(current: number, how: "resume" | "raise" | "continue", payload: unknown): void {
+    if (current !== this.generation) return;
+    this.waiting = false;
+    try {
+      const { machine } = this;
+      this.pump(
+        how === "resume"
+          ? machine.resume(payload, STEP_BUDGET)
+          : how === "raise"
+            ? machine.raise(payload, STEP_BUDGET)
+            : machine.continue(STEP_BUDGET),
+      );
+    } catch (error) {
+      this.reject(error);
+    }
+  }
 
-        if (outcome === "yielded") {
-          waiting = true;
-          const current = ++generation;
-          void yieldNow().then(() => {
-            if (current !== generation) return;
-            waiting = false;
-            try {
-              pump(machine.continue(STEP_BUDGET));
-            } catch (error) {
-              reject(error);
-            }
-          });
-          return;
-        }
+  private onAbort(): void {
+    if (!this.waiting || this.interrupted) return;
+    this.interrupted = true;
+    this.waiting = false;
+    this.reactions = reactionsFor(this);
+    this.generation++;
+    try {
+      this.pump(this.machine.raise(new InterruptedError(), STEP_BUDGET));
+    } catch (error) {
+      this.reject(error);
+    }
+  }
 
-        const { key, payload, handlers } = machine;
-        if (!served(key)) {
-          reject(unhandledEffect("fiber", key));
-          return;
-        }
+  // Start a wait: the next settle must carry this generation.
+  private wait(): void {
+    this.waiting = true;
+    this.reactions.generation = ++this.generation;
+  }
 
-        if (controller.signal.aborted && !interrupted) {
-          interrupted = true;
-          outcome = machine.raise(new InterruptedError(), STEP_BUDGET);
-          continue;
-        }
-
-        const signal = interrupted ? NEVER : controller.signal;
-        let work: Promise<unknown>;
-        try {
-          work =
-            key === "clock"
-              ? realSleep(payload as number, signal)
-              : (payload as AsyncOp).execute(
-                  signal === rt.signal && handlers === rt.handlers
-                    ? rt
-                    : { ...rt, signal, handlers },
-                );
-        } catch (error) {
-          outcome = machine.raise(error, STEP_BUDGET);
-          continue;
-        }
-
-        waiting = true;
-        const current = ++generation;
-        reactions.state.generation = current;
-        void work.then(reactions.fulfilled, reactions.rejected);
+  private pump(initial: Outcome): void {
+    const { machine, rt, controller } = this;
+    let outcome = initial;
+    while (true) {
+      if (outcome === "done") {
+        this.resolve(machine.value as A);
         return;
       }
-    };
 
-    controller.signal.addEventListener(
-      "abort",
-      () => {
-        if (!waiting || interrupted) return;
-        interrupted = true;
-        waiting = false;
-        reactions = makeReactions();
-        generation++;
-        try {
-          pump(machine.raise(new InterruptedError(), STEP_BUDGET));
-        } catch (error) {
-          reject(error);
-        }
-      },
-      { once: true },
-    );
+      if (outcome === "yielded") {
+        this.wait();
+        schedule(this.reactions.continued);
+        return;
+      }
 
-    try {
-      pump(machine.start(k, STEP_BUDGET));
-    } catch (error) {
-      reject(error);
+      const { key, payload, handlers } = machine;
+      if (!served(key)) {
+        this.reject(unhandledEffect("fiber", key));
+        return;
+      }
+
+      if (controller.signal.aborted && !this.interrupted) {
+        this.interrupted = true;
+        outcome = machine.raise(new InterruptedError(), STEP_BUDGET);
+        continue;
+      }
+
+      const signal = this.interrupted ? NEVER : controller.signal;
+      let work: Promise<unknown>;
+      try {
+        work =
+          key === "clock"
+            ? realSleep(payload as number, signal)
+            : (payload as AsyncOp).execute(
+                signal === rt.signal && handlers === undefined ? rt : { ...rt, signal, handlers },
+              );
+      } catch (error) {
+        outcome = machine.raise(error, STEP_BUDGET);
+        continue;
+      }
+
+      this.wait();
+      void work.then(this.reactions.fulfilled, this.reactions.rejected);
+      return;
     }
-  });
-  const settle = async () => {
-    controller.abort();
-    parent.signal.removeEventListener("abort", link);
-    if (children.size > 0) await Promise.allSettled(children);
-  };
-  return { promise: drive.finally(settle), interrupt: () => controller.abort() };
+  }
 }
 
 export function runPromise<A, S extends Row>(k: Kyoot<A, S> & Only<S, Served>): Promise<A> {
@@ -227,9 +240,5 @@ export function runPromise<A, S extends Row>(k: Kyoot<A, S> & Only<S, Served>): 
 }
 
 export function runFiber<A>(k: Kyoot<A, any>): FiberHandle<A> {
-  const seed: AsyncRuntime = {
-    signal: new AbortController().signal,
-    spawn: (k2) => asyncDrive(k2, seed),
-  };
-  return asyncDrive(k, seed);
+  return new Fiber(k, undefined);
 }

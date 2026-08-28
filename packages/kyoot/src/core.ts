@@ -6,7 +6,9 @@ import {
   type Kyoot,
   type OnOp,
   type RowOf,
+  type RowsOf,
   type RuntimeNode,
+  type RuntimeResume,
   type Snapshot,
   type ValueOf,
 } from "./model.ts";
@@ -40,7 +42,7 @@ class KyootIterator<A, S extends Row> implements Iterator<Kyoot<unknown, S>, A, 
 export interface KyootImpl<A, S extends Row = {}> extends Pipeable {}
 export class KyootImpl<A, S extends Row = {}> implements Kyoot<A, S> {
   readonly _tag: RuntimeNode["_tag"];
-  a: unknown;
+  readonly a: unknown;
   readonly b: unknown;
   readonly c: unknown;
 
@@ -84,6 +86,12 @@ export const makeOp = (key: PropertyKey, payload: unknown, handlers?: readonly S
 export const genNode = (factory: () => Generator<AnyKyoot, unknown, unknown>): AnyKyoot =>
   new KyootImpl("gen", factory);
 
+// A fresh generator per run; the machine keeps it as a frame on its stack.
+export const gen = <A, Y extends AnyKyoot>(
+  f: () => Generator<Y, A, unknown>,
+): Kyoot<A, MergeAll<RowsOf<Y>>> =>
+  genNode(f as () => Generator<AnyKyoot, unknown, unknown>) as never;
+
 // Typed op constructor. The row records the key and the payload type, so a
 // handler's `onOp` can read the payload type back off the row. `A` is what
 // the op resumes with; TS can't infer it, hence the two-step call.
@@ -91,6 +99,11 @@ export const op =
   <A>() =>
   <const K extends string, P>(key: K, payload: P): Kyoot<A, { [k in K]: P }> =>
     makeOp(key, payload) as Kyoot<A, { [k in K]: P }>;
+
+// Failure is part of the model: an effect's contract names it, and an
+// interceptor delivers one where the op was performed. The op lives here so
+// no effect module has to reach into another's key.
+export const fail = <E>(e: E) => op<never>()("fail", e);
 
 // resume's result is opaque: the handler's type comes from `self`, not from
 // what resume hands back. Returning `never` keeps it out of inference.
@@ -156,9 +169,9 @@ export const makeIntercept = <K extends string, P, A, C extends Row = {}, V = P>
   const deliver =
     key === "fail"
       ? (k: AnyKyoot) => k
-      : (k: AnyKyoot, resume: Parameters<OnOp>[1]): AnyKyoot =>
+      : (k: AnyKyoot, resume: RuntimeResume): AnyKyoot =>
           makeHandler("fail", k, {
-            onOp: (e) => resume.with(makeOp("fail", e) as AnyKyoot),
+            onOp: (e) => resume.with(fail(e)),
             onSuccess: (a) => resume(a),
           });
   return (cellOrF: Cell<unknown> | F, maybeF?: F) => {
@@ -217,12 +230,7 @@ export const effect =
       >(
         hooks: Hooks<P, A, St, C, ROp, RDefect, RInterrupt>,
       ) =>
-      <B, S extends Row & { [k in K]?: V }>(
-        k: Kyoot<B, S>,
-      ): Kyoot<
-        B | ValueOf<ROp> | ValueOf<RDefect>,
-        MergeAll<Omit<S, K> | RowOf<ROp> | RowOf<RDefect> | RowOf<RInterrupt>>
-      > =>
+      <B, S extends Row & { [k in K]?: V }>(k: Kyoot<B, S>) =>
         makeHandler(key, k, hooks);
     return Object.assign(perform, { key, handle, intercept: makeIntercept<K, P, A, C, V>(key) });
   };
@@ -261,8 +269,7 @@ export function makeHandler<
 > {
   // The public hook type is more precise than the machine's erased runtime
   // view. The same record is stored; handler construction adds no wrapper.
-  const runtimeHooks = hooks as unknown as HandlerHooks;
-  return new KyootImpl("handler", self, effectKey, runtimeHooks) as AnyKyoot;
+  return new KyootImpl("handler", self, effectKey, hooks as unknown as HandlerHooks) as never;
 }
 
 export class InterruptedError extends Error {
@@ -274,38 +281,14 @@ export class InterruptedError extends Error {
 }
 
 // Wrap a fiber's program in the handlers that enclosed the fork, outermost
-// last. `copy`: the same `onOp` on the state as it was, no end hooks.
-// `scope`: the handler over again, its end hook run but the fiber's value
-// kept. `none`: left out.
+// last. `scope`: the handler over again, end hooks and all. `copy` (the
+// default): the same `onOp` on the state as it was, no end hooks. `none`
+// never gets this far: the machine leaves it out when it takes snapshots.
 export const inherit = (k: AnyKyoot, snapshots: readonly Snapshot[] = []): AnyKyoot => {
   for (const { node, state } of snapshots) {
     const hooks = node.c;
-    switch (hooks.fork ?? "copy") {
-      case "copy":
-        k = new KyootImpl("handler", k, node.b, {
-          initial: state,
-          fork: hooks.fork,
-          onOp: hooks.onOp,
-        } satisfies HandlerHooks);
-        break;
-      case "scope": {
-        const { onSuccess } = hooks;
-        k = new KyootImpl(
-          "handler",
-          k,
-          node.b,
-          onSuccess === undefined
-            ? hooks
-            : ({
-                ...hooks,
-                onSuccess: (a, st) => onSuccess(a, st).map(() => a),
-              } satisfies HandlerHooks),
-        );
-        break;
-      }
-      case "none":
-        break;
-    }
+    const copied: HandlerHooks = { initial: state, fork: hooks.fork, onOp: hooks.onOp };
+    k = makeHandler(node.b, k, (hooks.fork === "scope" ? hooks : copied) as never);
   }
   return k;
 };

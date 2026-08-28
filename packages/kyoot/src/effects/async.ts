@@ -1,5 +1,6 @@
 import {
   effect,
+  fail,
   inherit,
   InterruptedError,
   makeHandler,
@@ -7,27 +8,27 @@ import {
   succeed,
   type Payload,
 } from "../core.ts";
-import { fail, fromResult } from "./fail.ts";
+import { fromResult } from "./fail.ts";
 import { sleep } from "./clock.ts";
 import { Result } from "../result.ts";
-import type { AnyKyoot, Kyoot } from "../model.ts";
-import {
-  EMPTY_HANDLERS,
-  type AsyncOp,
-  type AsyncRuntime,
-  type FiberHandle,
-  type Served,
-} from "../runtime.ts";
+import type { AnyKyoot, Kyoot, Snapshot } from "../model.ts";
+import type { AsyncOp, AsyncRuntime, FiberHandle, Served } from "../runtime.ts";
 import type { FailRow, MergeAll, Row } from "../types.ts";
 
 type AsyncRow = { async: AsyncOp };
 
 const asyncEffect = effect<AsyncOp, unknown>()("async");
 
-// Built with a list so it collects the frames it crosses (see makeOp): a
-// fiber it spawns inherits them.
 const asyncOp = <A>(execute: (rt: AsyncRuntime) => Promise<A>) =>
-  makeOp("async", { execute } as AsyncOp, EMPTY_HANDLERS) as Kyoot<A, AsyncRow>;
+  makeOp("async", { execute } as AsyncOp) as Kyoot<A, AsyncRow>;
+
+// An op that spawns fibers is built with a list, so it collects the frames
+// it crosses (see makeOp) for the fibers to inherit. A plain await needs
+// none of that.
+const NO_FRAMES: readonly Snapshot[] = [];
+
+const spawning = <A>(execute: (rt: AsyncRuntime) => Promise<A>) =>
+  makeOp("async", { execute } as AsyncOp, NO_FRAMES) as Kyoot<A, AsyncRow>;
 
 // See every promise, fork, join, and sleep-free wait: trace it, time it,
 // give it a deadline. A fiber forked through it inherits it.
@@ -50,43 +51,48 @@ export interface Fiber<A, E = never> {
   readonly interrupt: Kyoot<void, AsyncRow>;
 }
 
-// A fiber's program ends in one of these; anything else means a handler
-// copied into the fiber returned a value instead of resuming.
-class Exit {
-  readonly result: Result<unknown, unknown>;
-  constructor(result: Result<unknown, unknown>) {
-    this.result = result;
-  }
+// A spawned fiber, its promise already a `Result`.
+interface Spawned<A, E> {
+  readonly promise: Promise<Result<E, A>>;
+  readonly interrupt: () => void;
 }
 
-const catchFail = (k: AnyKyoot): AnyKyoot =>
-  makeHandler("fail", k, { fork: "none", onOp: (e) => succeed(new Exit(Result.fail(e))) });
-
-// A fiber catches `fail` at both ends: innermost for the program, so a scope
-// around it still ends normally, and outermost for a copied handler that
-// fails in its own scope. `fail` handlers themselves never cross into a
-// fiber; the failure crosses `join` and meets the handlers there.
-const spawn = (rt: AsyncRuntime, k: AnyKyoot) => {
-  const program = catchFail(k.map((a: unknown) => new Exit(Result.ok(a))));
+// A fiber's program records how it ended in a cell, so no handler copied
+// into it can reshape the answer. It catches `fail` at both ends: innermost
+// for the program, so a scope around it still ends normally, and outermost
+// for a copied handler that fails in its own scope. `fail` handlers
+// themselves never cross into a fiber; the failure crosses `join` and meets
+// the handlers there. A cell left empty means a copied handler returned a
+// value instead of resuming.
+const spawn = <A, E>(rt: AsyncRuntime, k: AnyKyoot): Spawned<A, E> => {
+  let exit: Result<E, A> | undefined;
+  const record = (r: Result<E, A>) => ((exit = r), succeed(undefined));
+  const failed = (e: E) => record(Result.fail(e));
+  const inner = makeHandler("fail", k, {
+    fork: "none",
+    onOp: failed,
+    onSuccess: (a: A) => record(Result.ok(a)),
+  });
   const handlers = rt.handlers?.filter((h) => h.node.b !== "fail");
-  return rt.spawn(catchFail(inherit(program, handlers)));
+  const outer = makeHandler("fail", inherit(inner, handlers), { fork: "none", onOp: failed });
+  const h: FiberHandle = rt.spawn(outer);
+  return {
+    promise: h.promise.then(
+      () =>
+        exit ??
+        Result.defect(
+          new Error(
+            'a handler copied into a fiber returned a value instead of resuming; give it fork: "none"',
+          ),
+        ),
+      (e: unknown) => (e instanceof InterruptedError ? Result.interrupted() : Result.defect(e)),
+    ),
+    interrupt: h.interrupt,
+  };
 };
 
-const outcome = <A, E>(h: FiberHandle): Promise<Result<E, A>> =>
-  h.promise.then(
-    (v) =>
-      v instanceof Exit
-        ? (v.result as Result<E, A>)
-        : Result.defect(
-            new Error(
-              'a handler copied into a fiber returned a value instead of resuming; give it fork: "none"',
-            ),
-          ),
-    (e: unknown) => (e instanceof InterruptedError ? Result.interrupted() : Result.defect(e)),
-  );
-
-const fiber = <A, E>(h: FiberHandle): Fiber<A, E> => {
-  const result = asyncOp(() => outcome<A, E>(h));
+const fiber = <A, E>(h: Spawned<A, E>): Fiber<A, E> => {
+  const result = asyncOp(() => h.promise);
   return {
     join: result.flatMap(fromResult) as never,
     await: result,
@@ -94,7 +100,7 @@ const fiber = <A, E>(h: FiberHandle): Fiber<A, E> => {
   };
 };
 
-const settle = (fibers: ReadonlyArray<FiberHandle>) =>
+const settle = (fibers: ReadonlyArray<Spawned<unknown, unknown>>) =>
   Promise.allSettled(fibers.map((f) => (f.interrupt(), f.promise)));
 
 // The fiber inherits the handlers around the fork, so the child's row is
@@ -103,7 +109,7 @@ const settle = (fibers: ReadonlyArray<FiberHandle>) =>
 export const fork = <A, S extends Row>(
   k: Kyoot<A, S>,
 ): Kyoot<Fiber<A, FailOf<S>>, MergeAll<AsyncRow | Leftover<S>>> =>
-  asyncOp((rt) => Promise.resolve(fiber(spawn(rt, k)))) as never;
+  spawning((rt) => Promise.resolve(fiber(spawn(rt, k)))) as never;
 
 export const race = <A, B, S1 extends Row, S2 extends Row>(
   a: Kyoot<A, S1>,
@@ -112,31 +118,31 @@ export const race = <A, B, S1 extends Row, S2 extends Row>(
   A | B,
   MergeAll<AsyncRow | Leftover<S1> | Leftover<S2> | FailRow<FailOf<S1> | FailOf<S2>>>
 > =>
-  asyncOp((rt) => {
-    const fibers = [spawn(rt, a), spawn(rt, b)];
-    return Promise.race(fibers.map(outcome)).finally(() => settle(fibers));
+  spawning((rt) => {
+    const fibers = [spawn<A | B, unknown>(rt, a), spawn<A | B, unknown>(rt, b)];
+    return Promise.race(fibers.map((f) => f.promise)).finally(() => settle(fibers));
   }).flatMap(fromResult) as never;
 
 export const all = <A, S extends Row = {}>(
   ks: ReadonlyArray<Kyoot<A, S>>,
   options: { readonly concurrency?: number } = {},
 ): Kyoot<A[], MergeAll<AsyncRow | Leftover<S> | FailRow<FailOf<S>>>> =>
-  asyncOp(async (rt): Promise<Result<unknown, A[]>> => {
+  spawning(async (rt): Promise<Result<unknown, A[]>> => {
     const concurrency = options.concurrency ?? ks.length;
     const workers = Math.min(
       ks.length,
       Math.max(1, Number.isNaN(concurrency) ? ks.length : Math.floor(concurrency)),
     );
     const results: A[] = new Array(ks.length);
-    const fibers: FiberHandle[] = [];
+    const fibers: Spawned<A, unknown>[] = [];
     let next = 0;
     let stopped: Result<unknown, A[]> | undefined;
     const worker = async () => {
       while (stopped === undefined && next < ks.length) {
         const i = next++;
-        const f = spawn(rt, ks[i]!);
+        const f = spawn<A, unknown>(rt, ks[i]!);
         fibers.push(f);
-        const r = await outcome<A, unknown>(f);
+        const r = await f.promise;
         if (r.ok) {
           results[i] = r.value;
           continue;

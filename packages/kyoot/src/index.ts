@@ -1,10 +1,9 @@
-import { succeed } from "./core.ts";
-import { gen } from "./gen.ts";
+import { gen, succeed } from "./core.ts";
 import type { Kyoot as KyootType } from "./model.ts";
 import { runPromise, runSync } from "./runtime.ts";
 import type { Row } from "./types.ts";
 
-export { effect, InterruptedError, makeHandler, makeIntercept, op } from "./core.ts";
+export { effect, inherit, InterruptedError, makeHandler, makeIntercept, op } from "./core.ts";
 export { runFiber } from "./runtime.ts";
 export type { Cell, Intercept, Resume } from "./core.ts";
 export type { AsyncOp, AsyncRuntime, FiberHandle } from "./runtime.ts";

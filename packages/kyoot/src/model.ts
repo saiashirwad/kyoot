@@ -3,11 +3,14 @@ import type { Merge, Row } from "./types.ts";
 
 export type AnyKyoot = Kyoot<any, any>;
 
+// What a handler's `onOp` gets to continue with: a value, or a program.
+export type RuntimeResume = ((value: any, state?: any) => AnyKyoot) & {
+  with: (program: AnyKyoot, state?: any) => AnyKyoot;
+};
+
 export type OnOp = (
   payload: any,
-  resume: ((value: any, state?: any) => AnyKyoot) & {
-    with: (program: AnyKyoot, state?: any) => AnyKyoot;
-  },
+  resume: RuntimeResume,
   state: any,
   // For an op that collects frames: the ones it crossed before this one,
   // innermost first.
@@ -94,7 +97,7 @@ export interface Kyoot<A, S extends Row = {}> extends Pipeable {
 export type RowsOf<Y> = Y extends Kyoot<any, infer S> ? S : never;
 
 // The row of a callback's result: a program's row, or nothing for a plain value.
-export type RowOf<R> = R extends Kyoot<any, infer S> ? (S extends Row ? S : {}) : {};
+export type RowOf<R> = R extends Kyoot<any, infer S> ? S : {};
 
 // The value a program returns; `never` for anything that is not a program.
 export type ValueOf<R> = R extends Kyoot<infer A, any> ? A : never;

@@ -1,5 +1,4 @@
-import { isKyoot, makeHandler, makeIntercept, op, succeed } from "../core.ts";
-import { gen } from "../gen.ts";
+import { gen, isKyoot, makeHandler, makeIntercept, op, succeed } from "../core.ts";
 import type { Kyoot, RowOf } from "../model.ts";
 import { runFiber, type Served } from "../runtime.ts";
 import type { MergeAll, Only, Row } from "../types.ts";

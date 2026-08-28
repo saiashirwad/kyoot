@@ -402,7 +402,7 @@ test("race: a failing branch that finishes first fails the race, typed", async (
   const r = await Kyoot.runPromise(
     Async.race(
       Clock.sleep(50).map(() => "slow"),
-      Clock.sleep(1).map(() => Fail.fail("fast failure" as const)),
+      Clock.sleep(1).flatMap(() => Fail.fail("fast failure" as const)),
     ).pipe(Fail.run),
   );
   assert.ok(!r.ok && r.cause._tag === "Fail" && r.cause.error === "fast failure");
@@ -418,7 +418,7 @@ test("all: a typed failure in one branch fails the whole, and the rest are inter
     yield* Clock.sleep(10_000);
     return 1;
   }).pipe(Resource.run);
-  const failing = Clock.sleep(1).map(() => Fail.fail("bad" as const));
+  const failing = Clock.sleep(1).flatMap(() => Fail.fail("bad" as const));
   const r = await Kyoot.runPromise(Async.all([slow, failing]).pipe(Fail.run));
   assert.ok(!r.ok && r.cause._tag === "Fail" && r.cause.error === "bad");
   assert.deepEqual(events, ["release"]);

@@ -14,7 +14,7 @@ export const usage = <A, S extends Row & { "ai/model"?: Request }>(k: K<A, S>) =
   makeHandler("ai/model", k, {
     initial: { input: 0, output: 0 } as Usage,
     onOp: (req, resume, total) =>
-      Model(req).map((c) =>
+      Model(req).flatMap((c) =>
         resume(c, {
           input: total.input + (c.usage?.input ?? 0),
           output: total.output + (c.usage?.output ?? 0),

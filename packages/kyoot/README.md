@@ -50,7 +50,7 @@ A handler catches one key and resumes the program. `resume` is typed to the answ
 
 ```ts
 const printLogs = Log.handle({
-  onOp: (line, resume) => Sync.defer(() => console.log(line)).map(resume),
+  onOp: (line, resume) => Sync.defer(() => console.log(line)).flatMap(resume),
 });
 // <A, S>(k: Kyoot<A, S>) => Kyoot<A, Omit<S, "log"> & { sync: () => unknown }>
 ```
@@ -88,6 +88,17 @@ const virtual = <A, S extends Row & { clock?: number }>(k: Kyoot<A, S>) =>
 ```
 
 The row is a plain object type: each key maps to its payload type. `yield*` unions rows, a handler removes its key, and `RowsOf<typeof program>` reads it back.
+
+## Composition
+
+Use `map` when the callback returns a plain value and `flatMap` when it returns another program:
+
+```ts
+Kyoot.succeed(1).map((n) => n + 1);
+Kyoot.succeed(1).flatMap((n) => Log.info(String(n)));
+```
+
+`map` never runs a program its callback returns; it keeps it as the value. The split makes sequencing visible in the source and keeps `map` a bare function on the interpreter's stack.
 
 ## Built-in effects
 

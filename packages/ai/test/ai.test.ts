@@ -157,7 +157,7 @@ test("events: text from the provider, calls and results from the loop", () => {
       Model.handle({
         initial: 0,
         onOp: (_req, resume, i) =>
-          Emit.value<Events.Event>({ type: "text", text: "hm" }).map(() =>
+          Emit.value<Events.Event>({ type: "text", text: "hm" }).flatMap(() =>
             resume(i === 0 ? call("calc", { expression: "2+2" }) : say("4"), i + 1),
           ),
       }),

@@ -82,7 +82,7 @@ const outcome = <A, E>(h: FiberHandle): Promise<Result<E, A>> =>
 const fiber = <A, E>(h: FiberHandle): Fiber<A, E> => {
   const result = asyncOp(() => outcome<A, E>(h));
   return {
-    join: result.map(fromResult) as never,
+    join: result.flatMap(fromResult) as never,
     await: result,
     interrupt: asyncOp(async () => h.interrupt()),
   };
@@ -109,7 +109,7 @@ export const race = <A, B, S1 extends Row, S2 extends Row>(
   asyncOp((rt) => {
     const fibers = [spawn(rt, a), spawn(rt, b)];
     return Promise.race(fibers.map(outcome)).finally(() => settle(fibers));
-  }).map(fromResult) as never;
+  }).flatMap(fromResult) as never;
 
 export const all = <A, S extends Row = {}>(
   ks: ReadonlyArray<Kyoot<A, S>>,
@@ -146,7 +146,7 @@ export const all = <A, S extends Row = {}>(
     if (stopped === undefined) return Result.ok(results);
     await settle(fibers);
     return stopped;
-  }).map(fromResult) as never;
+  }).flatMap(fromResult) as never;
 
 export class Timeout {
   readonly _tag = "Timeout";
@@ -162,4 +162,4 @@ export const timeout = <A, S extends Row>(ms: number, k: Kyoot<A, S>) =>
   race(
     k,
     sleep(ms).map(() => timedOut),
-  ).map((r) => (r === timedOut ? fail(new Timeout(ms)) : succeed(r as A)));
+  ).flatMap((r) => (r === timedOut ? fail(new Timeout(ms)) : succeed(r as A)));

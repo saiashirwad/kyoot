@@ -14,8 +14,6 @@ export type OnOp = (
   inherited?: readonly HandlerNode[],
 ) => AnyKyoot;
 
-export type Continuation = (v: any) => AnyKyoot;
-
 // What a handler does at a fork. `copy`: the fiber gets `onOp` with the
 // frame's state; the frame's end hooks stay with the parent. `scope`: the
 // fiber gets a frame of its own, state from `create`, with the end hooks at
@@ -32,6 +30,10 @@ export type RuntimeNode =
       readonly handlers?: readonly HandlerNode[];
     }
   | { readonly _tag: "map"; readonly self: AnyKyoot; readonly mapper: (a: any) => any }
+  | { readonly _tag: "flatMap"; readonly self: AnyKyoot; readonly mapper: (a: any) => AnyKyoot }
+  | { readonly _tag: "gen"; readonly factory: () => Generator<AnyKyoot, unknown, unknown> }
+  // A handler's continuation, resumed: the machine restores what it holds.
+  | { readonly _tag: "resume"; state: unknown }
   | {
       readonly _tag: "handler";
       readonly effectKey: PropertyKey;
@@ -51,25 +53,15 @@ export type HandlerNode = Extract<RuntimeNode, { _tag: "handler" }>;
 
 export const NodeSym: unique symbol = Symbol("kyoot.node");
 
-/**
- * Result of `map`. Pure values (including `never` from `throw`) keep `S`.
- * Returning a nested Kyoot flattens and merges rows.
- *
- * Uses tuple checks so a free `S2 extends Row` is never introduced — that
- * unconstrained parameter used to collapse to `Row` and wipe real effect keys.
- */
-export type MapResult<S extends Row, B> = [B] extends [never]
-  ? Kyoot<never, S>
-  : [B] extends [Kyoot<infer B2, infer S2>]
-    ? Kyoot<B2, Merge<S, S2 extends Row ? S2 : {}>>
-    : Kyoot<B, S>;
-
 export interface Kyoot<A, S extends Row = {}> extends Pipeable {
   readonly _?: (s: S) => void;
 
   readonly [NodeSym]: RuntimeNode;
 
-  map<B>(f: (a: A) => B): MapResult<S, B>;
+  // `map` never runs a program its callback returns; that is `flatMap`.
+  map<B>(f: (a: A) => B): Kyoot<B, S>;
+
+  flatMap<B, S2 extends Row = {}>(f: (a: A) => Kyoot<B, S2>): Kyoot<B, Merge<S, S2>>;
 
   [Symbol.iterator](): Iterator<Kyoot<unknown, S>, A, unknown>;
 }

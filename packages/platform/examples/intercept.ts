@@ -2,7 +2,7 @@ import { Fail, Kyoot, Log } from "kyoot";
 import { FileSystem, Memory } from "@kyoot/platform";
 
 const audit = FileSystem.intercept((op, next) =>
-  Log.info(`${op.kind} ${op.path}`).map(() => next(op)),
+  Log.info(`${op.kind} ${op.path}`).flatMap(() => next(op)),
 );
 
 const sandbox = (root: string) =>

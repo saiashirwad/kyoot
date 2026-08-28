@@ -1,4 +1,4 @@
-import { makeHandler, makeIntercept, op, succeed } from "../core.ts";
+import { isKyoot, makeHandler, makeIntercept, op, succeed } from "../core.ts";
 import { gen } from "../gen.ts";
 import type { Kyoot, RowOf } from "../model.ts";
 import type { MergeAll, Row } from "../types.ts";
@@ -20,7 +20,10 @@ export const intercept = <S extends Row = {}>() =>
   makeIntercept<"resource", ResourceOp<S>, unknown>("resource");
 
 const attempt = (f: Finalizer, errors: unknown[]) =>
-  makeHandler("resource/finalizer", succeed(undefined).map(f), {
+  makeHandler("resource/finalizer", succeed(undefined).flatMap(() => {
+    const r = f();
+    return isKyoot(r) ? r : succeed(r);
+  }), {
     onOp: (_, resume) => resume(undefined),
     onDefect: (d) => {
       errors.push(d);

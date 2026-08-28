@@ -53,7 +53,7 @@ export const forEach =
     makeHandler("emit", k, {
       onOp: (e, resume) => {
         const r = f(e as E);
-        return isKyoot(r) ? r.map(() => resume(undefined)) : resume(undefined);
+        return isKyoot(r) ? r.flatMap(() => resume(undefined)) : resume(undefined);
       },
     }) as never;
 
@@ -79,9 +79,15 @@ export const toAsyncIterable = <S extends Row & { emit?: unknown }>(
       k.pipe(
         forEach((e: S["emit"]) => {
           buffer.push(e);
+          if (buffer.length < capacity) {
+            wake();
+            return;
+          }
+          // Install the gate before waking the consumer: it can run before
+          // the driver starts the program returned here.
+          const parked = new Promise<void>((r) => (drain = r));
           wake();
-          if (buffer.length < capacity) return;
-          return Async.fromPromise(() => new Promise<void>((r) => (drain = r)));
+          return Async.fromPromise(() => parked);
         }),
       ),
     );

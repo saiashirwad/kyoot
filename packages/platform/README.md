@@ -35,7 +35,7 @@ Every call is a value passing through one point, so a policy over all file acces
 const writes = new Set(["writeFile", "appendFile", "mkdir", "remove", "rename"]);
 
 const audit = FileSystem.intercept((op, next) =>
-  Log.info(`${op.kind} ${op.path}`).map(() => next(op)),
+  Log.info(`${op.kind} ${op.path}`).flatMap(() => next(op)),
 );
 
 const sandbox = (root: string) =>

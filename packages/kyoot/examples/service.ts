@@ -40,7 +40,7 @@ const flakyModel = (failures: number) => {
     onOp: (prompt, resume) =>
       complete(prompt)
         .pipe(Retry.run({ times: 3, delay: (n) => 50 * 2 ** n }))
-        .map(resume),
+        .flatMap(resume),
   });
 };
 

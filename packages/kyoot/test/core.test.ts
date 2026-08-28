@@ -18,8 +18,13 @@ import {
 
 const Count = Var.tag<number>()("Count");
 
-test("map auto-flattens a returned Kyo", () => {
-  const n = Kyoot.runSync(Kyoot.succeed(1).map((x) => Kyoot.succeed(x + 1)));
+test("map keeps a returned Kyoot as a value", () => {
+  const nested = Kyoot.runSync(Kyoot.succeed(1).map((x) => Kyoot.succeed(x + 1)));
+  assert.equal(Kyoot.runSync(nested), 2);
+});
+
+test("flatMap sequences a returned Kyoot", () => {
+  const n = Kyoot.runSync(Kyoot.succeed(1).flatMap((x) => Kyoot.succeed(x + 1)));
   assert.equal(n, 2);
 });
 
@@ -89,6 +94,23 @@ test("runSync on an unhandled effect fails loudly at runtime", () => {
   );
 });
 
+test("a continuation dropped by its handler cannot be resumed later", () => {
+  const Ask = effect<string, number>()("ask");
+  let saved: ((n: number) => Kyoot<never>) | undefined;
+  const k = Kyoot.gen(function* () {
+    return yield* Ask("n");
+  }).pipe(
+    Ask.handle({
+      onOp: (_p, resume) => {
+        saved = resume;
+        return Kyoot.succeed("dropped");
+      },
+    }),
+  );
+  assert.equal(Kyoot.runSync(k), "dropped");
+  assert.throws(() => Kyoot.runSync(saved!(1) as never), /resumed after it was dropped/);
+});
+
 test("a continuation may only be resumed once", () => {
   const k = new KyootImpl({
     _tag: "handler",
@@ -99,7 +121,7 @@ test("a continuation may only be resumed once", () => {
     }),
     onOp: (_p, resume) => {
       const first = resume(1);
-      return first.map(() => resume(2));
+      return first.flatMap(() => resume(2));
     },
   });
   assert.throws(() => Kyoot.runSync(k as never), /continuation resumed twice \(one-shot law\)/);
@@ -229,7 +251,7 @@ test("Emit and Sync intercept: rewrite values, wrap thunks", () => {
 });
 
 test("Fail.intercept sees a failure on its way out and passes it on", () => {
-  const tap = Fail.intercept<string>()((e, next) => Log.error(e).map(() => next(`${e}!`)));
+  const tap = Fail.intercept<string>()((e, next) => Log.error(e).flatMap(() => next(`${e}!`)));
   const [r, logs] = Fail.fail("boom").pipe(tap, Fail.run, Log.collect, Kyoot.runSync);
   assert.equal(r.ok, false);
   if (!r.ok) assert.deepEqual(r.cause, { _tag: "Fail", error: "boom!" });

@@ -14,7 +14,7 @@ test("a failure lands at the op, where the program's own catch sees it", async (
 
 test("handlers between the program and the file system see every op", () => {
   const audit = FileSystem.intercept((op, next) =>
-    Log.info(`${op.kind} ${op.path}`).map(() => next(op)),
+    Log.info(`${op.kind} ${op.path}`).flatMap(() => next(op)),
   );
   const sandbox = (root: string) =>
     FileSystem.intercept((op, next) =>

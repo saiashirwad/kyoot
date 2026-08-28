@@ -71,7 +71,7 @@ export const fs = FileSystem.handle({
     attempt(
       () => performFs(op),
       (e) => fsError(op, e),
-    ).map((r) => (r.ok ? resume(r.value) : resume.with(Fail.fail(r.error)))),
+    ).flatMap((r) => (r.ok ? resume(r.value) : resume.with(Fail.fail(r.error)))),
 });
 
 const exec = (op: Command.Op) =>
@@ -94,7 +94,7 @@ export const command = Command.handle({
     attempt(
       () => exec(op),
       (e) => new Command.CommandError(op.command, (e as Error).message),
-    ).map((r) => (r.ok ? resume(r.value) : resume.with(Fail.fail(r.error)))),
+    ).flatMap((r) => (r.ok ? resume(r.value) : resume.with(Fail.fail(r.error)))),
 });
 
 export const provide = <A, S extends Row & { fs?: FileSystem.Op; command?: Command.Op }>(

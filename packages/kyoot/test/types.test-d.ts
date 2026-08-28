@@ -149,8 +149,8 @@ type _neverMapKeys = Expect<Equal<keyof RowsOf<typeof neverMapped>, "async">>;
 const forked = Async.fork(neverMapped);
 type _forkKeys = Expect<Equal<keyof RowsOf<typeof forked>, "async">>;
 
-// nested Kyoot from map still flattens and merges rows
-const flatMapped = Kyoot.succeed(1).map((n) => Fail.fail(String(n)));
+// flatMap sequences a nested Kyoot and merges its row
+const flatMapped = Kyoot.succeed(1).flatMap((n) => Fail.fail(String(n)));
 type _flatKeys = Expect<Equal<keyof RowsOf<typeof flatMapped>, "fail">>;
 type _flatFail = Expect<Equal<RowsOf<typeof flatMapped>["fail"], string>>;
 
@@ -177,7 +177,7 @@ type _catchAllKeys = Expect<Equal<keyof RowsOf<typeof recovered>, "clock">>;
 // A handler whose onOp runs an async op adds `async` to the row.
 const slowSync = Sync.defer(() => 1).pipe((k) =>
   makeHandler("sync", k, {
-    onOp: (f, resume) => Clock.sleep(1).map(() => resume(f())), // f: () => unknown, from the row
+    onOp: (f, resume) => Clock.sleep(1).flatMap(() => resume(f())), // f: () => unknown, from the row
     onInterrupt: () => Async.fromPromise(() => Promise.resolve()),
   }),
 );

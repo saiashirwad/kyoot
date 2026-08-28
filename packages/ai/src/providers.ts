@@ -109,7 +109,7 @@ export const chatCompletions = (options: Options) =>
             },
           ),
         )
-        .map(resume),
+        .flatMap(resume),
   });
 
 export const Deepseek = (options: Partial<Options> = {}) => {

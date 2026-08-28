@@ -250,7 +250,7 @@ test("a handler that resumes does not release early", () => {
     return n;
   }).pipe(
     Resource.run,
-    Ask.handle({ onOp: (_, resume) => Sync.defer(() => events.push("asked")).map(() => resume(7)) }),
+    Ask.handle({ onOp: (_, resume) => Sync.defer(() => events.push("asked")).flatMap(() => resume(7)) }),
     Sync.run,
     Kyoot.runSync,
   );

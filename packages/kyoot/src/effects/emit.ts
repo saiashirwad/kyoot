@@ -1,4 +1,4 @@
-import { isKyoot, makeHandler, op, succeed } from "../core.ts";
+import { isKyoot, makeHandler, makeIntercept, op, succeed } from "../core.ts";
 import { gen } from "../gen.ts";
 import type { Kyoot, RowOf } from "../model.ts";
 import { runFiber, type Served } from "../runtime.ts";
@@ -6,6 +6,9 @@ import type { MergeAll, Only, Row } from "../types.ts";
 import * as Async from "./async.ts";
 
 export const value = <E>(e: E) => op<void>()("emit", e);
+
+// Rewrite or drop values on their way out. `E` is what the program emits.
+export const intercept = <E = unknown>() => makeIntercept<"emit", E, void>("emit");
 
 export const fromIterable = <E>(items: Iterable<E>) =>
   gen(function* () {

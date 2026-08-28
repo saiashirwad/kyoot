@@ -9,6 +9,8 @@ export type OnOp = (
     with: (program: AnyKyoot, state?: any) => AnyKyoot;
   },
   state: any,
+  // For an `async` op: the frames it crossed before this one, innermost first.
+  inherited?: readonly HandlerNode[],
 ) => AnyKyoot;
 
 export type Continuation = (v: any) => AnyKyoot;
@@ -25,6 +27,7 @@ export type RuntimeNode =
       readonly _tag: "op";
       readonly effectKey: PropertyKey;
       readonly payload: unknown;
+      readonly handlers?: readonly HandlerNode[];
     }
   | { readonly _tag: "map"; readonly self: AnyKyoot; readonly mapper: (a: any) => any }
   | {

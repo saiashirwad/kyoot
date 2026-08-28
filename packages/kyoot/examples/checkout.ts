@@ -18,7 +18,11 @@ export class PaymentDeclined {
 
 export interface Order {
   readonly id: string;
-  readonly items: ReadonlyArray<{ sku: string; qty: number; priceCents: number }>;
+  readonly items: ReadonlyArray<{
+    sku: string;
+    qty: number;
+    priceCents: number;
+  }>;
 }
 
 export type OrderEvent = { type: "reserved"; sku: string };
@@ -51,22 +55,26 @@ export const checkout = (order: Order, card: string) =>
     return { orderId: order.id, chargeId, totalCents };
   }).pipe(Total.run(0));
 
-const result = checkout(
-  { id: "o-1", items: [{ sku: "book", qty: 2, priceCents: 1200 }] },
-  "4242",
-).pipe(
-  Inventory.handle({
-    initial: new Map([["book", 3]]),
-    onOp: ({ sku, qty }, resume, stock) => {
-      const have = stock.get(sku) ?? 0;
-      return have >= qty ? resume(true, new Map(stock).set(sku, have - qty)) : resume(false);
-    },
-  }),
-  Payments.handle({
-    onOp: ({ totalCents }, resume) => resume(`ch_${totalCents}`),
-  }),
-  Emit.forEach(console.log),
-  Fail.run,
-  Kyoot.runSync,
-);
-console.log(result);
+if (import.meta.main) {
+  const result = checkout(
+    { id: "o-1", items: [{ sku: "book", qty: 2, priceCents: 1200 }] },
+    "4242",
+  ).pipe(
+    Inventory.handle({
+      initial: new Map([["book", 3]]),
+      onOp: ({ sku, qty }, resume, stock) => {
+        const have = stock.get(sku) ?? 0;
+        return have >= qty ? resume(true, new Map(stock).set(sku, have - qty)) : resume(false);
+      },
+    }),
+    Payments.handle({
+      onOp: ({ totalCents }, resume) => resume(`ch_${totalCents}`),
+    }),
+    Emit.forEach(console.log),
+    Fail.run,
+    Kyoot.runSync,
+  );
+  if (result.ok) {
+  }
+  console.log(result);
+}

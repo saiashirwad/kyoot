@@ -1,8 +1,14 @@
-import { makeHandler, op } from "../core.ts";
+import { effect, makeHandler } from "../core.ts";
 import type { Kyoot } from "../model.ts";
 import type { Row } from "../types.ts";
 
-export const next = () => op<number>()("random", undefined as void);
+const random = effect<void, number>()("random");
+
+export const next = () => random(undefined);
+
+export const handle = random.handle;
+
+export const intercept = random.intercept;
 
 export const int = (max: number) => next().map((x) => Math.floor(x * max));
 

@@ -1,4 +1,4 @@
-import { makeHandler, op, succeed } from "../core.ts";
+import { effect, makeHandler, succeed } from "../core.ts";
 import type { Kyoot } from "../model.ts";
 import type { Row } from "../types.ts";
 
@@ -9,7 +9,14 @@ export interface Entry {
   readonly message: string;
 }
 
-const at = (level: Level) => (message: string) => op<void>()("log", { level, message } as Entry);
+const log = effect<Entry, void>()("log");
+
+const at = (level: Level) => (message: string) => log({ level, message });
+
+export const handle = log.handle;
+
+// Rewrite or drop entries on their way out: redaction, a level filter.
+export const intercept = log.intercept;
 
 export const debug = at("debug");
 export const info = at("info");

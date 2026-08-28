@@ -5,6 +5,7 @@ import {
   type ForkMode,
   type HandlerNode,
   type Kyoot,
+  type OnOp,
   type RowOf,
   type RuntimeNode,
 } from "./model.ts";
@@ -43,8 +44,10 @@ export const isKyoot = (value: unknown): value is AnyKyoot => value instanceof K
 
 export const succeed = <A>(value: A): Kyoot<A, {}> => new KyootImpl({ _tag: "pure", value });
 
-export const makeOp = (key: PropertyKey, payload: unknown) =>
-  new KyootImpl({ _tag: "op", effectKey: key, payload });
+// `handlers` seeds the list an `async` op collects on its way out (see
+// EscapedOp): an interceptor's `next` passes on what the op had crossed.
+export const makeOp = (key: PropertyKey, payload: unknown, handlers?: readonly HandlerNode[]) =>
+  new KyootImpl({ _tag: "op", effectKey: key, payload, handlers });
 
 // Typed op constructor. The row records the key and the payload type, so a
 // handler's `onOp` can read the payload type back off the row. `A` is what
@@ -63,7 +66,69 @@ export interface Resume<A, St> {
   with(program: Kyoot<A, any>, state?: St): Kyoot<never, {}>;
 }
 
-type Performed<K extends string, P, A, E> = Kyoot<A, Simplify<{ [k in K]: P } & FailRow<E>>>;
+type Performed<K extends string, V, A, E> = Kyoot<A, Simplify<{ [k in K]: V } & FailRow<E>>>;
+
+// A cell for `intercept`: `create` runs when the frame is entered, so each
+// run gets its own; `fork` says what a fiber gets (see Hooks).
+export interface Cell<St> {
+  readonly create: () => St;
+  readonly fork?: ForkMode;
+}
+
+type Interceptor<K extends string, P, V, A, E, St, Ret> = (
+  payload: P,
+  next: (payload: P) => Performed<K, V, A, E>,
+  state: St,
+) => Ret;
+
+// An interceptor removes K from the row and adds whatever `f` performs.
+type Interception<K extends string, V, Ret> = <B, S extends Row & { [k in K]?: V }>(
+  k: Kyoot<B, S>,
+) => Kyoot<B, MergeAll<Omit<S, K> | RowOf<Ret>>>;
+
+export interface Intercept<K extends string, P, A, E = never, V = P> {
+  <Ret extends Kyoot<A, any>>(
+    f: Interceptor<K, P, V, A, E, undefined, Ret>,
+  ): Interception<K, V, Ret>;
+  <St, Ret extends Kyoot<A, any>>(
+    cell: Cell<St>,
+    f: Interceptor<K, P, V, A, E, St, Ret>,
+  ): Interception<K, V, Ret>;
+}
+
+// Build `intercept` for a key. `P` is the payload `f` sees and `next` takes;
+// `V` is what the row records for the key: the payload, unless the module
+// records something else, as Env and Var do. Whatever `f` does, its outcome
+// is delivered where the op was performed: a value resumes, a failure is
+// raised there for the program to catch. Two keys are special. For `fail`
+// the op site is the failure itself, so `f`'s program is the answer and runs
+// outside the frame. For `async`, `next` re-performs the op with the
+// handlers it had crossed, so a fiber forked through an interceptor inherits
+// them, and the interceptor.
+export const makeIntercept = <K extends string, P, A, E = never, V = P>(
+  key: K,
+): Intercept<K, P, A, E, V> => {
+  type F = Interceptor<K, P, V, A, E, any, AnyKyoot>;
+  const deliver =
+    key === "fail"
+      ? (k: AnyKyoot) => k
+      : (k: AnyKyoot, resume: Parameters<OnOp>[1]): AnyKyoot =>
+          makeHandler("fail", k, {
+            onOp: (e) => resume.with(makeOp("fail", e) as AnyKyoot),
+            onSuccess: (a) => resume(a),
+          });
+  return (cellOrF: Cell<unknown> | F, maybeF?: F) => {
+    const cell = typeof cellOrF === "function" ? undefined : cellOrF;
+    const f = typeof cellOrF === "function" ? cellOrF : maybeF!;
+    const onOp: OnOp = (payload, resume, state, inherited) =>
+      deliver(
+        f(payload, (p) => makeOp(key, p, key === "async" ? inherited : undefined) as never, state),
+        resume,
+      );
+    return (k: AnyKyoot) =>
+      makeHandler(key, k, { create: cell?.create, fork: cell?.fork, onOp: onOp as never });
+  };
+};
 
 // What a handler is made of. State is `initial`, threaded through `resume`,
 // or `create()`, called when the frame is entered: a cell that is fresh per
@@ -102,18 +167,9 @@ export const effect =
         k: Kyoot<B, S>,
       ): Kyoot<B | X1 | X2, MergeAll<Omit<S, K> | R1 | R2 | R3>> =>
         makeHandler(key, k, hooks);
-    // Whatever `f` does, its outcome is delivered where the op was performed:
-    // a value resumes, a failure is raised there for the program to catch.
-    const intercept = <Ret extends Kyoot<A, any>>(
-      f: (payload: P, next: (payload: P) => Performed<K, P, A, E>) => Ret,
-    ) =>
-      handle({
-        onOp: (payload, resume) =>
-          makeHandler("fail", f(payload, perform) as AnyKyoot, {
-            onOp: (e) => resume.with(makeOp("fail", e) as AnyKyoot),
-            onSuccess: (a) => resume(a),
-          }) as Kyoot<never, RowOf<Ret>>,
-      });
+    // `intercept({ create }, f)` hands `f` a cell as its third argument: made
+    // fresh per run, shared with fibers forked under it. A cache is one.
+    const intercept = makeIntercept<K, P, A, E>(key);
     return Object.assign(perform, { key, handle, intercept });
   };
 
@@ -310,7 +366,13 @@ export function stepAll(k: AnyKyoot): unknown {
         break;
       }
       case "op": {
-        throw escape(continuations, currentNode.effectKey, currentNode.payload, identity);
+        throw escape(
+          continuations,
+          currentNode.effectKey,
+          currentNode.payload,
+          identity,
+          currentNode.handlers && [...currentNode.handlers],
+        );
       }
       case "raise": {
         throw currentNode.error;
@@ -339,6 +401,9 @@ export function stepAll(k: AnyKyoot): unknown {
             break;
           }
           if (e instanceof EscapedOp) {
+            // A frame an `async` op meets is one a fiber it spawns inherits,
+            // whether the frame answers the op or passes it on.
+            if (e.key === "async" && handler.fork !== "none") (e.handlers ??= []).push(handler);
             if (e.key === handler.effectKey) {
               const state = (next: unknown[]) => (next.length > 0 ? next[0] : handler.state);
               const resume = Object.assign(
@@ -346,13 +411,12 @@ export function stepAll(k: AnyKyoot): unknown {
                 { with: (k: AnyKyoot, ...next: unknown[]) => rewrap(e.resumeWith(k), state(next)) },
               );
               try {
-                current = handler.onOp(e.payload, resume, handler.state);
+                current = handler.onOp(e.payload, resume, handler.state, e.handlers);
               } catch (d) {
                 current = defect(d);
               }
               break;
             }
-            if (e.key === "async" && handler.fork !== "none") (e.handlers ??= []).push(handler);
             throw escape(
               continuations,
               e.key,

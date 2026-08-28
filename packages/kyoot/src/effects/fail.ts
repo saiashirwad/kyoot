@@ -1,9 +1,13 @@
-import { InterruptedError, makeHandler, op, succeed } from "../core.ts";
+import { InterruptedError, makeHandler, makeIntercept, op, succeed } from "../core.ts";
 import type { AnyKyoot, Kyoot } from "../model.ts";
 import { Result } from "../result.ts";
 import type { FailRow, MergeAll, Row } from "../types.ts";
 
 export const fail = <E>(e: E) => op<never>()("fail", e);
+
+// See a failure on its way out — log it, map it — and `next` it on. The
+// answer type is `never`, so `f` cannot recover; `catchAll` does that.
+export const intercept = <E = unknown>() => makeIntercept<"fail", E, never>("fail");
 
 export const run = <A, S extends Row & { fail?: unknown }>(k: Kyoot<A, S>) =>
   makeHandler("fail", k, {
@@ -12,8 +16,6 @@ export const run = <A, S extends Row & { fail?: unknown }>(k: Kyoot<A, S>) =>
     onDefect: (d) => succeed(Result.defect(d)),
   });
 
-// Raise a Result where you stand: a failure as a fail op, a defect as a
-// throw, an interrupt as an InterruptedError.
 export const fromResult = <E, A = never>(r: Result<E, A>): Kyoot<A, FailRow<E>> => {
   if (r.ok) return succeed(r.value) as Kyoot<A, FailRow<E>>;
   switch (r.cause._tag) {

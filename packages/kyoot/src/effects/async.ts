@@ -1,4 +1,4 @@
-import { inherit, InterruptedError, makeHandler, op, succeed, type Payload } from "../core.ts";
+import { effect, inherit, InterruptedError, makeHandler, succeed, type Payload } from "../core.ts";
 import { fail, fromResult } from "./fail.ts";
 import { sleep } from "./clock.ts";
 import { Result } from "../result.ts";
@@ -6,8 +6,14 @@ import type { AnyKyoot, Kyoot } from "../model.ts";
 import type { AsyncOp, AsyncRuntime, FiberHandle, Served } from "../runtime.ts";
 import type { FailRow, MergeAll, Row } from "../types.ts";
 
+const asyncEffect = effect<AsyncOp, unknown>()("async");
+
 const asyncOp = <A>(execute: (rt: AsyncRuntime) => Promise<A>) =>
-  op<A>()("async", { execute } as AsyncOp);
+  asyncEffect({ execute } as AsyncOp) as Kyoot<A, { async: AsyncOp }>;
+
+// See every promise, fork, join, and sleep-free wait: trace it, time it,
+// give it a deadline. A fiber forked through it inherits it.
+export const intercept = asyncEffect.intercept;
 
 export const fromPromise = <A>(f: (signal: AbortSignal) => Promise<A>) =>
   asyncOp((rt) => f(rt.signal));

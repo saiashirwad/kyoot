@@ -1,4 +1,4 @@
-import { makeHandler, op, succeed } from "../core.ts";
+import { makeHandler, makeIntercept, op, succeed } from "../core.ts";
 import { gen } from "../gen.ts";
 import type { Kyoot, RowOf } from "../model.ts";
 import type { MergeAll, Row } from "../types.ts";
@@ -13,6 +13,11 @@ export interface ResourceOp<S extends Row = {}> {
 
 export const acquire = <R, C>(open: () => R, close: (r: R) => C) =>
   op<R>()("resource", { acquire: open, release: close } as ResourceOp<RowOf<C>>);
+
+// Wrap acquire and release: count what is open, log it, fake it. `S` is
+// the row the program's finalizers need, `{}` when they need nothing.
+export const intercept = <S extends Row = {}>() =>
+  makeIntercept<"resource", ResourceOp<S>, unknown>("resource");
 
 const attempt = (f: Finalizer, errors: unknown[]) =>
   makeHandler("resource/finalizer", succeed(undefined).map(f), {

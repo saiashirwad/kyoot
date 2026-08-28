@@ -1,4 +1,4 @@
-import { makeHandler, makeOp, succeed } from "../core.ts";
+import { makeHandler, makeIntercept, makeOp, succeed, type Intercept } from "../core.ts";
 import type { Kyoot } from "../model.ts";
 import type { MergeAll, Row } from "../types.ts";
 
@@ -6,7 +6,7 @@ type VarRow<Id extends string, V> = {
   [K in `var/${Id}`]: V;
 };
 
-type VarOp<V> =
+export type VarOp<V> =
   | { readonly kind: "get" }
   | { readonly kind: "set"; readonly value: V }
   | { readonly kind: "update"; readonly f: (value: V) => V };
@@ -15,6 +15,8 @@ export interface Tag<Id extends string, V> {
   get(): Kyoot<V, VarRow<Id, V>>;
   set(value: V): Kyoot<void, VarRow<Id, V>>;
   update(f: (value: V) => V): Kyoot<void, VarRow<Id, V>>;
+  // See every get, set, and update: validate a set, log a change.
+  readonly intercept: Intercept<`var/${Id}`, VarOp<V>, any, never, V>;
   run(
     initial: V,
   ): <A, S extends Row & Partial<VarRow<Id, V>>>(
@@ -31,6 +33,7 @@ export const tag =
       get: () => op({ kind: "get" }),
       set: (value) => op({ kind: "set", value }),
       update: (f) => op({ kind: "update", f }),
+      intercept: makeIntercept<`var/${Id}`, VarOp<V>, any, never, V>(effectKey),
       run: (initial) => (k) =>
         makeHandler(effectKey, k, {
           initial: initial,

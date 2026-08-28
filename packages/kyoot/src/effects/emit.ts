@@ -77,7 +77,7 @@ export const toAsyncIterable = <S extends Row & { emit?: unknown }>(
     let drain = () => {};
     const fiber = runFiber(
       k.pipe(
-        forEach((e: S["emit"]) => {
+        forEach((e) => {
           buffer.push(e);
           if (buffer.length < capacity) {
             wake();

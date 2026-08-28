@@ -101,6 +101,37 @@ function asyncDrive<A>(k: Kyoot<A, any>, parent: AsyncRuntime): FiberHandle<A> {
     // are cleanup (finalizers) and run to completion with a live signal.
     let interrupted = false;
 
+    function resume(current: number, value: unknown): void {
+      if (current !== generation) return;
+      waiting = false;
+      try {
+        pump(machine.resume(value, STEP_BUDGET));
+      } catch (error) {
+        reject(error);
+      }
+    }
+
+    function raise(current: number, error: unknown): void {
+      if (current !== generation) return;
+      waiting = false;
+      try {
+        pump(machine.raise(error, STEP_BUDGET));
+      } catch (defect) {
+        reject(defect);
+      }
+    }
+    // Sequential waits reuse one reaction pair. Interruption retires that
+    // pair before cleanup starts, leaving stale promises tied to its state.
+    const makeReactions = () => {
+      const state = { generation: 0 };
+      return {
+        state,
+        fulfilled: (value: unknown) => resume(state.generation, value),
+        rejected: (error: unknown) => raise(state.generation, error),
+      };
+    };
+    let reactions = makeReactions();
+
     const pump = (initial: Outcome): void => {
       let outcome = initial;
       while (true) {
@@ -154,26 +185,8 @@ function asyncDrive<A>(k: Kyoot<A, any>, parent: AsyncRuntime): FiberHandle<A> {
 
         waiting = true;
         const current = ++generation;
-        void work.then(
-          (value) => {
-            if (current !== generation) return;
-            waiting = false;
-            try {
-              pump(machine.resume(value, STEP_BUDGET));
-            } catch (error) {
-              reject(error);
-            }
-          },
-          (error: unknown) => {
-            if (current !== generation) return;
-            waiting = false;
-            try {
-              pump(machine.raise(error, STEP_BUDGET));
-            } catch (defect) {
-              reject(defect);
-            }
-          },
-        );
+        reactions.state.generation = current;
+        void work.then(reactions.fulfilled, reactions.rejected);
         return;
       }
     };
@@ -184,6 +197,7 @@ function asyncDrive<A>(k: Kyoot<A, any>, parent: AsyncRuntime): FiberHandle<A> {
         if (!waiting || interrupted) return;
         interrupted = true;
         waiting = false;
+        reactions = makeReactions();
         generation++;
         try {
           pump(machine.raise(new InterruptedError(), STEP_BUDGET));

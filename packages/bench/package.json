@@ -1,13 +1,14 @@
 {
   "name": "@kyoot/bench",
   "version": "0.1.0",
-  "description": "Benchmarks: kyoot against Effect",
   "private": true,
+  "description": "Benchmarks: kyoot against Effect",
   "license": "MIT",
   "type": "module",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "bench": "node perf.ts"
+    "bench": "node perf.ts",
+    "profile:async": "node --expose-gc async-alloc.ts"
   },
   "devDependencies": {
     "@types/node": "^26.1.2",

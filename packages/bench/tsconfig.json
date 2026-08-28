@@ -1,4 +1,4 @@
 {
   "extends": "../../tsconfig.base.json",
-  "include": ["perf.ts"]
+  "include": ["perf.ts", "async-alloc.ts"]
 }

@@ -54,6 +54,27 @@ test("gen: yield* plain values and sub-computations", () => {
   assert.equal(Kyoot.runSync(prog), 3);
 });
 
+test("gen isolates repeated, nested, and separate runs", () => {
+  const shared = Kyoot.succeed(2);
+  const nested = Kyoot.gen(function* () {
+    return yield* shared;
+  });
+  const program = Kyoot.gen(function* () {
+    return [yield* shared, yield* nested, yield* shared];
+  });
+
+  assert.deepEqual(Kyoot.runSync(program), [2, 2, 2]);
+  assert.deepEqual(Kyoot.runSync(program), [2, 2, 2]);
+});
+
+test("gen keeps direct yield resumption unchanged", () => {
+  const program = Kyoot.gen(function* () {
+    return yield Kyoot.succeed(3);
+  });
+
+  assert.equal(Kyoot.runSync(program), 3);
+});
+
 test("gen with an effect, handled", () => {
   const prog = Kyoot.gen(function* () {
     yield* Count.set(5);

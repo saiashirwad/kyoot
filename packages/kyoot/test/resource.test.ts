@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Async, Clock, Fail, Kyoot, Resource } from "../src/index.ts";
+import { Async, Clock, effect, Fail, Kyoot, Resource, Sync } from "../src/index.ts";
 
 test("Resource: release runs on success", () => {
   const events: string[] = [];
@@ -153,4 +153,107 @@ test("Resource: an acquire that throws releases what the scope already holds", (
     (e) => e === boom,
   );
   assert.deepEqual(events, ["open a", "close a"]);
+});
+
+// A handler outside Resource.run that does not resume drops the scope. The
+// scope is unwound as on an interrupt, so the order of the two no longer
+// matters for cleanup.
+
+class Boom {
+  readonly _tag = "Boom";
+}
+
+test("Resource inside Fail.run: a failure still releases", () => {
+  const events: string[] = [];
+  const r = Kyoot.gen(function* () {
+    yield* Resource.acquire(
+      () => events.push("open"),
+      () => events.push("close"),
+    );
+    yield* Fail.fail(new Boom());
+  }).pipe(Resource.run, Fail.run, Kyoot.runSync);
+  assert.ok(!r.ok && r.cause._tag === "Fail" && r.cause.error instanceof Boom);
+  assert.deepEqual(events, ["open", "close"]);
+});
+
+test("Resource inside catchAll: the recovery runs, then the scope is released", () => {
+  const events: string[] = [];
+  const a = Kyoot.gen(function* () {
+    yield* Resource.acquire(
+      () => events.push("open"),
+      () => events.push("close"),
+    );
+    yield* Fail.fail(new Boom());
+    return "never";
+  }).pipe(
+    Resource.run,
+    Fail.catchAll(() => Sync.defer(() => (events.push("recover"), "recovered"))),
+    Sync.run,
+    Kyoot.runSync,
+  );
+  assert.equal(a, "recovered");
+  assert.deepEqual(events, ["open", "recover", "close"]);
+});
+
+test("Resource inside a catchTag that passes the failure on: the outer catch releases", () => {
+  const events: string[] = [];
+  const r = Kyoot.gen(function* () {
+    yield* Resource.acquire(
+      () => events.push("open a"),
+      () => events.push("close a"),
+    );
+    yield* Resource.acquire(
+      () => events.push("open b"),
+      () => events.push("close b"),
+    );
+    yield* Fail.fail(new Boom());
+  }).pipe(
+    Resource.run,
+    Fail.catchTag("Other", () => Kyoot.succeed(undefined)),
+    Fail.run,
+    Kyoot.runSync,
+  );
+  assert.ok(!r.ok);
+  assert.deepEqual(events, ["open a", "open b", "close b", "close a"]);
+});
+
+test("a handler that performs an op and then does not resume releases after its op", () => {
+  const events: string[] = [];
+  const Stop = effect<string, never>()("stop");
+  const r = Kyoot.gen(function* () {
+    yield* Resource.acquire(
+      () => events.push("open"),
+      () => events.push("close"),
+    );
+    yield* Stop("now");
+    return "never";
+  }).pipe(
+    Resource.run,
+    Stop.handle({ onOp: (why) => Sync.defer(() => (events.push(`stopped: ${why}`), "stopped")) }),
+    Sync.run,
+    Kyoot.runSync,
+  );
+  assert.equal(r, "stopped");
+  assert.deepEqual(events, ["open", "stopped: now", "close"]);
+});
+
+test("a handler that resumes does not release early", () => {
+  const events: string[] = [];
+  const Ask = effect<string, number>()("ask");
+  const r = Kyoot.gen(function* () {
+    yield* Resource.acquire(
+      () => events.push("open"),
+      () => events.push("close"),
+    );
+    const n = yield* Ask("n");
+    events.push(`got ${n}`);
+    return n;
+  }).pipe(
+    Resource.run,
+    Ask.handle({ onOp: (_, resume) => Sync.defer(() => events.push("asked")).map(() => resume(7)) }),
+    Sync.run,
+    Kyoot.runSync,
+  );
+  assert.equal(r, 7);
+  assert.deepEqual(events, ["open", "asked", "got 7", "close"]);
 });

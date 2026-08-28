@@ -107,7 +107,7 @@ The row is a plain object type: each key maps to its payload type. `yield*` unio
 
 Tags are keyed by id: `Env.tag<A>()("a")` and `Env.tag<B>()("b")` are separate keys. `Env` hands out a constant; `Var` threads state.
 
-`Resource.run` releases in reverse order on success, defect, or interrupt. `close` may return a program, so a finalizer can do async work. A finalizer that throws never hides a defect or an interrupt. After a success it is raised — and a typed failure that `Fail.run` inside has already turned into a `Result` counts as a success.
+`Resource.run` releases in reverse order on success, defect, interrupt, or when an outside handler finishes without resuming. `close` may return a program, so a finalizer can do async work. A finalizer that throws never hides a defect or an interrupt. After a success it is raised — and a typed failure that `Fail.run` inside has already turned into a `Result` counts as a success.
 
 `Clock.sleep` runs on real timers under `runPromise` unless a handler is closer. `Clock.virtual` makes every sleep instant and reports the elapsed time, so a program that waits can run under `runSync` in tests.
 
@@ -179,7 +179,7 @@ const declineAll = (reason: string) =>
 
 - `resume` works once; a second call throws.
 - A thrown exception is a defect: it skips `onOp` and goes to the nearest `onDefect`, or out of `runSync`. Use `Fail` for errors you expect.
-- A handler that does not resume drops the rest of the program, so handlers inside it never finish. Put `Fail.run` inside `Resource.run`; the other order leaves resources open on failure.
+- A handler that does not resume drops the rest of the program. Handler order does not affect resource cleanup, but it still affects meaning because the nearest matching handler handles an operation first.
 - A handler that returns a value instead of resuming must be `fork: "none"`, since a fiber's value is its own. A copy that does so anyway is reported as a defect.
 - A handler's `onInterrupt` hook may return a program. Its effects join the handler's row.
 

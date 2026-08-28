@@ -225,6 +225,13 @@ export function makeHandler<
   }) as AnyKyoot;
 }
 
+// What a dropped continuation holds that must be unwound: the handler frames
+// the op crossed, and escapes handled inside it whose handler had not yet
+// resumed or finished. Innermost first.
+type Drop = HandlerNode | EscapedOp;
+const NoDrops: readonly Drop[] = [];
+const PendingKey: unique symbol = Symbol("kyoot.pending");
+
 export class EscapedOp {
   readonly _tag = "EscapedOp";
   readonly key: PropertyKey;
@@ -233,6 +240,9 @@ export class EscapedOp {
   // The handlers an `async` op crossed on its way out, innermost first, so a
   // fiber spawned by the op can inherit them.
   handlers: HandlerNode[] | undefined;
+  declare drops: readonly Drop[] | undefined;
+  declare used: boolean | undefined;
+  declare dropped: boolean | undefined;
   constructor(
     key: PropertyKey,
     payload: unknown,
@@ -315,15 +325,14 @@ const reify = (conts: Array<Continuation>, inner: AnyKyoot): AnyKyoot => {
   return inner;
 };
 
-// Capture the pending continuations into a one-shot escape.
-const escape = (
+// Capture the common case: no handler frames or pending escapes to unwind.
+const escapeFast = (
   continuations: Array<Continuation>,
   key: PropertyKey,
   payload: unknown,
   onResume: (k: AnyKyoot) => AnyKyoot,
   handlers?: HandlerNode[],
 ): EscapedOp => {
-  // The frame is abandoned by the throw, so its array is the capture.
   const captured = continuations;
   let used = false;
   return new EscapedOp(
@@ -338,6 +347,91 @@ const escape = (
   );
 };
 
+// Capture an escape that has handler frames or pending escapes to unwind.
+const escapeTracked = (
+  continuations: Array<Continuation>,
+  key: PropertyKey,
+  payload: unknown,
+  onResume: (k: AnyKyoot) => AnyKyoot,
+  handlers?: HandlerNode[],
+  drops: readonly Drop[] = NoDrops,
+): EscapedOp => {
+  // The frame is abandoned by the throw, so its array is the capture.
+  const captured = continuations;
+  let e: EscapedOp;
+  e = new EscapedOp(
+    key,
+    payload,
+    (k) => {
+      if (e.used) throw new Error("continuation resumed twice (one-shot law)");
+      if (e.dropped) throw new Error("continuation resumed after it was dropped");
+      e.used = true;
+      return reify(captured, onResume(k));
+    },
+    handlers,
+  );
+  e.drops = drops;
+  return e;
+};
+
+// A handler that finishes without resuming drops the continuation it holds.
+// Unwind it as an interrupt would: every frame's `onInterrupt`, innermost
+// first, and the same for escapes still pending inside it. Returns the
+// program that does so, or undefined when there is nothing to run.
+const unwind = (drops: readonly Drop[]): AnyKyoot | undefined => {
+  let out: AnyKyoot | undefined;
+  const then = (step: () => AnyKyoot | undefined) => {
+    const k = succeed(undefined).map(step);
+    out = out === undefined ? k : out.map(() => k);
+  };
+  for (const d of drops) {
+    if (d instanceof EscapedOp) {
+      if (d.used || d.dropped) continue;
+      d.dropped = true;
+      const inner = unwind(d.drops ?? NoDrops);
+      if (inner !== undefined) then(() => inner);
+    } else if (d.onInterrupt !== undefined) {
+      const { onInterrupt, state } = d;
+      then(() => {
+        const fin = onInterrupt(state);
+        return isKyoot(fin) ? fin : undefined;
+      });
+    }
+  }
+  return out;
+};
+
+// Close a handler's `onOp` program in a frame. An escape from the program
+// crosses this frame, so an outer drop runs its onInterrupt and unwinds the
+// inner escape without scanning the continuation stack.
+const settle = (e: EscapedOp, k: AnyKyoot): AnyKyoot => {
+  const close = (v: unknown): AnyKyoot => {
+    if (e.used) return succeed(v);
+    const fin = unwind([e]);
+    return fin === undefined ? succeed(v) : fin.map(() => v);
+  };
+  const fail = (d: unknown): AnyKyoot => {
+    const fin = unwind([e]);
+    if (fin === undefined) throw d;
+    return fin.map(() => {
+      throw d;
+    });
+  };
+  return new KyootImpl({
+    _tag: "handler",
+    effectKey: PendingKey,
+    self: k,
+    state: e,
+    entered: true,
+    create: undefined,
+    fork: "none",
+    onOp: (_payload, resume) => resume(undefined),
+    onSuccess: close,
+    onDefect: fail,
+    onInterrupt: () => unwind([e]),
+  });
+};
+
 const identity = (k: AnyKyoot) => k;
 
 export function stepAll(k: AnyKyoot): unknown {
@@ -349,7 +443,7 @@ export function stepAll(k: AnyKyoot): unknown {
       // Resumed with a value, carry on from here; resumed with an error
       // (an interrupt), raise it here.
       const here = current;
-      throw escape(continuations, yieldKey, undefined, (k) => k.map(() => here));
+      throw escapeFast(continuations, yieldKey, undefined, (k) => k.map(() => here));
     }
     const currentNode = current[NodeSym];
     switch (currentNode._tag) {
@@ -366,7 +460,7 @@ export function stepAll(k: AnyKyoot): unknown {
         break;
       }
       case "op": {
-        throw escape(
+        throw escapeFast(
           continuations,
           currentNode.effectKey,
           currentNode.payload,
@@ -410,19 +504,30 @@ export function stepAll(k: AnyKyoot): unknown {
                 (v: unknown, ...next: unknown[]) => rewrap(e.resume(v), state(next)),
                 { with: (k: AnyKyoot, ...next: unknown[]) => rewrap(e.resumeWith(k), state(next)) },
               );
+              if (e.drops === undefined) {
+                try {
+                  current = handler.onOp(e.payload, resume, handler.state, e.handlers);
+                } catch (d) {
+                  current = defect(d);
+                }
+                break;
+              }
               try {
-                current = handler.onOp(e.payload, resume, handler.state, e.handlers);
+                const handled = handler.onOp(e.payload, resume, handler.state, e.handlers);
+                current = e.used ? handled : settle(e, handled);
               } catch (d) {
-                current = defect(d);
+                const fin = unwind([e]);
+                current = fin === undefined ? defect(d) : fin.map(() => defect(d));
               }
               break;
             }
-            throw escape(
+            throw escapeTracked(
               continuations,
               e.key,
               e.payload,
               (k) => rewrap(e.resumeWith(k)),
               e.handlers,
+              [...(e.drops ?? NoDrops), handler],
             );
           }
           current = defect(e);

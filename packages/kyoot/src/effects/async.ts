@@ -1,4 +1,12 @@
-import { effect, inherit, InterruptedError, makeHandler, succeed, type Payload } from "../core.ts";
+import {
+  effect,
+  inherit,
+  InterruptedError,
+  makeHandler,
+  makeOp,
+  succeed,
+  type Payload,
+} from "../core.ts";
 import { fail, fromResult } from "./fail.ts";
 import { sleep } from "./clock.ts";
 import { Result } from "../result.ts";
@@ -6,10 +14,14 @@ import type { AnyKyoot, Kyoot } from "../model.ts";
 import type { AsyncOp, AsyncRuntime, FiberHandle, Served } from "../runtime.ts";
 import type { FailRow, MergeAll, Row } from "../types.ts";
 
+type AsyncRow = { async: AsyncOp };
+
 const asyncEffect = effect<AsyncOp, unknown>()("async");
 
+// Built with a list so it collects the frames it crosses (see makeOp): a
+// fiber it spawns inherits them.
 const asyncOp = <A>(execute: (rt: AsyncRuntime) => Promise<A>) =>
-  asyncEffect({ execute } as AsyncOp) as Kyoot<A, { async: AsyncOp }>;
+  makeOp("async", { execute } as AsyncOp, []) as Kyoot<A, AsyncRow>;
 
 // See every promise, fork, join, and sleep-free wait: trace it, time it,
 // give it a deadline. A fiber forked through it inherits it.
@@ -27,9 +39,9 @@ type FailOf<S> = Payload<S, "fail">;
 type Leftover<S extends Row> = Omit<S, Served | "fail">;
 
 export interface Fiber<A, E = never> {
-  readonly join: Kyoot<A, MergeAll<{ async: AsyncOp } | FailRow<E>>>;
-  readonly await: Kyoot<Result<E, A>, { async: AsyncOp }>;
-  readonly interrupt: Kyoot<void, { async: AsyncOp }>;
+  readonly join: Kyoot<A, MergeAll<AsyncRow | FailRow<E>>>;
+  readonly await: Kyoot<Result<E, A>, AsyncRow>;
+  readonly interrupt: Kyoot<void, AsyncRow>;
 }
 
 // A fiber's program ends in one of these; anything else means a handler
@@ -67,11 +79,14 @@ const outcome = <A, E>(h: FiberHandle): Promise<Result<E, A>> =>
     (e: unknown) => (e instanceof InterruptedError ? Result.interrupted() : Result.defect(e)),
   );
 
-const fiber = <A, E>(h: FiberHandle): Fiber<A, E> => ({
-  join: asyncOp(() => outcome<A, E>(h)).map(fromResult) as never,
-  await: asyncOp(() => outcome<A, E>(h)),
-  interrupt: asyncOp(async () => h.interrupt()),
-});
+const fiber = <A, E>(h: FiberHandle): Fiber<A, E> => {
+  const result = asyncOp(() => outcome<A, E>(h));
+  return {
+    join: result.map(fromResult) as never,
+    await: result,
+    interrupt: asyncOp(async () => h.interrupt()),
+  };
+};
 
 const settle = (fibers: ReadonlyArray<FiberHandle>) =>
   Promise.allSettled(fibers.map((f) => (f.interrupt(), f.promise)));
@@ -81,7 +96,7 @@ const settle = (fibers: ReadonlyArray<FiberHandle>) =>
 // sees it.
 export const fork = <A, S extends Row>(
   k: Kyoot<A, S>,
-): Kyoot<Fiber<A, FailOf<S>>, MergeAll<{ async: AsyncOp } | Leftover<S>>> =>
+): Kyoot<Fiber<A, FailOf<S>>, MergeAll<AsyncRow | Leftover<S>>> =>
   asyncOp((rt) => Promise.resolve(fiber(spawn(rt, k)))) as never;
 
 export const race = <A, B, S1 extends Row, S2 extends Row>(
@@ -89,7 +104,7 @@ export const race = <A, B, S1 extends Row, S2 extends Row>(
   b: Kyoot<B, S2>,
 ): Kyoot<
   A | B,
-  MergeAll<{ async: AsyncOp } | Leftover<S1> | Leftover<S2> | FailRow<FailOf<S1> | FailOf<S2>>>
+  MergeAll<AsyncRow | Leftover<S1> | Leftover<S2> | FailRow<FailOf<S1> | FailOf<S2>>>
 > =>
   asyncOp((rt) => {
     const fibers = [spawn(rt, a), spawn(rt, b)];
@@ -99,7 +114,7 @@ export const race = <A, B, S1 extends Row, S2 extends Row>(
 export const all = <A, S extends Row = {}>(
   ks: ReadonlyArray<Kyoot<A, S>>,
   options: { readonly concurrency?: number } = {},
-): Kyoot<A[], MergeAll<{ async: AsyncOp } | Leftover<S> | FailRow<FailOf<S>>>> =>
+): Kyoot<A[], MergeAll<AsyncRow | Leftover<S> | FailRow<FailOf<S>>>> =>
   asyncOp(async (rt): Promise<Result<unknown, A[]>> => {
     const concurrency = options.concurrency ?? ks.length;
     const workers = Math.min(

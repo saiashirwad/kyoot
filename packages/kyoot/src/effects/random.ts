@@ -1,10 +1,11 @@
-import { effect, makeHandler } from "../core.ts";
-import type { Kyoot } from "../model.ts";
-import type { Row } from "../types.ts";
+import { effect } from "../core.ts";
 
 const random = effect<void, number>()("random");
 
-export const next = () => random(undefined);
+// Nodes are immutable, so every `next` is the same one.
+const nextOp = random(undefined);
+
+export const next = () => nextOp;
 
 export const handle = random.handle;
 
@@ -12,8 +13,7 @@ export const intercept = random.intercept;
 
 export const int = (max: number) => next().map((x) => Math.floor(x * max));
 
-export const live = <A, S extends Row & { random?: void }>(k: Kyoot<A, S>) =>
-  makeHandler("random", k, { onOp: (_, resume) => resume(Math.random()) });
+export const live = random.handle({ onOp: (_, resume) => resume(Math.random()) });
 
 const step = (seed: number) => {
   let t = (seed + 0x6d2b79f5) | 0;
@@ -22,13 +22,11 @@ const step = (seed: number) => {
   return [((t ^ (t >>> 14)) >>> 0) / 4294967296, seed + 0x6d2b79f5] as const;
 };
 
-export const seeded =
-  (seed: number) =>
-  <A, S extends Row & { random?: void }>(k: Kyoot<A, S>) =>
-    makeHandler("random", k, {
-      initial: seed,
-      onOp: (_, resume, s) => {
-        const [x, s2] = step(s);
-        return resume(x, s2);
-      },
-    });
+export const seeded = (seed: number) =>
+  random.handle({
+    initial: seed,
+    onOp: (_, resume, s) => {
+      const [x, s2] = step(s);
+      return resume(x, s2);
+    },
+  });

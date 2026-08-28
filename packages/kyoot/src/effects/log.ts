@@ -23,13 +23,12 @@ export const info = at("info");
 export const warn = at("warn");
 export const error = at("error");
 
-export const print = <A, S extends Row & { log?: Entry }>(k: Kyoot<A, S>) =>
-  makeHandler("log", k, {
-    onOp: ({ level, message }, resume) => {
-      console[level === "debug" ? "log" : level](message);
-      return resume(undefined);
-    },
-  });
+export const print = log.handle({
+  onOp: ({ level, message }, resume) => {
+    console[level === "debug" ? "log" : level](message);
+    return resume(undefined);
+  },
+});
 
 // The list is a cell made per run, so fibers forked under the handler log
 // into the same list.
@@ -43,5 +42,4 @@ export const collect = <A, S extends Row & { log?: Entry }>(k: Kyoot<A, S>) =>
     onSuccess: (a, entries) => succeed([a, entries] as const),
   });
 
-export const discard = <A, S extends Row & { log?: Entry }>(k: Kyoot<A, S>) =>
-  makeHandler("log", k, { onOp: (_e, resume) => resume(undefined) });
+export const discard = log.handle({ onOp: (_e, resume) => resume(undefined) });

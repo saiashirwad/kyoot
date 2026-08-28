@@ -57,15 +57,9 @@ export const forEach =
       },
     }) as never;
 
-export const map =
-  <E, E2>(f: (e: E) => E2) =>
-  <A, S extends Row & { emit?: E }>(k: Kyoot<A, S>) =>
-    makeHandler("emit", k, {
-      onOp: (e, resume) => value(f(e as E)).map(() => resume(undefined)),
-    });
+export const map = <E, E2>(f: (e: E) => E2) => forEach((e: E) => value(f(e)));
 
-export const discard = <A, S extends Row & { emit?: unknown }>(k: Kyoot<A, S>) =>
-  makeHandler("emit", k, { onOp: (_e, resume) => resume(undefined) });
+export const discard = forEach(() => {});
 
 // Runs the producer in a fiber and hands its values out as they arrive. The
 // producer runs at most `buffer` values ahead of the consumer; past that it

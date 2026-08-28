@@ -56,7 +56,4 @@ export const catchTag =
       onOp: (e): AnyKyoot => (e._tag === tag ? f(e as unknown as E) : fail(e)),
     }) as never;
 
-export const mapError =
-  <E, E2>(f: (e: E) => E2) =>
-  <A, S extends Row & { fail?: E }>(k: Kyoot<A, S>) =>
-    makeHandler("fail", k, { onOp: (e) => fail(f(e as E)) });
+export const mapError = <E, E2>(f: (e: E) => E2) => catchAll((e: E) => fail(f(e)));

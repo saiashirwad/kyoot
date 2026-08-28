@@ -12,6 +12,20 @@ import {
 import { pipeArguments, type Pipeable } from "./pipe.ts";
 import type { FailRow, MergeAll, Row, Simplify } from "./types.ts";
 
+// One `yield*` on a program: hand the program out, then hand the answer back.
+class KyootIterator<A, S extends Row> implements Iterator<Kyoot<unknown, S>, A, unknown> {
+  private readonly k: Kyoot<unknown, S>;
+  private used = false;
+  constructor(k: Kyoot<unknown, S>) {
+    this.k = k;
+  }
+  next(v?: unknown): IteratorResult<Kyoot<unknown, S>, A> {
+    if (this.used) return { done: true, value: v as A };
+    this.used = true;
+    return { done: false, value: this.k };
+  }
+}
+
 // The interface carries pipe's overloads; the class merges with it.
 // oxlint-disable-next-line no-unused-vars, typescript/no-unsafe-declaration-merging
 export interface KyootImpl<A, S extends Row = {}> extends Pipeable {}
@@ -29,14 +43,7 @@ export class KyootImpl<A, S extends Row = {}> implements Kyoot<A, S> {
   }
 
   [Symbol.iterator]() {
-    let used = false;
-    return {
-      next: (v: unknown): IteratorResult<Kyoot<unknown, S>, A> => {
-        if (used) return { done: true, value: v as A };
-        used = true;
-        return { done: false, value: this };
-      },
-    };
+    return new KyootIterator<A, S>(this);
   }
 }
 
@@ -44,8 +51,9 @@ export const isKyoot = (value: unknown): value is AnyKyoot => value instanceof K
 
 export const succeed = <A>(value: A): Kyoot<A, {}> => new KyootImpl({ _tag: "pure", value });
 
-// `handlers` seeds the list an `async` op collects on its way out (see
-// EscapedOp): an interceptor's `next` passes on what the op had crossed.
+// An op built with a `handlers` list collects the frames it crosses on its
+// way out (see EscapedOp), so a fiber it spawns can inherit them. `async` is
+// one; an interceptor's `next` passes on what the op had crossed.
 export const makeOp = (key: PropertyKey, payload: unknown, handlers?: readonly HandlerNode[]) =>
   new KyootImpl({ _tag: "op", effectKey: key, payload, handlers });
 
@@ -100,11 +108,10 @@ export interface Intercept<K extends string, P, A, E = never, V = P> {
 // `V` is what the row records for the key: the payload, unless the module
 // records something else, as Env and Var do. Whatever `f` does, its outcome
 // is delivered where the op was performed: a value resumes, a failure is
-// raised there for the program to catch. Two keys are special. For `fail`
-// the op site is the failure itself, so `f`'s program is the answer and runs
-// outside the frame. For `async`, `next` re-performs the op with the
-// handlers it had crossed, so a fiber forked through an interceptor inherits
-// them, and the interceptor.
+// raised there for the program to catch. `fail` is special: the op site is
+// the failure itself, so `f`'s program is the answer and runs outside the
+// frame. `next` re-performs the op with the frames it had crossed, so a
+// fiber forked through an interceptor inherits them, and the interceptor.
 export const makeIntercept = <K extends string, P, A, E = never, V = P>(
   key: K,
 ): Intercept<K, P, A, E, V> => {
@@ -122,7 +129,7 @@ export const makeIntercept = <K extends string, P, A, E = never, V = P>(
     const f = typeof cellOrF === "function" ? cellOrF : maybeF!;
     const onOp: OnOp = (payload, resume, state, inherited) =>
       deliver(
-        f(payload, (p) => makeOp(key, p, key === "async" ? inherited : undefined) as never, state),
+        f(payload, (p) => makeOp(key, p, inherited) as never, state),
         resume,
       );
     return (k: AnyKyoot) =>
@@ -143,15 +150,17 @@ export interface Hooks<P, A, St, X1, R1 extends Row, X2, R2 extends Row, R3 exte
 }
 
 // A declared effect: key, payload type, answer type, and the failure type a
-// handler may hand back with `resume.with(Fail.fail(e))`. Calling it performs
-// the op; `handle` builds a handler whose `resume` is typed to the answer.
-// Like makeHandler, a callback that returns instead of resuming adds its
-// value and row to the result. `intercept` sits between the program and the
-// handlers outside it: `next` performs the op again for them to answer.
+// handler may hand back with `resume.with(Fail.fail(e))`. `V` is what the
+// row records for the key: the payload, unless the module records something
+// else, as Env and Var do. Calling it performs the op; `handle` builds a
+// handler whose `resume` is typed to the answer. Like makeHandler, a
+// callback that returns instead of resuming adds its value and row to the
+// result. `intercept` sits between the program and the handlers outside it:
+// `next` performs the op again for them to answer.
 export const effect =
-  <P, A, E = never>() =>
+  <P, A, E = never, V = P>() =>
   <const K extends string>(key: K) => {
-    const perform = (payload: P) => makeOp(key, payload) as Performed<K, P, A, E>;
+    const perform = (payload: P) => makeOp(key, payload) as Performed<K, V, A, E>;
     const handle =
       <
         St = undefined,
@@ -163,13 +172,13 @@ export const effect =
       >(
         hooks: Hooks<P, A, St, X1, R1, X2, R2, R3>,
       ) =>
-      <B, S extends Row & { [k in K]?: P }>(
+      <B, S extends Row & { [k in K]?: V }>(
         k: Kyoot<B, S>,
       ): Kyoot<B | X1 | X2, MergeAll<Omit<S, K> | R1 | R2 | R3>> =>
         makeHandler(key, k, hooks);
     // `intercept({ create }, f)` hands `f` a cell as its third argument: made
     // fresh per run, shared with fibers forked under it. A cache is one.
-    const intercept = makeIntercept<K, P, A, E>(key);
+    const intercept = makeIntercept<K, P, A, E, V>(key);
     return Object.assign(perform, { key, handle, intercept });
   };
 
@@ -188,8 +197,7 @@ export function makeHandler<
   S extends Row,
   St = undefined,
   // Ops built with `op` put their payload type in the row, so this default is
-  // right for them. Env and Var record something else (the service / state
-  // type) and annotate the payload themselves.
+  // right for them. Var records the state type and annotates the payload.
   P = Payload<S, K>,
   B = A,
   B2 = never,
@@ -205,9 +213,7 @@ export function makeHandler<
     onSuccess?: (a: A, state: St) => Kyoot<B, R2>;
   },
 ): Kyoot<B | B2 | B3, MergeAll<Omit<S, K> | R1 | R2 | R3 | R4>> {
-  const { initial } = hooks;
-  const h = hooks as unknown as HandlerNode;
-  const create = h.create ?? (initial === undefined ? undefined : () => initial);
+  const { initial, create, fork, onOp, onSuccess, onDefect, onInterrupt } = hooks;
   // One fixed shape for every handler node. A frame with a cell to make is
   // entered on its first step; the rest start entered, state in hand.
   return new KyootImpl({
@@ -215,13 +221,13 @@ export function makeHandler<
     effectKey,
     self,
     state: initial,
-    entered: h.create === undefined,
-    create,
-    fork: h.fork,
-    onOp: h.onOp,
-    onSuccess: h.onSuccess,
-    onDefect: h.onDefect,
-    onInterrupt: h.onInterrupt,
+    entered: create === undefined,
+    create: create ?? (initial === undefined ? undefined : () => initial),
+    fork,
+    onOp: onOp as OnOp,
+    onSuccess,
+    onDefect,
+    onInterrupt,
   }) as AnyKyoot;
 }
 
@@ -232,27 +238,43 @@ type Drop = HandlerNode | EscapedOp;
 const NoDrops: readonly Drop[] = [];
 const PendingKey: unique symbol = Symbol("kyoot.pending");
 
+// An op on its way out: the one-shot continuation from the op site to the
+// frame that catches it. `captured` is the stack of the frame the throw
+// abandoned; `onResume` is what an outer frame wraps around what it resumes
+// with, when the op crossed one.
 export class EscapedOp {
   readonly _tag = "EscapedOp";
   readonly key: PropertyKey;
   readonly payload: unknown;
-  readonly resumeWith: (k: AnyKyoot) => AnyKyoot;
-  // The handlers an `async` op crossed on its way out, innermost first, so a
-  // fiber spawned by the op can inherit them.
-  handlers: HandlerNode[] | undefined;
+  // The frames the op crossed, innermost first, so a fiber spawned by the op
+  // can inherit them. Only an op built with a list collects.
+  readonly handlers: HandlerNode[] | undefined;
+  private readonly captured: Array<Continuation>;
+  private readonly onResume: ((k: AnyKyoot) => AnyKyoot) | undefined;
+  // Set only on an escape that crossed a frame, so the common one stays small.
   declare drops: readonly Drop[] | undefined;
   declare used: boolean | undefined;
   declare dropped: boolean | undefined;
   constructor(
+    captured: Array<Continuation>,
     key: PropertyKey,
     payload: unknown,
-    resumeWith: (k: AnyKyoot) => AnyKyoot,
+    onResume?: (k: AnyKyoot) => AnyKyoot,
     handlers?: HandlerNode[],
+    drops?: readonly Drop[],
   ) {
+    this.captured = captured;
     this.key = key;
     this.payload = payload;
-    this.resumeWith = resumeWith;
+    this.onResume = onResume;
     this.handlers = handlers;
+    if (drops !== undefined) this.drops = drops;
+  }
+  resumeWith(k: AnyKyoot): AnyKyoot {
+    if (this.used) throw new Error("continuation resumed twice (one-shot law)");
+    if (this.dropped) throw new Error("continuation resumed after it was dropped");
+    this.used = true;
+    return reify(this.captured, this.onResume === undefined ? k : this.onResume(k));
   }
   resume(v: unknown) {
     return this.resumeWith(succeed(v));
@@ -325,54 +347,15 @@ const reify = (conts: Array<Continuation>, inner: AnyKyoot): AnyKyoot => {
   return inner;
 };
 
-// Capture the common case: no handler frames or pending escapes to unwind.
-const escapeFast = (
-  continuations: Array<Continuation>,
-  key: PropertyKey,
-  payload: unknown,
-  onResume: (k: AnyKyoot) => AnyKyoot,
-  handlers?: HandlerNode[],
-): EscapedOp => {
-  const captured = continuations;
-  let used = false;
-  return new EscapedOp(
-    key,
-    payload,
-    (k) => {
-      if (used) throw new Error("continuation resumed twice (one-shot law)");
-      used = true;
-      return reify(captured, onResume(k));
-    },
-    handlers,
-  );
-};
+// Past the budget. Resumed with a value, carry on from `here`; resumed with
+// an error (an interrupt), raise it here.
+const yieldEscape = (continuations: Array<Continuation>, here: AnyKyoot) =>
+  new EscapedOp(continuations, yieldKey, undefined, (k) => k.map(() => here));
 
-// Capture an escape that has handler frames or pending escapes to unwind.
-const escapeTracked = (
-  continuations: Array<Continuation>,
-  key: PropertyKey,
-  payload: unknown,
-  onResume: (k: AnyKyoot) => AnyKyoot,
-  handlers?: HandlerNode[],
-  drops: readonly Drop[] = NoDrops,
-): EscapedOp => {
-  // The frame is abandoned by the throw, so its array is the capture.
-  const captured = continuations;
-  let e: EscapedOp;
-  e = new EscapedOp(
-    key,
-    payload,
-    (k) => {
-      if (e.used) throw new Error("continuation resumed twice (one-shot law)");
-      if (e.dropped) throw new Error("continuation resumed after it was dropped");
-      e.used = true;
-      return reify(captured, onResume(k));
-    },
-    handlers,
-  );
-  e.drops = drops;
-  return e;
-};
+// Run `pre` first, if there is one, then `f`. With no `pre`, `f` runs now,
+// so a throw in it stays synchronous.
+const after = (pre: AnyKyoot | undefined, f: () => unknown): AnyKyoot =>
+  pre === undefined ? (f() as AnyKyoot) : pre.map(f);
 
 // A handler that finishes without resuming drops the continuation it holds.
 // Unwind it as an interrupt would: every frame's `onInterrupt`, innermost
@@ -381,8 +364,7 @@ const escapeTracked = (
 const unwind = (drops: readonly Drop[]): AnyKyoot | undefined => {
   let out: AnyKyoot | undefined;
   const then = (step: () => AnyKyoot | undefined) => {
-    const k = succeed(undefined).map(step);
-    out = out === undefined ? k : out.map(() => k);
+    out = after(out, () => succeed(undefined).map(step));
   };
   for (const d of drops) {
     if (d instanceof EscapedOp) {
@@ -404,54 +386,101 @@ const unwind = (drops: readonly Drop[]): AnyKyoot | undefined => {
 // Close a handler's `onOp` program in a frame. An escape from the program
 // crosses this frame, so an outer drop runs its onInterrupt and unwinds the
 // inner escape without scanning the continuation stack.
-const settle = (e: EscapedOp, k: AnyKyoot): AnyKyoot => {
-  const close = (v: unknown): AnyKyoot => {
-    if (e.used) return succeed(v);
-    const fin = unwind([e]);
-    return fin === undefined ? succeed(v) : fin.map(() => v);
-  };
-  const fail = (d: unknown): AnyKyoot => {
-    const fin = unwind([e]);
-    if (fin === undefined) throw d;
-    return fin.map(() => {
-      throw d;
-    });
-  };
-  return new KyootImpl({
-    _tag: "handler",
-    effectKey: PendingKey,
-    self: k,
-    state: e,
-    entered: true,
-    create: undefined,
+const settle = (e: EscapedOp, k: AnyKyoot): AnyKyoot =>
+  makeHandler(PendingKey, k, {
+    initial: e,
     fork: "none",
     onOp: (_payload, resume) => resume(undefined),
-    onSuccess: close,
-    onDefect: fail,
+    onSuccess: (v: unknown) => (e.used ? succeed(v) : after(unwind([e]), () => succeed(v))),
+    onDefect: (d) =>
+      after(unwind([e]), () => {
+        throw d;
+      }),
     onInterrupt: () => unwind([e]),
   });
+
+// The frame again, around what its program continues with.
+const rewrap = (handler: HandlerNode, self: AnyKyoot, state: unknown): AnyKyoot =>
+  new KyootImpl({ ...handler, self, state });
+
+// A throw inside onOp, or any exception that is not one of our two control
+// exceptions, is a defect of the handler's scope.
+const defect = (handler: HandlerNode, d: unknown): AnyKyoot => {
+  if (handler.onDefect === undefined) throw d;
+  return handler.onDefect(d, handler.state);
 };
 
-const identity = (k: AnyKyoot) => k;
+// `resume(v, st)` sets the state to `st` when given, even `undefined`; left
+// out, the state stays. Plain functions, so `arguments.length` tells the two
+// apart without a rest array per call.
+const makeResume = (e: EscapedOp, handler: HandlerNode) => {
+  const resumeWith = function (k: AnyKyoot, state?: unknown): AnyKyoot {
+    return rewrap(handler, e.resumeWith(k), arguments.length > 1 ? state : handler.state);
+  };
+  const resume = function (v: unknown, state?: unknown): AnyKyoot {
+    return resumeWith(succeed(v), arguments.length > 1 ? state : handler.state);
+  };
+  resume.with = resumeWith;
+  return resume;
+};
+
+// What a frame does with what its program threw: answer its own op, pass on
+// another frame's, finish an interrupt, or treat anything else as a defect.
+const caught = (continuations: Array<Continuation>, handler: HandlerNode, e: unknown): AnyKyoot => {
+  if (e instanceof InterruptedError) {
+    const fin = handler.onInterrupt?.(handler.state);
+    return after(isKyoot(fin) ? fin : undefined, () => {
+      throw e;
+    });
+  }
+  if (!(e instanceof EscapedOp)) return defect(handler, e);
+  // A frame an op that collects frames meets is one a fiber it spawns
+  // inherits, whether the frame answers the op or passes it on.
+  if (e.handlers !== undefined && handler.fork !== "none") e.handlers.push(handler);
+  if (e.key !== handler.effectKey) {
+    throw new EscapedOp(
+      continuations,
+      e.key,
+      e.payload,
+      (k) => rewrap(handler, e.resumeWith(k), handler.state),
+      e.handlers,
+      [...(e.drops ?? NoDrops), handler],
+    );
+  }
+  try {
+    const handled = handler.onOp(e.payload, makeResume(e, handler), handler.state, e.handlers);
+    return e.used || e.drops === undefined ? handled : settle(e, handled);
+  } catch (d) {
+    return after(unwind([e]), () => defect(handler, d));
+  }
+};
 
 export function stepAll(k: AnyKyoot): unknown {
   const continuations: Array<Continuation> = [];
   let current: AnyKyoot = k;
 
   while (true) {
-    if (--remaining < 0) {
-      // Resumed with a value, carry on from here; resumed with an error
-      // (an interrupt), raise it here.
-      const here = current;
-      throw escapeFast(continuations, yieldKey, undefined, (k) => k.map(() => here));
-    }
+    if (--remaining < 0) throw yieldEscape(continuations, current);
     const currentNode = current[NodeSym];
     switch (currentNode._tag) {
       case "pure": {
-        const f = continuations.pop();
-        if (f === undefined) return currentNode.value;
-        const out = f(currentNode.value);
-        current = isKyoot(out) ? out : succeed(out);
+        // A plain value from a mapper feeds the next one here, with no `pure`
+        // node in between. Past the budget, box it and let the loop yield.
+        let out: unknown = currentNode.value;
+        let f = continuations.pop();
+        while (true) {
+          if (f === undefined) return out;
+          out = f(out);
+          if (isKyoot(out)) {
+            current = out;
+            break;
+          }
+          if (--remaining < 0) {
+            current = succeed(out);
+            break;
+          }
+          f = continuations.pop();
+        }
         break;
       }
       case "map": {
@@ -460,11 +489,11 @@ export function stepAll(k: AnyKyoot): unknown {
         break;
       }
       case "op": {
-        throw escapeFast(
+        throw new EscapedOp(
           continuations,
           currentNode.effectKey,
           currentNode.payload,
-          identity,
+          undefined,
           currentNode.handlers && [...currentNode.handlers],
         );
       }
@@ -474,63 +503,11 @@ export function stepAll(k: AnyKyoot): unknown {
       case "handler": {
         let handler: HandlerNode = currentNode;
         if (!handler.entered) handler = { ...handler, state: handler.create?.(), entered: true };
-        const rewrap = (self: AnyKyoot, state: unknown = handler.state): AnyKyoot =>
-          new KyootImpl({ ...handler, self, state });
-        // A throw inside onOp, or any exception that is not one of our two
-        // control exceptions, is a defect of this handler's scope.
-        const defect = (d: unknown): AnyKyoot => {
-          if (handler.onDefect === undefined) throw d;
-          return handler.onDefect(d, handler.state);
-        };
         let inner: unknown;
         try {
           inner = stepAll(handler.self);
         } catch (e) {
-          if (e instanceof InterruptedError) {
-            const fin = handler.onInterrupt?.(handler.state);
-            if (!isKyoot(fin)) throw e;
-            current = fin.map(() => {
-              throw e;
-            });
-            break;
-          }
-          if (e instanceof EscapedOp) {
-            // A frame an `async` op meets is one a fiber it spawns inherits,
-            // whether the frame answers the op or passes it on.
-            if (e.key === "async" && handler.fork !== "none") (e.handlers ??= []).push(handler);
-            if (e.key === handler.effectKey) {
-              const state = (next: unknown[]) => (next.length > 0 ? next[0] : handler.state);
-              const resume = Object.assign(
-                (v: unknown, ...next: unknown[]) => rewrap(e.resume(v), state(next)),
-                { with: (k: AnyKyoot, ...next: unknown[]) => rewrap(e.resumeWith(k), state(next)) },
-              );
-              if (e.drops === undefined) {
-                try {
-                  current = handler.onOp(e.payload, resume, handler.state, e.handlers);
-                } catch (d) {
-                  current = defect(d);
-                }
-                break;
-              }
-              try {
-                const handled = handler.onOp(e.payload, resume, handler.state, e.handlers);
-                current = e.used ? handled : settle(e, handled);
-              } catch (d) {
-                const fin = unwind([e]);
-                current = fin === undefined ? defect(d) : fin.map(() => defect(d));
-              }
-              break;
-            }
-            throw escapeTracked(
-              continuations,
-              e.key,
-              e.payload,
-              (k) => rewrap(e.resumeWith(k)),
-              e.handlers,
-              [...(e.drops ?? NoDrops), handler],
-            );
-          }
-          current = defect(e);
+          current = caught(continuations, handler, e);
           break;
         }
         current = (handler.onSuccess ?? succeed)(inner, handler.state);

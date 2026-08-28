@@ -1,4 +1,4 @@
-import { makeHandler, makeIntercept, makeOp, succeed, type Intercept } from "../core.ts";
+import { effect, makeHandler, succeed, type Intercept } from "../core.ts";
 import type { Kyoot } from "../model.ts";
 import type { MergeAll, Row } from "../types.ts";
 
@@ -24,19 +24,21 @@ export interface Tag<Id extends string, V> {
   ) => Kyoot<readonly [A, V], MergeAll<Omit<S, `var/${Id}`>>>;
 }
 
+// The row records the state type, not the op.
 export const tag =
   <V>() =>
   <const Id extends string>(id: Id): Tag<Id, V> => {
-    const effectKey = `var/${id}` as const;
-    const op = (op: VarOp<V>) => makeOp(effectKey, op) as Kyoot<any, VarRow<Id, V>>;
+    const v = effect<VarOp<V>, any, never, V>()(`var/${id}` as const);
+    // Nodes are immutable, so every `get` is the same one.
+    const get = v({ kind: "get" });
     return {
-      get: () => op({ kind: "get" }),
-      set: (value) => op({ kind: "set", value }),
-      update: (f) => op({ kind: "update", f }),
-      intercept: makeIntercept<`var/${Id}`, VarOp<V>, any, never, V>(effectKey),
+      get: () => get,
+      set: (value) => v({ kind: "set", value }),
+      update: (f) => v({ kind: "update", f }),
+      intercept: v.intercept,
       run: (initial) => (k) =>
-        makeHandler(effectKey, k, {
-          initial: initial,
+        makeHandler(v.key, k, {
+          initial,
           onOp: (op: VarOp<V>, resume, value) => {
             switch (op.kind) {
               case "get":

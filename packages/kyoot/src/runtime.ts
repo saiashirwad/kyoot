@@ -7,7 +7,7 @@ const SERVED = ["async", "clock", yieldKey] as const;
 export type Served = Exclude<(typeof SERVED)[number], symbol>;
 const served = (key: PropertyKey) => (SERVED as readonly PropertyKey[]).includes(key);
 
-export const unhandledEffect = (edge: string, key: PropertyKey) =>
+const unhandledEffect = (edge: string, key: PropertyKey) =>
   new Error(`${edge} encountered unhandled effect '${String(key)}'`);
 
 export function runSync<A, S extends Row>(k: Kyoot<A, S> & Only<S>): A {
@@ -42,6 +42,9 @@ const STEP_BUDGET = 4096;
 // A signal that never fires, for ops that run as cleanup.
 const NEVER = new AbortController().signal;
 
+// What a wait resolves with when the signal cuts it short.
+const INTERRUPTED: unique symbol = Symbol("kyoot.interrupted");
+
 const yieldNow = () =>
   new Promise<void>((resolve) => {
     if (typeof setImmediate === "function") setImmediate(resolve);
@@ -58,22 +61,21 @@ const realSleep = (ms: number, signal: AbortSignal) =>
     signal.addEventListener("abort", onAbort, { once: true });
   });
 
-const raceSignal = <T>(
-  p: Promise<T>,
-  signal: AbortSignal,
-): Promise<{ readonly done: true; readonly value: T } | { readonly done: false }> => {
-  if (signal.aborted) return Promise.resolve({ done: false });
-  let onAbort = () => {};
-  const aborted = new Promise<{ done: false }>((resolve) => {
-    onAbort = () => resolve({ done: false });
+// `p`, unless the signal fires first. The listener comes off either way.
+const raceSignal = <T>(p: Promise<T>, signal: AbortSignal): Promise<T | typeof INTERRUPTED> => {
+  if (signal.aborted) return Promise.resolve(INTERRUPTED);
+  return new Promise((resolve, reject) => {
+    const onAbort = () => resolve(INTERRUPTED);
     signal.addEventListener("abort", onAbort, { once: true });
+    const done = () => signal.removeEventListener("abort", onAbort);
+    void p.then(
+      (v) => (done(), resolve(v)),
+      (err: unknown) => (done(), reject(err)),
+    );
   });
-  return Promise.race([p.then((value) => ({ done: true as const, value })), aborted]).finally(() =>
-    signal.removeEventListener("abort", onAbort),
-  );
 };
 
-export function asyncDrive<A>(k: Kyoot<A, any>, parent: AsyncRuntime): FiberHandle<A> {
+function asyncDrive<A>(k: Kyoot<A, any>, parent: AsyncRuntime): FiberHandle<A> {
   const controller = new AbortController();
   const link = () => controller.abort();
   parent.signal.addEventListener("abort", link, { once: true });
@@ -108,10 +110,8 @@ export function asyncDrive<A>(k: Kyoot<A, any>, parent: AsyncRuntime): FiberHand
         e.key === "clock"
           ? realSleep(e.payload as number, signal)
           : (e.payload as AsyncOp).execute({ ...rt, signal, handlers: e.handlers });
-      const raced = interrupted
-        ? { done: true, value: await work }
-        : await raceSignal(work, signal);
-      return raced.done ? e.resume(raced.value) : interrupt(e);
+      const v = await raceSignal(work, signal);
+      return v === INTERRUPTED ? interrupt(e) : e.resume(v);
     } catch (err) {
       return e.resumeError(err);
     }
@@ -136,8 +136,7 @@ export function asyncDrive<A>(k: Kyoot<A, any>, parent: AsyncRuntime): FiberHand
   return { promise: drive.finally(settle), interrupt: () => controller.abort() };
 }
 
-export function runPromise<A, S extends Row>(k: Kyoot<A, S> & Only<S, Served>): Promise<A>;
-export function runPromise<A>(k: AnyKyoot): Promise<A> {
+export function runPromise<A, S extends Row>(k: Kyoot<A, S> & Only<S, Served>): Promise<A> {
   return runFiber<A>(k).promise;
 }
 

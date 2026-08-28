@@ -1,6 +1,5 @@
-import { effect, makeHandler } from "../core.ts";
+import { effect } from "../core.ts";
 import type { Kyoot } from "../model.ts";
-import type { Row } from "../types.ts";
 
 const sync = effect<() => unknown, unknown>()("sync");
 
@@ -15,5 +14,4 @@ export const handle = sync.handle;
 // Wrap every thunk: time it, or turn what it throws into a typed failure.
 export const intercept = sync.intercept;
 
-export const run = <A, S extends Row & { sync?: () => unknown }>(k: Kyoot<A, S>) =>
-  makeHandler("sync", k, { onOp: (f, resume) => resume(f()) });
+export const run = sync.handle({ onOp: (f, resume) => resume(f()) });

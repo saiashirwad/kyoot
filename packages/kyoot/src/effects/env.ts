@@ -1,4 +1,4 @@
-import { makeHandler, makeIntercept, makeOp, type Intercept } from "../core.ts";
+import { effect, type Intercept } from "../core.ts";
 import type { Kyoot } from "../model.ts";
 import type { MergeAll, Row } from "../types.ts";
 
@@ -18,16 +18,18 @@ export interface Tag<Id extends string, E> extends Iterable<Kyoot<unknown, EnvRo
   ) => Kyoot<A, MergeAll<Omit<S, `env/${Id}`>>>;
 }
 
+// The row records the service type, not the (empty) payload.
 export const tag =
   <E>() =>
   <const Id extends string>(id: Id): Tag<Id, E> => {
-    const effectKey = `env/${id}` as const;
-    const get = () => makeOp(effectKey, undefined) as Kyoot<E, EnvRow<Id, E>>;
+    const env = effect<void, E, never, E>()(`env/${id}` as const);
+    // Nodes are immutable, so every `get` is the same one.
+    const get = env(undefined);
     return {
-      key: effectKey,
-      get,
-      [Symbol.iterator]: () => get()[Symbol.iterator](),
-      intercept: makeIntercept<`env/${Id}`, void, E, never, E>(effectKey),
-      provide: (impl) => (k) => makeHandler(effectKey, k, { onOp: (_, resume) => resume(impl) }),
+      key: env.key,
+      get: () => get,
+      [Symbol.iterator]: () => get[Symbol.iterator](),
+      intercept: env.intercept,
+      provide: (impl) => env.handle({ onOp: (_, resume) => resume(impl) }),
     };
   };

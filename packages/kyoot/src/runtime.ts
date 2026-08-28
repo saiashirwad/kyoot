@@ -1,6 +1,6 @@
 import { InterruptedError } from "./core.ts";
 import { Machine, type Outcome } from "./machine.ts";
-import { NodeSym, type AnyKyoot, type HandlerNode, type Kyoot } from "./model.ts";
+import { NodeSym, type AnyKyoot, type Kyoot, type Snapshot } from "./model.ts";
 import type { Only, Row } from "./types.ts";
 
 // The keys the async driver serves itself.
@@ -13,7 +13,7 @@ const unhandledEffect = (edge: string, key: PropertyKey) =>
   new Error(`${edge} encountered unhandled effect '${String(key)}'`);
 
 // Shared by async ops that request inheritance but cross no handler frames.
-export const EMPTY_HANDLERS: readonly HandlerNode[] = [];
+export const EMPTY_HANDLERS: readonly Snapshot[] = [];
 
 // One machine serves every runSync in turn; a nested call, from inside a
 // program, makes its own while the outer holds this one.
@@ -43,7 +43,7 @@ export interface AsyncRuntime {
   readonly signal: AbortSignal;
   // The handlers the op being served crossed, innermost first, for a fiber
   // spawned by the op to inherit (see `inherit`).
-  readonly handlers?: readonly HandlerNode[];
+  readonly handlers?: readonly Snapshot[];
   spawn<A>(k: Kyoot<A, any>): FiberHandle<A>;
 }
 

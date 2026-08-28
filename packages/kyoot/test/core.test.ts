@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { KyootImpl, makeHandler, makeOp, succeed } from "../src/core.ts";
+import { makeHandler, makeOp, succeed } from "../src/core.ts";
 import {
   Async,
   Clock,
@@ -133,51 +133,41 @@ test("a continuation dropped by its handler cannot be resumed later", () => {
 });
 
 test("a continuation may only be resumed once", () => {
-  const k = new KyootImpl({
-    _tag: "handler",
-    effectKey: "myfx",
-    self: Kyoot.gen(function* () {
+  const k = makeHandler(
+    "myfx",
+    Kyoot.gen(function* () {
       const v = yield* makeOp("myfx", undefined);
       return (v as number) * 10;
     }),
-    onOp: (_p, resume) => {
-      const first = resume(1);
-      return first.flatMap(() => resume(2));
+    {
+      onOp: (_p, resume) => {
+        const first = resume(1);
+        return first.flatMap(() => resume(2));
+      },
     },
-  });
+  );
   assert.throws(() => Kyoot.runSync(k as never), /continuation resumed twice \(one-shot law\)/);
 });
 
 test("a handler that resumes zero times short-circuits", () => {
-  const k = new KyootImpl({
-    _tag: "handler",
-    effectKey: "myfx",
-    self: Kyoot.gen(function* () {
+  const k = makeHandler(
+    "myfx",
+    Kyoot.gen(function* () {
       yield* makeOp("myfx", undefined);
       return "unreachable";
     }).map(() => "also unreachable"),
-    onOp: () => succeed("short"),
-  });
+    { onOp: () => succeed("short") },
+  );
   assert.equal(Kyoot.runSync(k as never), "short");
 });
 
 test("an op escaping a yielded handler node keeps the outer continuation", () => {
-  const inner = new KyootImpl({
-    _tag: "handler",
-    effectKey: "inner",
-    self: makeOp("outer", undefined),
-    onOp: () => succeed("nope"),
-  });
+  const inner = makeHandler("inner", makeOp("outer", undefined), { onOp: () => succeed("nope") });
   const prog = Kyoot.gen(function* () {
     const v = yield* inner;
     return `${v} continued`;
   });
-  const k = new KyootImpl({
-    _tag: "handler",
-    effectKey: "outer",
-    self: prog,
-    onOp: (_p, resume) => resume("handled"),
-  });
+  const k = makeHandler("outer", prog, { onOp: (_p, resume) => resume("handled") });
   assert.equal(Kyoot.runSync(k as never), "handled continued");
 });
 

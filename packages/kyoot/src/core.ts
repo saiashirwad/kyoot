@@ -2,12 +2,13 @@ import {
   NodeSym,
   type AnyKyoot,
   type ForkMode,
-  type HandlerNode,
   type HandlerHooks,
   type Kyoot,
   type OnOp,
   type RowOf,
   type RuntimeNode,
+  type Snapshot,
+  type ValueOf,
 } from "./model.ts";
 import { pipeArguments, type Pipeable } from "./pipe.ts";
 import type { MergeAll, Only, Row, Simplify } from "./types.ts";
@@ -34,20 +35,6 @@ class KyootIterator<A, S extends Row> implements Iterator<Kyoot<unknown, S>, A, 
   }
 }
 
-type HandlerNodeInput = {
-  readonly _tag: "handler";
-  readonly effectKey: PropertyKey;
-  readonly self: AnyKyoot;
-  readonly state?: unknown;
-  readonly create?: () => unknown;
-  readonly entered?: boolean;
-  readonly fork?: ForkMode;
-  readonly onOp: OnOp;
-  readonly onSuccess?: HandlerHooks["onSuccess"];
-  readonly onDefect?: HandlerHooks["onDefect"];
-  readonly onInterrupt?: HandlerHooks["onInterrupt"];
-};
-
 // The interface carries pipe's overloads; the class merges with it.
 // oxlint-disable-next-line no-unused-vars, typescript/no-unsafe-declaration-merging
 export interface KyootImpl<A, S extends Row = {}> extends Pipeable {}
@@ -57,25 +44,11 @@ export class KyootImpl<A, S extends Row = {}> implements Kyoot<A, S> {
   readonly b: unknown;
   readonly c: unknown;
 
-  constructor(node: HandlerNodeInput);
-  constructor(_tag: RuntimeNode["_tag"], a: unknown, b?: unknown, c?: unknown);
-  constructor(
-    _tagOrNode: RuntimeNode["_tag"] | HandlerNodeInput,
-    a?: unknown,
-    b?: unknown,
-    c?: unknown,
-  ) {
-    if (typeof _tagOrNode === "object") {
-      this._tag = "handler";
-      this.a = _tagOrNode.self;
-      this.b = _tagOrNode.effectKey;
-      this.c = _tagOrNode;
-    } else {
-      this._tag = _tagOrNode;
-      this.a = a;
-      this.b = b;
-      this.c = c;
-    }
+  constructor(_tag: RuntimeNode["_tag"], a: unknown, b?: unknown, c?: unknown) {
+    this._tag = _tag;
+    this.a = a;
+    this.b = b;
+    this.c = c;
   }
 
   get [NodeSym](): RuntimeNode {
@@ -105,7 +78,7 @@ export const succeed = <A>(value: A): Kyoot<A, {}> => new KyootImpl("pure", valu
 // An op built with a `handlers` list collects the frames it crosses on its
 // way out (see Machine), so a fiber it spawns can inherit them. `async` is
 // one; an interceptor's `next` passes on what the op had crossed.
-export const makeOp = (key: PropertyKey, payload: unknown, handlers?: readonly HandlerNode[]) =>
+export const makeOp = (key: PropertyKey, payload: unknown, handlers?: readonly Snapshot[]) =>
   new KyootImpl("op", key, payload, handlers);
 
 export const genNode = (factory: () => Generator<AnyKyoot, unknown, unknown>): AnyKyoot =>
@@ -133,6 +106,11 @@ export interface Resume<A, St, C extends Row = Row> {
   ): Kyoot<never, {}>;
 }
 
+// `V` is what the row records for the key: the payload, unless the module
+// records something else, as Env and Var do. Performing the op puts the key
+// and the contract in the row. The key stays its own parameter everywhere
+// below so a `Tag<"db">` is a `Tag<string>`: variance is measured per
+// parameter, and the payload is both an input and an output.
 type Performed<K extends string, V, A, C extends Row> = Kyoot<A, Simplify<{ [k in K]: V } & C>>;
 
 // A cell for `intercept`: `create` runs when the frame is entered, so each
@@ -153,6 +131,8 @@ type Interception<K extends string, V, Ret> = <B, S extends Row & { [k in K]?: V
   k: Kyoot<B, S>,
 ) => Kyoot<B, MergeAll<Omit<S, K> | RowOf<Ret>>>;
 
+// `f`'s return is inferred whole, then split into value and row: a union of
+// programs (a ternary) infers cleanly that way, and not as `Kyoot<A, S>`.
 export interface Intercept<K extends string, P, A, C extends Row = {}, V = P> {
   <Ret extends Kyoot<A, any>>(
     f: Interceptor<K, P, V, A, C, undefined, Ret>,
@@ -163,14 +143,12 @@ export interface Intercept<K extends string, P, A, C extends Row = {}, V = P> {
   ): Interception<K, V, Ret>;
 }
 
-// Build `intercept` for a key. `P` is the payload `f` sees and `next` takes;
-// `V` is what the row records for the key: the payload, unless the module
-// records something else, as Env and Var do. Whatever `f` does, its outcome
-// is delivered where the op was performed: a value resumes, a failure is
-// raised there for the program to catch. `fail` is special: the op site is
-// the failure itself, so `f`'s program is the answer and runs outside the
-// frame. `next` re-performs the op with the frames it had crossed, so a
-// fiber forked through an interceptor inherits them, and the interceptor.
+// Build `intercept` for a key. Whatever `f` does, its outcome is delivered
+// where the op was performed: a value resumes, a failure is raised there
+// for the program to catch. `fail` is special: the op site is the failure
+// itself, so `f`'s program is the answer and runs outside the frame. `next`
+// re-performs the op with the frames it had crossed, so a fiber forked
+// through an interceptor inherits them, and the interceptor.
 export const makeIntercept = <K extends string, P, A, C extends Row = {}, V = P>(
   key: K,
 ): Intercept<K, P, A, C, V> => {
@@ -198,35 +176,34 @@ export const makeIntercept = <K extends string, P, A, C extends Row = {}, V = P>
 
 // What a handler is made of. State is `initial`, threaded through `resume`,
 // or `create()`, called when the frame is entered: a cell that is fresh per
-// run and shared with fibers forked under the handler.
+// run and shared with fibers forked under the handler. Each hook's return
+// is inferred whole (see Intercept); a hook that returns instead of
+// resuming adds its value and row to the handler's.
 export interface Hooks<
   P,
   A,
   St,
-  X1,
-  R1 extends Row,
-  X2,
-  R2 extends Row,
-  R3 extends Row,
-  C extends Row = Row,
+  C extends Row,
+  ROp extends AnyKyoot,
+  RDefect extends AnyKyoot,
+  RInterrupt extends void | AnyKyoot,
 > {
   initial?: St;
   create?: () => St;
   fork?: ForkMode;
-  onOp: (payload: P, resume: Resume<A, St, C>, state: St) => Kyoot<X1, R1>;
-  onDefect?: (d: unknown, state: St) => Kyoot<X2, R2>;
-  onInterrupt?: (state: St) => void | Kyoot<unknown, R3>;
+  onOp: (payload: P, resume: Resume<A, St, C>, state: St) => ROp;
+  onDefect?: (d: unknown, state: St) => RDefect;
+  onInterrupt?: (state: St) => RInterrupt;
 }
 
-// A declared effect: key, payload type, answer type, and the contract: the
-// row a handler may hand back with `resume.with`, `{ fail: E }` for a
-// failure the op site can catch. Performing the op puts the key and the
-// contract in the row. `V` is what the row records for the key: the
-// payload, unless the module records something else, as Env and Var do. Calling it performs the op; `handle` builds a
-// handler whose `resume` is typed to the answer. Like makeHandler, a
-// callback that returns instead of resuming adds its value and row to the
-// result. `intercept` sits between the program and the handlers outside it:
-// `next` performs the op again for them to answer.
+type Nothing = Kyoot<never, {}>;
+
+// A declared effect. Calling it performs the op; `handle` builds a handler
+// whose `resume` is typed to the answer and the contract; `intercept` sits
+// between the program and the handlers outside it: `next` performs the op
+// again for them to answer. `intercept({ create }, f)` hands `f` a cell as
+// its third argument: made fresh per run, shared with fibers forked under
+// it. A cache is one.
 export const effect =
   <P, A, C extends Row = {}, V = P>() =>
   <const K extends string>(key: K) => {
@@ -234,22 +211,20 @@ export const effect =
     const handle =
       <
         St = undefined,
-        X1 = never,
-        X2 = never,
-        R1 extends Row = {},
-        R2 extends Row = {},
-        R3 extends Row = {},
+        ROp extends AnyKyoot = Nothing,
+        RDefect extends AnyKyoot = Nothing,
+        RInterrupt extends void | AnyKyoot = void,
       >(
-        hooks: Hooks<P, A, St, X1, R1, X2, R2, R3, C>,
+        hooks: Hooks<P, A, St, C, ROp, RDefect, RInterrupt>,
       ) =>
       <B, S extends Row & { [k in K]?: V }>(
         k: Kyoot<B, S>,
-      ): Kyoot<B | X1 | X2, MergeAll<Omit<S, K> | R1 | R2 | R3>> =>
+      ): Kyoot<
+        B | ValueOf<ROp> | ValueOf<RDefect>,
+        MergeAll<Omit<S, K> | RowOf<ROp> | RowOf<RDefect> | RowOf<RInterrupt>>
+      > =>
         makeHandler(key, k, hooks);
-    // `intercept({ create }, f)` hands `f` a cell as its third argument: made
-    // fresh per run, shared with fibers forked under it. A cache is one.
-    const intercept = makeIntercept<K, P, A, C, V>(key);
-    return Object.assign(perform, { key, handle, intercept });
+    return Object.assign(perform, { key, handle, intercept: makeIntercept<K, P, A, C, V>(key) });
   };
 
 // The payload type an effect key carries in the row, if the row has it.
@@ -260,7 +235,7 @@ export type Payload<S, K extends PropertyKey> = K extends keyof S
 // Build a handler node and infer its type: the result is what onSuccess
 // returns (default: the inner value) plus anything onOp / onDefect
 // short-circuit with; the row is the inner row minus K plus whatever the
-// callbacks introduce.
+// hooks introduce.
 export function makeHandler<
   K extends PropertyKey,
   A,
@@ -269,21 +244,21 @@ export function makeHandler<
   // Ops built with `op` put their payload type in the row, so this default is
   // right for them. Var records the state type and annotates the payload.
   P = Payload<S, K>,
-  B = A,
-  B2 = never,
-  B3 = never,
-  R1 extends Row = {},
-  R2 extends Row = {},
-  R3 extends Row = {},
-  R4 extends Row = {},
   C extends Row = Row,
+  ROp extends AnyKyoot = Nothing,
+  RSuccess extends AnyKyoot = Kyoot<A, {}>,
+  RDefect extends AnyKyoot = Nothing,
+  RInterrupt extends void | AnyKyoot = void,
 >(
   effectKey: K,
   self: Kyoot<A, S>,
-  hooks: Hooks<P, any, St, B2, R1, B3, R3, R4, C> & {
-    onSuccess?: (a: A, state: St) => Kyoot<B, R2>;
+  hooks: Hooks<P, any, St, C, ROp, RDefect, RInterrupt> & {
+    onSuccess?: (a: A, state: St) => RSuccess;
   },
-): Kyoot<B | B2 | B3, MergeAll<Omit<S, K> | R1 | R2 | R3 | R4>> {
+): Kyoot<
+  ValueOf<RSuccess> | ValueOf<ROp> | ValueOf<RDefect>,
+  MergeAll<Omit<S, K> | RowOf<ROp> | RowOf<RSuccess> | RowOf<RDefect> | RowOf<RInterrupt>>
+> {
   // The public hook type is more precise than the machine's erased runtime
   // view. The same record is stored; handler construction adds no wrapper.
   const runtimeHooks = hooks as unknown as HandlerHooks;
@@ -298,31 +273,34 @@ export class InterruptedError extends Error {
   }
 }
 
-// Wrap a fiber's program in the handlers that enclosed the fork.
-export const inherit = (k: AnyKyoot, handlers: readonly HandlerNode[] = []): AnyKyoot => {
-  for (const h of handlers) {
-    const hooks = h.c;
+// Wrap a fiber's program in the handlers that enclosed the fork, outermost
+// last. `copy`: the same `onOp` on the state as it was, no end hooks.
+// `scope`: the handler over again, its end hook run but the fiber's value
+// kept. `none`: left out.
+export const inherit = (k: AnyKyoot, snapshots: readonly Snapshot[] = []): AnyKyoot => {
+  for (const { node, state } of snapshots) {
+    const hooks = node.c;
     switch (hooks.fork ?? "copy") {
       case "copy":
-        k = new KyootImpl("handler", k, h.b, {
-          ...hooks,
-          initial: hooks.state,
-          create: undefined,
-          entered: true,
-          onSuccess: undefined,
-          onDefect: undefined,
-          onInterrupt: undefined,
+        k = new KyootImpl("handler", k, node.b, {
+          initial: state,
+          fork: hooks.fork,
+          onOp: hooks.onOp,
         } satisfies HandlerHooks);
         break;
       case "scope": {
-        // The end hook runs, but the fiber's value stays its own.
         const { onSuccess } = hooks;
-        k = new KyootImpl("handler", k, h.b, {
-          ...hooks,
-          state: undefined,
-          entered: false,
-          onSuccess: onSuccess && ((a, st) => onSuccess(a, st).map(() => a)),
-        } satisfies HandlerHooks);
+        k = new KyootImpl(
+          "handler",
+          k,
+          node.b,
+          onSuccess === undefined
+            ? hooks
+            : ({
+                ...hooks,
+                onSuccess: (a, st) => onSuccess(a, st).map(() => a),
+              } satisfies HandlerHooks),
+        );
         break;
       }
       case "none":

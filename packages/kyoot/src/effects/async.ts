@@ -11,7 +11,13 @@ import { fail, fromResult } from "./fail.ts";
 import { sleep } from "./clock.ts";
 import { Result } from "../result.ts";
 import type { AnyKyoot, Kyoot } from "../model.ts";
-import { EMPTY_HANDLERS, type AsyncOp, type AsyncRuntime, type FiberHandle, type Served } from "../runtime.ts";
+import {
+  EMPTY_HANDLERS,
+  type AsyncOp,
+  type AsyncRuntime,
+  type FiberHandle,
+  type Served,
+} from "../runtime.ts";
 import type { FailRow, MergeAll, Row } from "../types.ts";
 
 type AsyncRow = { async: AsyncOp };
@@ -62,7 +68,7 @@ const catchFail = (k: AnyKyoot): AnyKyoot =>
 // fiber; the failure crosses `join` and meets the handlers there.
 const spawn = (rt: AsyncRuntime, k: AnyKyoot) => {
   const program = catchFail(k.map((a: unknown) => new Exit(Result.ok(a))));
-  const handlers = rt.handlers?.filter((h) => h.b !== "fail");
+  const handlers = rt.handlers?.filter((h) => h.node.b !== "fail");
   return rt.spawn(catchFail(inherit(program, handlers)));
 };
 

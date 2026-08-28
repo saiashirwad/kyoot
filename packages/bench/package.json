@@ -1,0 +1,19 @@
+{
+  "name": "@kyoot/bench",
+  "version": "0.1.0",
+  "description": "Benchmarks: kyoot against Effect",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "bench": "node perf.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "effect": "4.0.0-rc.112",
+    "kyoot": "workspace:*",
+    "mitata": "^1.0.34",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,8 +1,8 @@
 {
   "name": "@kyoot/bench",
   "version": "0.1.0",
-  "description": "Benchmarks: kyoot against Effect",
   "private": true,
+  "description": "Benchmarks: kyoot against Effect",
   "license": "MIT",
   "type": "module",
   "scripts": {

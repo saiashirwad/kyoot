@@ -1,40 +1,27 @@
 import { genNode, InterruptedError, isKyoot, KyootImpl } from "./core.ts";
-import { NodeSym, type AnyKyoot, type HandlerNode, type RuntimeNode } from "./model.ts";
+import {
+  NodeSym,
+  type AnyKyoot,
+  type HandlerNode,
+  type RuntimeNode,
+  type RuntimeResume,
+  type Snapshot,
+} from "./model.ts";
 
 type Phase = "node" | "value";
 type MachineState = "idle" | "running" | "done" | "suspended" | "yielded";
-type Failure = { readonly error: unknown };
 type OpNode = Extract<RuntimeNode, { _tag: "op" }>;
 type FlatMapNode = Extract<RuntimeNode, { _tag: "flatMap" }>;
-type ResumeNode = Extract<RuntimeNode, { _tag: "resume" }>;
 
 // How a step ended. `done`: read `value`. `suspended`: an op no frame
 // answers; read `key`, `payload`, and `handlers`. `yielded`: out of budget.
 export type Outcome = "done" | "suspended" | "yielded";
-
-// A continuation resumed after its handler's `onOp` returned: the frames to
-// put back, the handler's next state, and what the program continues with.
-type ResumeState = {
-  readonly captured: StackEntry[];
-  readonly frame: HandlerFrame;
-  readonly state: unknown;
-  readonly kind: "value" | "program";
-  readonly value: unknown;
-};
 
 class GeneratorFrame {
   readonly generator: Generator<AnyKyoot, unknown, unknown>;
 
   constructor(generator: Generator<AnyKyoot, unknown, unknown>) {
     this.generator = generator;
-  }
-}
-
-class RethrowFrame {
-  readonly error: unknown;
-
-  constructor(error: unknown) {
-    this.error = error;
   }
 }
 
@@ -49,99 +36,53 @@ class SettleFrame {
   }
 }
 
+// Where a handler frame is in the one-shot law. `armed`: its `onOp` is
+// running; a resume then hands back the token and the machine continues in
+// place. `held`: `onOp` returned a program without resuming, and the frames
+// the op crossed wait in `captured`. `resumed`: the continuation is spent.
+// `dropped`: the program ended before it resumed, and the frames unwound.
+type Status = "idle" | "armed" | "held" | "resumed" | "dropped";
+
+const ONE_SHOT = "continuation resumed twice (one-shot law)";
+
+// A handler on the stack, and its continuation once an op reaches it. The
+// token and the resume functions are made when the first op arrives; a
+// frame no op reaches costs only itself.
 class HandlerFrame {
   readonly handler: HandlerNode;
   state: unknown;
-  // The frames the op crossed, this one first, held until `resume` takes
-  // them or a drop unwinds them.
+  status: Status = "idle";
   captured: StackEntry[] | undefined;
-  dropped = false;
-
-  // Armed while `onOp` runs: a resume then returns the token and the machine
-  // continues in place, with nothing captured and nothing allocated.
-  private armed = false;
-  private resumed = false;
-  private resumeKind: "value" | "program" = "value";
-  private resumeValue: unknown;
-  private nextState: unknown;
-  readonly token: KyootImpl<any, any>;
-  readonly resume: ((value: unknown, state?: unknown) => AnyKyoot) & {
-    with: (program: AnyKyoot, state?: unknown) => AnyKyoot;
-  };
+  resumeKind: "value" | "program" = "value";
+  resumeValue: unknown;
+  nextState: unknown;
+  token: KyootImpl<any, any> | undefined;
+  resume: RuntimeResume | undefined;
 
   constructor(handler: HandlerNode) {
     this.handler = handler;
-    this.state = handler.entered ? handler.state : handler.create?.();
-    this.nextState = this.state;
-    this.token = new KyootImpl({ _tag: "resume", state: this });
-
-    this.resume = makeResume(this);
-  }
-
-  prepare(): void {
-    this.armed = true;
-    this.resumed = false;
-    this.captured = undefined;
-    this.resumeKind = "value";
-    this.resumeValue = undefined;
-    this.nextState = this.state;
-    (this.token[NodeSym] as ResumeNode).state = this;
-  }
-
-  disarm(): void {
-    this.armed = false;
-  }
-
-  didResume(): boolean {
-    return this.resumed;
-  }
-
-  takeResume(captured: StackEntry[]): ResumeState {
-    return {
-      captured,
-      frame: this,
-      state: this.nextState,
-      kind: this.resumeKind,
-      value: this.resumeValue,
-    };
+    const hooks = handler.c;
+    this.state = hooks.create === undefined ? hooks.initial : hooks.create();
   }
 
   claim(kind: "value" | "program", value: unknown, state: unknown): AnyKyoot {
-    if (this.armed) {
-      if (this.resumed) throw new Error("continuation resumed twice (one-shot law)");
-      this.resumed = true;
-      this.resumeKind = kind;
-      this.resumeValue = value;
-      this.nextState = state;
-      return this.token;
-    }
-
-    const captured = this.captured;
-    if (captured === undefined) {
+    if (this.status !== "armed" && this.status !== "held") {
       throw new Error(
-        this.dropped
-          ? "continuation resumed after it was dropped"
-          : "continuation resumed twice (one-shot law)",
+        this.status === "dropped" ? "continuation resumed after it was dropped" : ONE_SHOT,
       );
     }
-    this.captured = undefined;
-    return new KyootImpl({
-      _tag: "resume",
-      state: {
-        captured,
-        frame: this,
-        state,
-        kind,
-        value,
-      } satisfies ResumeState,
-    });
+    this.status = "resumed";
+    this.resumeKind = kind;
+    this.resumeValue = value;
+    this.nextState = state;
+    return (this.token ??= new KyootImpl("resume", this));
   }
 }
 
 // `resume(v, st)` sets the state to `st` when given, even `undefined`; left
 // out, the state stays. Plain functions, so `arguments.length` tells the two
 // apart without a rest array per call.
-const makeResume = (frame: HandlerFrame): HandlerFrame["resume"] => {
+const makeResume = (frame: HandlerFrame): RuntimeResume => {
   const resume = function (value: unknown, state?: unknown): AnyKyoot {
     return frame.claim("value", value, arguments.length > 1 ? state : frame.state);
   };
@@ -152,38 +93,43 @@ const makeResume = (frame: HandlerFrame): HandlerFrame["resume"] => {
 };
 
 // A `map` is its bare function; a `flatMap` is the program itself, already
-// allocated when it was built. Frames are made as the machine runs.
+// allocated when it was built. A closure also carries a value or an error
+// across a cleanup program. Frames are made as the machine runs.
 type StackEntry =
   | ((value: unknown) => unknown)
   | AnyKyoot
   | GeneratorFrame
   | HandlerFrame
-  | RethrowFrame
   | SettleFrame;
+
+const rethrow = (error: unknown) => () => {
+  throw error;
+};
 
 // The program that unwinds abandoned frames as an interrupt would: each
 // handler's `onInterrupt`, innermost first, and the same for continuations
 // still held inside. Undefined when there is nothing to run. Entries below
 // `from` stay: a frame that dropped its own continuation is not unwound.
 const unwinding = (entries: readonly StackEntry[], from = 0): AnyKyoot | undefined => {
-  const steps: Array<() => AnyKyoot | undefined> = [];
+  let steps: Array<() => AnyKyoot | undefined> | undefined;
   for (let i = entries.length - 1; i >= from; i--) {
     const entry = entries[i]!;
     if (entry instanceof SettleFrame) {
       const inner = dropHeld(entry.frame);
-      if (inner !== undefined) steps.push(() => inner);
+      if (inner !== undefined) (steps ??= []).push(() => inner);
     } else if (entry instanceof HandlerFrame) {
-      const { onInterrupt } = entry.handler;
+      const { onInterrupt } = entry.handler.c;
       if (onInterrupt === undefined) continue;
-      steps.push(() => {
+      (steps ??= []).push(() => {
         const fin = onInterrupt(entry.state);
         return isKyoot(fin) ? fin : undefined;
       });
     }
   }
-  if (steps.length === 0) return undefined;
+  if (steps === undefined) return undefined;
+  const run = steps;
   return genNode(function* () {
-    for (const step of steps) {
+    for (const step of run) {
       const k = step();
       if (k !== undefined) yield* k;
     }
@@ -191,13 +137,14 @@ const unwinding = (entries: readonly StackEntry[], from = 0): AnyKyoot | undefin
 };
 
 // Drop the continuation a frame still holds and return its unwinding, or
-// undefined if the frame had resumed. The frame itself, first in what it
-// holds, stays: it is the one doing the dropping.
+// undefined if the frame had resumed: its token holds the frames then. The
+// frame itself, first in what it holds, stays: it is the one doing the
+// dropping.
 const dropHeld = (frame: HandlerFrame): AnyKyoot | undefined => {
-  const held = frame.captured;
-  if (held === undefined) return undefined;
+  if (frame.status !== "held") return undefined;
+  const held = frame.captured!;
   frame.captured = undefined;
-  frame.dropped = true;
+  frame.status = "dropped";
   return unwinding(held, 1);
 };
 
@@ -219,7 +166,7 @@ export class Machine {
   // crossed, innermost first, when it collects them.
   key: PropertyKey = "";
   payload: unknown;
-  handlers: readonly HandlerNode[] | undefined;
+  handlers: readonly Snapshot[] | undefined;
 
   start(program: AnyKyoot, budget = Infinity): Outcome {
     if (this.state !== "idle") throw new Error("machine already started");
@@ -244,7 +191,7 @@ export class Machine {
     if (this.state !== "suspended" && this.state !== "yielded") {
       throw new Error("machine cannot be raised here");
     }
-    return this.advance(budget, { error });
+    return this.advance(budget, true, error);
   }
 
   // Ready for another program. The stack keeps its capacity. Setting
@@ -259,18 +206,17 @@ export class Machine {
     this.handlers = undefined;
   }
 
-  private advance(budget: number, initialFailure?: Failure): Outcome {
+  private advance(budget: number, failed = false, error?: unknown): Outcome {
     this.state = "running";
     this.remaining = budget;
-    let failure = initialFailure;
 
     while (true) {
-      if (failure !== undefined) {
+      if (failed) {
         try {
-          this.unwind(failure.error);
-          failure = undefined;
+          this.unwind(error);
+          failed = false;
         } catch (next) {
-          failure = { error: next };
+          error = next;
           if (this.stack.length === 0) throw next;
         }
       }
@@ -278,7 +224,8 @@ export class Machine {
       try {
         return (this.state = this.drive());
       } catch (next) {
-        failure = { error: next };
+        failed = true;
+        error = next;
       }
     }
   }
@@ -291,19 +238,19 @@ export class Machine {
         const node = this.current[NodeSym];
         switch (node._tag) {
           case "pure":
-            this.value = node.value;
+            this.value = node.a;
             this.phase = "value";
             break;
           case "map":
-            this.stack.push(node.mapper);
-            this.current = node.self;
+            this.stack.push(node.b);
+            this.current = node.a;
             break;
           case "flatMap":
             this.stack.push(this.current);
-            this.current = node.self;
+            this.current = node.a;
             break;
           case "gen":
-            this.stack.push(new GeneratorFrame(node.factory()));
+            this.stack.push(new GeneratorFrame(node.a()));
             this.value = undefined;
             this.phase = "value";
             break;
@@ -314,13 +261,11 @@ export class Machine {
           }
           case "handler":
             this.stack.push(new HandlerFrame(node));
-            this.current = node.self;
+            this.current = node.a;
             break;
           case "resume":
-            this.restore(node.state);
+            this.restore(node.a as HandlerFrame);
             break;
-          case "raise":
-            throw node.error;
         }
         continue;
       }
@@ -331,72 +276,81 @@ export class Machine {
       if (typeof top === "function") {
         this.value = top(this.value);
       } else if (top instanceof KyootImpl) {
-        this.current = (top[NodeSym] as FlatMapNode).mapper(this.value);
+        this.current = (top[NodeSym] as FlatMapNode).b(this.value);
         this.phase = "node";
       } else if (top instanceof GeneratorFrame) {
-        const step = top.generator.next(this.value);
-        if (step.done) {
-          this.value = step.value;
-        } else {
-          this.stack.push(top);
-          this.current = step.value;
-          this.phase = "node";
+        let step = top.generator.next(this.value);
+        while (!step.done) {
+          const yielded = step.value[NodeSym];
+          if (yielded._tag !== "pure") {
+            this.stack.push(top);
+            this.current = step.value;
+            this.phase = "node";
+            break;
+          }
+          if (!this.spend()) {
+            this.stack.push(top);
+            this.current = step.value;
+            this.phase = "node";
+            return "yielded";
+          }
+          this.value = yielded.a;
+          step = top.generator.next(this.value);
         }
+        if (step.done) this.value = step.value;
       } else if (top instanceof HandlerFrame) {
-        const onSuccess = top.handler.onSuccess;
+        const onSuccess = top.handler.c.onSuccess;
         if (onSuccess !== undefined) {
           this.current = onSuccess(this.value, top.state);
           this.phase = "node";
         }
-      } else if (top instanceof SettleFrame) {
+      } else {
         // The handler's program finished. If it never resumed, the
         // continuation is dropped: unwind it, then carry the value on.
-        const fin = dropHeld(top.frame);
+        const fin = dropHeld((top as SettleFrame).frame);
         if (fin !== undefined) {
           const value = this.value;
           this.stack.push(() => value);
           this.current = fin;
           this.phase = "node";
         }
-      } else {
-        throw (top as RethrowFrame).error;
       }
     }
   }
 
   private handle(node: OpNode): Outcome | undefined {
-    const key = node.effectKey;
+    const key = node.a;
     let index = this.stack.length - 1;
     for (; index >= 0; index--) {
       const entry = this.stack[index];
-      if (entry instanceof HandlerFrame && entry.handler.effectKey === key) break;
+      if (entry instanceof HandlerFrame && entry.handler.b === key) break;
     }
 
     // An op built with a list collects the frames it crosses, the one that
     // answers it included, so a fiber it spawns can inherit them.
-    const inherited =
-      node.handlers === undefined ? undefined : this.crossed(node.handlers, Math.max(index, 0));
+    const inherited = node.c === undefined ? undefined : this.crossed(node.c, Math.max(index, 0));
 
     if (index < 0) {
       this.key = key;
-      this.payload = node.payload;
+      this.payload = node.b;
       this.handlers = inherited;
       return "suspended";
     }
 
     const frame = this.stack[index] as HandlerFrame;
-    frame.prepare();
+    frame.status = "armed";
     let output: AnyKyoot;
     try {
-      output = frame.handler.onOp(node.payload, frame.resume, frame.state, inherited);
+      const resume = (frame.resume ??= makeResume(frame));
+      output = frame.handler.c.onOp(node.b, resume, frame.state, inherited);
     } catch (error) {
       // A throw in onOp is a defect of the handler's scope. The frames the
       // op crossed unwind first; the handler's own frame is gone.
-      frame.disarm();
+      frame.status = "idle";
       const crossed = this.stack.splice(index + 1);
       this.stack.length = index;
       const fin = unwinding(crossed);
-      const onDefect = frame.handler.onDefect;
+      const onDefect = frame.handler.c.onDefect;
       const next = (): AnyKyoot => {
         if (onDefect === undefined) throw error;
         return onDefect(error, frame.state);
@@ -405,28 +359,19 @@ export class Machine {
       this.phase = "node";
       return undefined;
     }
-    frame.disarm();
 
     if (output === frame.token) {
-      const resume = frame.takeResume([]);
-      frame.state = resume.state;
-      if (resume.kind === "program") {
-        this.current = resume.value as AnyKyoot;
-        this.phase = "node";
-      } else {
-        this.value = resume.value;
-        this.phase = "value";
-      }
+      // Resumed in place: continue right here, nothing captured.
+      this.continueFrom(frame);
       return undefined;
     }
 
     // The handler's program runs outside its own frame: the frame and what
-    // it encloses come off the stack and go back when the program resumes.
-    const captured = this.stack.splice(index);
-    if (frame.didResume()) {
-      (frame.token[NodeSym] as ResumeNode).state = frame.takeResume(captured);
-    } else {
-      frame.captured = captured;
+    // it encloses come off the stack and go back when its token is reached.
+    // Until it resumes, a settle frame under the program catches a drop.
+    frame.captured = this.stack.splice(index);
+    if ((frame.status as Status) !== "resumed") {
+      frame.status = "held";
       this.stack.push(new SettleFrame(frame));
     }
     this.current = output;
@@ -434,20 +379,31 @@ export class Machine {
     return undefined;
   }
 
-  private restore(state: unknown): void {
-    if (state instanceof HandlerFrame) {
-      throw new Error("continuation resumed twice (one-shot law)");
-    }
-    const resume = state as ResumeState;
-    resume.frame.state = resume.state;
-    for (const entry of resume.captured) this.stack.push(entry);
-    if (resume.kind === "program") {
-      this.current = resume.value as AnyKyoot;
+  // The token was reached: put back the frames the handler held.
+  private restore(frame: HandlerFrame): void {
+    const captured = frame.captured;
+    if (captured === undefined) throw new Error(ONE_SHOT);
+    frame.captured = undefined;
+    for (let i = 0; i < captured.length; i++) this.stack.push(captured[i]!);
+    this.continueFrom(frame);
+  }
+
+  private continueFrom(frame: HandlerFrame): void {
+    frame.state = frame.nextState;
+    if (frame.resumeKind === "program") {
+      this.current = frame.resumeValue as AnyKyoot;
       this.phase = "node";
     } else {
-      this.value = resume.value;
+      this.value = frame.resumeValue;
       this.phase = "value";
     }
+  }
+
+  // Run a cleanup program, then throw `error` on past it.
+  private cleanupThen(cleanup: AnyKyoot, error: unknown): void {
+    this.stack.push(rethrow(error));
+    this.current = cleanup;
+    this.phase = "node";
   }
 
   // An error on its way out. An interrupt runs every frame's `onInterrupt`;
@@ -459,26 +415,18 @@ export class Machine {
       const entry = this.stack.pop();
       if (entry instanceof SettleFrame) {
         const fin = dropHeld(entry.frame);
-        if (fin === undefined) continue;
-        this.stack.push(new RethrowFrame(error));
-        this.current = fin;
-        this.phase = "node";
-        return;
+        if (fin !== undefined) return this.cleanupThen(fin, error);
+        continue;
       }
       if (!(entry instanceof HandlerFrame)) continue;
 
       if (interrupted) {
-        const cleanup = entry.handler.onInterrupt?.(entry.state);
-        if (isKyoot(cleanup)) {
-          this.stack.push(new RethrowFrame(error));
-          this.current = cleanup;
-          this.phase = "node";
-          return;
-        }
+        const cleanup = entry.handler.c.onInterrupt?.(entry.state);
+        if (isKyoot(cleanup)) return this.cleanupThen(cleanup, error);
         continue;
       }
 
-      const onDefect = entry.handler.onDefect;
+      const onDefect = entry.handler.c.onDefect;
       if (onDefect !== undefined) {
         this.current = onDefect(error, entry.state);
         this.phase = "node";
@@ -490,14 +438,16 @@ export class Machine {
 
   // The frames an op that collects them crossed: the seed it carries, then
   // every frame from the top of the stack down to `to`, innermost first.
-  private crossed(seed: readonly HandlerNode[], to: number): HandlerNode[] {
-    const handlers = seed.slice();
+  // A `fork: "none"` handler is left out here, so `inherit` never sees one.
+  private crossed(seed: readonly Snapshot[], to: number): readonly Snapshot[] {
+    let snapshots: Snapshot[] | undefined;
     for (let index = this.stack.length - 1; index >= to; index--) {
       const entry = this.stack[index];
-      if (!(entry instanceof HandlerFrame) || entry.handler.fork === "none") continue;
-      handlers.push({ ...entry.handler, state: entry.state, entered: true });
+      if (!(entry instanceof HandlerFrame) || entry.handler.c.fork === "none") continue;
+      if (snapshots === undefined) snapshots = seed.slice();
+      snapshots.push({ node: entry.handler, state: entry.state });
     }
-    return handlers;
+    return snapshots ?? seed;
   }
 
   private spend(): boolean {

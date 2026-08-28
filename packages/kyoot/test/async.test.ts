@@ -12,6 +12,15 @@ import {
   Log,
   Resource,
 } from "../src/index.ts";
+const deferred = <A>() => {
+  let resolve = (_value: A | PromiseLike<A>): void => {};
+  let reject = (_error?: unknown): void => {};
+  const promise = new Promise<A>((onResolve, onReject) => {
+    resolve = onResolve;
+    reject = onReject;
+  });
+  return { promise, resolve, reject };
+};
 
 test("fromPromise resolves through runPromise", async () => {
   const r = await Kyoot.runPromise(Async.fromPromise(() => Promise.resolve(42)));
@@ -44,6 +53,30 @@ test("fork/join: a fiber is an independent interpreter loop", async () => {
     return yield* fiber.join;
   });
   assert.equal(await Kyoot.runPromise(prog), "fiber done");
+});
+
+test("concurrent fibers may yield the same node", async () => {
+  const gate = deferred<number>();
+  const shared = Async.fromPromise(() => gate.promise);
+  const program = Kyoot.gen(function* () {
+    const left = yield* Async.fork(
+      Kyoot.gen(function* () {
+        return `left:${yield* shared}`;
+      }),
+    );
+    const right = yield* Async.fork(
+      Kyoot.gen(function* () {
+        return `right:${yield* shared}`;
+      }),
+    );
+    yield* Async.fromPromise(() => {
+      gate.resolve(7);
+      return Promise.resolve();
+    });
+    return [yield* left.join, yield* right.join];
+  });
+
+  assert.deepEqual(await Kyoot.runPromise(program), ["left:7", "right:7"]);
 });
 
 test("fiber.await returns a Result instead of throwing", async () => {
@@ -158,6 +191,62 @@ test("structured concurrency: a completed parent interrupts its children", async
   );
   assert.deepEqual(events, ["release"]);
 });
+for (const timing of ["before", "after"] as const) {
+  for (const completion of ["resolve", "reject"] as const) {
+    test(`interrupt: stale wait may ${completion} ${timing} async cleanup`, async () => {
+      const originalStarted = deferred<void>();
+      const cleanupStarted = deferred<void>();
+      const original = deferred<string>();
+      const cleanup = deferred<void>();
+      const events: string[] = [];
+      const staleError = new Error("stale");
+
+      const child = Kyoot.gen(function* () {
+        yield* Resource.acquire(
+          () => "resource",
+          () =>
+            Async.fromPromise(() => {
+              events.push("cleanup start");
+              cleanupStarted.resolve(undefined);
+              return cleanup.promise.then(() => void events.push("cleanup end"));
+            }),
+        );
+        return yield* Async.fromPromise(() => {
+          originalStarted.resolve(undefined);
+          return original.promise;
+        });
+      }).pipe(Resource.run);
+
+      const result = await Kyoot.runPromise(
+        Kyoot.gen(function* () {
+          const fiber = yield* Async.fork(child);
+          yield* Async.fromPromise(() => originalStarted.promise);
+          yield* fiber.interrupt;
+          yield* Async.fromPromise(() => cleanupStarted.promise);
+
+          if (timing === "before") {
+            if (completion === "resolve") original.resolve("stale");
+            else original.reject(staleError);
+            yield* Async.fromPromise(() => Promise.resolve());
+          }
+
+          cleanup.resolve(undefined);
+          const exit = yield* fiber.await;
+
+          if (timing === "after") {
+            if (completion === "resolve") original.resolve("stale");
+            else original.reject(staleError);
+            yield* Async.fromPromise(() => Promise.resolve());
+          }
+          return exit;
+        }),
+      );
+
+      assert.ok(!result.ok && result.cause._tag === "Interrupted");
+      assert.deepEqual(events, ["cleanup start", "cleanup end"]);
+    });
+  }
+}
 
 test("all: results come back in input order, not completion order", async () => {
   const slow = Clock.sleep(20).map(() => "slow");

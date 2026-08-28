@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { KyootImpl, makeHandler, makeOp, succeed } from "../src/core.ts";
+import { makeHandler, makeOp, succeed } from "../src/core.ts";
 import {
   Async,
   Clock,
@@ -52,6 +52,27 @@ test("gen: yield* plain values and sub-computations", () => {
     return a + b;
   });
   assert.equal(Kyoot.runSync(prog), 3);
+});
+
+test("gen isolates repeated, nested, and separate runs", () => {
+  const shared = Kyoot.succeed(2);
+  const nested = Kyoot.gen(function* () {
+    return yield* shared;
+  });
+  const program = Kyoot.gen(function* () {
+    return [yield* shared, yield* nested, yield* shared];
+  });
+
+  assert.deepEqual(Kyoot.runSync(program), [2, 2, 2]);
+  assert.deepEqual(Kyoot.runSync(program), [2, 2, 2]);
+});
+
+test("gen keeps direct yield resumption unchanged", () => {
+  const program = Kyoot.gen(function* () {
+    return yield Kyoot.succeed(3);
+  });
+
+  assert.equal(Kyoot.runSync(program), 3);
 });
 
 test("gen with an effect, handled", () => {
@@ -112,51 +133,41 @@ test("a continuation dropped by its handler cannot be resumed later", () => {
 });
 
 test("a continuation may only be resumed once", () => {
-  const k = new KyootImpl({
-    _tag: "handler",
-    effectKey: "myfx",
-    self: Kyoot.gen(function* () {
+  const k = makeHandler(
+    "myfx",
+    Kyoot.gen(function* () {
       const v = yield* makeOp("myfx", undefined);
       return (v as number) * 10;
     }),
-    onOp: (_p, resume) => {
-      const first = resume(1);
-      return first.flatMap(() => resume(2));
+    {
+      onOp: (_p, resume) => {
+        const first = resume(1);
+        return first.flatMap(() => resume(2));
+      },
     },
-  });
+  );
   assert.throws(() => Kyoot.runSync(k as never), /continuation resumed twice \(one-shot law\)/);
 });
 
 test("a handler that resumes zero times short-circuits", () => {
-  const k = new KyootImpl({
-    _tag: "handler",
-    effectKey: "myfx",
-    self: Kyoot.gen(function* () {
+  const k = makeHandler(
+    "myfx",
+    Kyoot.gen(function* () {
       yield* makeOp("myfx", undefined);
       return "unreachable";
     }).map(() => "also unreachable"),
-    onOp: () => succeed("short"),
-  });
+    { onOp: () => succeed("short") },
+  );
   assert.equal(Kyoot.runSync(k as never), "short");
 });
 
 test("an op escaping a yielded handler node keeps the outer continuation", () => {
-  const inner = new KyootImpl({
-    _tag: "handler",
-    effectKey: "inner",
-    self: makeOp("outer", undefined),
-    onOp: () => succeed("nope"),
-  });
+  const inner = makeHandler("inner", makeOp("outer", undefined), { onOp: () => succeed("nope") });
   const prog = Kyoot.gen(function* () {
     const v = yield* inner;
     return `${v} continued`;
   });
-  const k = new KyootImpl({
-    _tag: "handler",
-    effectKey: "outer",
-    self: prog,
-    onOp: (_p, resume) => resume("handled"),
-  });
+  const k = makeHandler("outer", prog, { onOp: (_p, resume) => resume("handled") });
   assert.equal(Kyoot.runSync(k as never), "handled continued");
 });
 
@@ -172,7 +183,7 @@ test("a throw inside onOp goes to the same handler's onDefect", () => {
 });
 
 test("resume.with continues the program at the op, where its own handlers see it", () => {
-  const Fetch = effect<string, string, string>()("fetch");
+  const Fetch = effect<string, string, { fail: string }>()("fetch");
   const program = Fetch("a").pipe(Fail.catchAll((e: string) => Kyoot.succeed(`caught ${e}`)));
   const failing = Fetch.handle({ onOp: (url, resume) => resume.with(Fail.fail(`no ${url}`)) });
   assert.equal(Kyoot.runSync(program.pipe(failing)), "caught no a");

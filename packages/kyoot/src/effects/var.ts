@@ -16,7 +16,7 @@ export interface Tag<Id extends string, V> {
   set(value: V): Kyoot<void, VarRow<Id, V>>;
   update(f: (value: V) => V): Kyoot<void, VarRow<Id, V>>;
   // See every get, set, and update: validate a set, log a change.
-  readonly intercept: Intercept<`var/${Id}`, VarOp<V>, any, never, V>;
+  readonly intercept: Intercept<`var/${Id}`, VarOp<V>, any, {}, V>;
   run(
     initial: V,
   ): <A, S extends Row & Partial<VarRow<Id, V>>>(
@@ -28,7 +28,7 @@ export interface Tag<Id extends string, V> {
 export const tag =
   <V>() =>
   <const Id extends string>(id: Id): Tag<Id, V> => {
-    const v = effect<VarOp<V>, any, never, V>()(`var/${id}` as const);
+    const v = effect<VarOp<V>, any, {}, V>()(`var/${id}` as const);
     // Nodes are immutable, so every `get` is the same one.
     const get = v({ kind: "get" });
     return {

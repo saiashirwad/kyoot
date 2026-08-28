@@ -3,15 +3,18 @@ import type { Merge, Row } from "./types.ts";
 
 export type AnyKyoot = Kyoot<any, any>;
 
+// What a handler's `onOp` gets to continue with: a value, or a program.
+export type RuntimeResume = ((value: any, state?: any) => AnyKyoot) & {
+  with: (program: AnyKyoot, state?: any) => AnyKyoot;
+};
+
 export type OnOp = (
   payload: any,
-  resume: ((value: any, state?: any) => AnyKyoot) & {
-    with: (program: AnyKyoot, state?: any) => AnyKyoot;
-  },
+  resume: RuntimeResume,
   state: any,
   // For an op that collects frames: the ones it crossed before this one,
   // innermost first.
-  inherited?: readonly HandlerNode[],
+  inherited?: readonly Snapshot[],
 ) => AnyKyoot;
 
 // What a handler does at a fork. `copy`: the fiber gets `onOp` with the
@@ -21,35 +24,60 @@ export type OnOp = (
 export type ForkMode = "copy" | "scope" | "none";
 
 export type RuntimeNode =
-  | { readonly _tag: "pure"; readonly value: unknown }
+  | { readonly _tag: "pure"; readonly a: unknown; readonly b: undefined; readonly c: undefined }
   | {
       readonly _tag: "op";
-      readonly effectKey: PropertyKey;
-      readonly payload: unknown;
+      readonly a: PropertyKey;
+      readonly b: unknown;
       // Present on an op that collects the frames it crosses (see makeOp).
-      readonly handlers?: readonly HandlerNode[];
+      readonly c: readonly Snapshot[] | undefined;
     }
-  | { readonly _tag: "map"; readonly self: AnyKyoot; readonly mapper: (a: any) => any }
-  | { readonly _tag: "flatMap"; readonly self: AnyKyoot; readonly mapper: (a: any) => AnyKyoot }
-  | { readonly _tag: "gen"; readonly factory: () => Generator<AnyKyoot, unknown, unknown> }
-  // A handler's continuation, resumed: the machine restores what it holds.
-  | { readonly _tag: "resume"; state: unknown }
+  | {
+      readonly _tag: "map";
+      readonly a: AnyKyoot;
+      readonly b: (a: unknown) => unknown;
+      readonly c: undefined;
+    }
+  | {
+      readonly _tag: "flatMap";
+      readonly a: AnyKyoot;
+      readonly b: (a: unknown) => AnyKyoot;
+      readonly c: undefined;
+    }
+  | {
+      readonly _tag: "gen";
+      readonly a: () => Generator<AnyKyoot, unknown, unknown>;
+      readonly b: undefined;
+      readonly c: undefined;
+    }
+  // A handler's continuation: reached as a node, the machine puts back the
+  // frames the handler holds and continues with what it resumed.
+  | { readonly _tag: "resume"; readonly a: unknown; readonly b: undefined; readonly c: undefined }
   | {
       readonly _tag: "handler";
-      readonly effectKey: PropertyKey;
-      readonly self: AnyKyoot;
-      readonly state?: unknown;
-      readonly create?: () => unknown;
-      readonly entered?: boolean;
-      readonly fork?: ForkMode;
-      readonly onOp: OnOp;
-      readonly onSuccess?: (a: any, state: any) => AnyKyoot;
-      readonly onDefect?: (d: unknown, state: any) => AnyKyoot;
-      readonly onInterrupt?: (state: any) => void | AnyKyoot;
-    }
-  | { readonly _tag: "raise"; readonly error: unknown };
+      readonly a: AnyKyoot;
+      readonly b: PropertyKey;
+      readonly c: HandlerHooks;
+    };
+
+export interface HandlerHooks {
+  readonly initial?: unknown;
+  readonly create?: () => unknown;
+  readonly fork?: ForkMode;
+  readonly onOp: OnOp;
+  readonly onSuccess?: (a: unknown, state: unknown) => AnyKyoot;
+  readonly onDefect?: (d: unknown, state: unknown) => AnyKyoot;
+  readonly onInterrupt?: (state: unknown) => void | AnyKyoot;
+}
 
 export type HandlerNode = Extract<RuntimeNode, { _tag: "handler" }>;
+
+// A handler frame as an op crossed it: the handler and its state then. A
+// fiber the op spawns is built from these (see `inherit`).
+export interface Snapshot {
+  readonly node: HandlerNode;
+  readonly state: unknown;
+}
 
 export const NodeSym: unique symbol = Symbol("kyoot.node");
 
@@ -69,4 +97,7 @@ export interface Kyoot<A, S extends Row = {}> extends Pipeable {
 export type RowsOf<Y> = Y extends Kyoot<any, infer S> ? S : never;
 
 // The row of a callback's result: a program's row, or nothing for a plain value.
-export type RowOf<R> = R extends Kyoot<any, infer S> ? (S extends Row ? S : {}) : {};
+export type RowOf<R> = R extends Kyoot<any, infer S> ? S : {};
+
+// The value a program returns; `never` for anything that is not a program.
+export type ValueOf<R> = R extends Kyoot<infer A, any> ? A : never;

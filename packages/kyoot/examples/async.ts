@@ -19,8 +19,6 @@ const pokemon = (name: string) =>
     return `${data.name}: ${data.types.map((t) => t.type.name).join("/")}`;
   });
 
-// A branch's typed failure crosses join, race, all, and timeout; one Fail.run
-// outside catches them all.
 const main = Kyoot.gen(function* () {
   const winner = yield* Async.race(pokemon("pikachu"), pokemon("slowpoke"));
   const starters = yield* Async.all(["bulbasaur", "charmander", "squirtle"].map(pokemon));

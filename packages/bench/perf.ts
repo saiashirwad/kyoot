@@ -1,5 +1,3 @@
-// Same programs written twice: kyoot and Effect v4. `pnpm bench` from the
-// root. Each group ends with a summary of which is faster and by how much.
 import { bench, group, run, summary } from "mitata";
 import { Context, Effect, Ref } from "effect";
 import { Async, Env, Fail, Kyoot, Var, type Kyoot as Program } from "kyoot";

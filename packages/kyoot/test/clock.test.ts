@@ -22,7 +22,6 @@ test("Clock.virtual: time is per run, not shared", () => {
 test("runPromise serves the clock with real time", async () => {
   const t0 = Date.now();
   assert.equal(await Kyoot.runPromise(boilEgg(5)), "egg ready");
-  // This test must use the wall clock because it checks the real timer handler.
   assert.ok(Date.now() - t0 >= 30 && Date.now() - t0 < 1_000);
 });
 

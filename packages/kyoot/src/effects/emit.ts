@@ -6,7 +6,6 @@ import * as Async from "./async.ts";
 
 export const value = <E>(e: E) => op<void>()("emit", e);
 
-// Rewrite or drop values on their way out. `E` is what the program emits.
 export const intercept = <E = unknown>() => makeIntercept<"emit", E, void>("emit");
 
 export const fromIterable = <E>(items: Iterable<E>) =>
@@ -32,8 +31,6 @@ export const fromAsyncIterable = <E>(items: AsyncIterable<E>) =>
     }
   });
 
-// The list is a cell made per run, so fibers forked under the handler emit
-// into the same list.
 export const collect = <A, S extends Row & { emit?: unknown }>(k: Kyoot<A, S>) =>
   makeHandler("emit", k, {
     create: () => [] as Array<S["emit"]>,
@@ -60,9 +57,6 @@ export const map = <E, E2>(f: (e: E) => E2) => forEach((e: E) => value(f(e)));
 
 export const discard = forEach(() => {});
 
-// Runs the producer in a fiber and hands its values out as they arrive. The
-// producer runs at most `buffer` values ahead of the consumer; past that it
-// parks until the consumer takes one. Breaking out of the loop interrupts it.
 export const toAsyncIterable = <S extends Row & { emit?: unknown }>(
   k: Kyoot<unknown, S> & Only<S, "emit" | Served>,
   options: { readonly buffer?: number } = {},
@@ -82,8 +76,6 @@ export const toAsyncIterable = <S extends Row & { emit?: unknown }>(
             wake();
             return;
           }
-          // Install the gate before waking the consumer: it can run before
-          // the driver starts the program returned here.
           const parked = new Promise<void>((r) => (drain = r));
           wake();
           return Async.fromPromise(() => parked);

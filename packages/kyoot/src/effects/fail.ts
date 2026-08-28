@@ -5,8 +5,6 @@ import type { FailRow, MergeAll, Row } from "../types.ts";
 
 export { fail };
 
-// See a failure on its way out — log it, map it — and `next` it on. The
-// answer type is `never`, so `f` cannot recover; `catchAll` does that.
 export const intercept = <E = unknown>() => makeIntercept<"fail", E, never>("fail");
 
 export const run = <A, S extends Row & { fail?: unknown }>(k: Kyoot<A, S>) =>

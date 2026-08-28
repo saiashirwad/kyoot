@@ -13,8 +13,6 @@ type MachineState = "idle" | "running" | "done" | "suspended" | "yielded";
 type OpNode = Extract<RuntimeNode, { _tag: "op" }>;
 type FlatMapNode = Extract<RuntimeNode, { _tag: "flatMap" }>;
 
-// How a step ended. `done`: read `value`. `suspended`: an op no frame
-// answers; read `key`, `payload`, and `handlers`. `yielded`: out of budget.
 export type Outcome = "done" | "suspended" | "yielded";
 
 class GeneratorFrame {
@@ -25,9 +23,6 @@ class GeneratorFrame {
   }
 }
 
-// Sits under a handler's `onOp` program while the handler still holds the
-// continuation. If the program ends, fails, or is interrupted before it
-// resumes, the continuation is dropped and its frames unwind.
 class SettleFrame {
   readonly frame: HandlerFrame;
 
@@ -36,18 +31,10 @@ class SettleFrame {
   }
 }
 
-// Where a handler frame is in the one-shot law. `armed`: its `onOp` is
-// running; a resume then hands back the token and the machine continues in
-// place. `held`: `onOp` returned a program without resuming, and the frames
-// the op crossed wait in `captured`. `resumed`: the continuation is spent.
-// `dropped`: the program ended before it resumed, and the frames unwound.
 type Status = "idle" | "armed" | "held" | "resumed" | "dropped";
 
 const ONE_SHOT = "continuation resumed twice (one-shot law)";
 
-// A handler on the stack, and its continuation once an op reaches it. The
-// token and the resume functions are made when the first op arrives; a
-// frame no op reaches costs only itself.
 class HandlerFrame {
   readonly handler: HandlerNode;
   state: unknown;
@@ -79,9 +66,6 @@ class HandlerFrame {
   }
 }
 
-// `resume(v, st)` sets the state to `st` when given, even `undefined`; left
-// out, the state stays. Plain functions, so `arguments.length` tells the two
-// apart without a rest array per call.
 const makeResume = (frame: HandlerFrame): RuntimeResume => {
   const resume = function (value: unknown, state?: unknown): AnyKyoot {
     return frame.claim("value", value, arguments.length > 1 ? state : frame.state);
@@ -92,9 +76,6 @@ const makeResume = (frame: HandlerFrame): RuntimeResume => {
   return resume;
 };
 
-// A `map` is its bare function; a `flatMap` is the program itself, already
-// allocated when it was built. A closure also carries a value or an error
-// across a cleanup program. Frames are made as the machine runs.
 type StackEntry =
   | ((value: unknown) => unknown)
   | AnyKyoot
@@ -106,10 +87,6 @@ const rethrow = (error: unknown) => () => {
   throw error;
 };
 
-// The program that unwinds abandoned frames as an interrupt would: each
-// handler's `onInterrupt`, innermost first, and the same for continuations
-// still held inside. Undefined when there is nothing to run. Entries below
-// `from` stay: a frame that dropped its own continuation is not unwound.
 const unwinding = (entries: readonly StackEntry[], from = 0): AnyKyoot | undefined => {
   let steps: Array<() => AnyKyoot | undefined> | undefined;
   for (let i = entries.length - 1; i >= from; i--) {
@@ -136,10 +113,6 @@ const unwinding = (entries: readonly StackEntry[], from = 0): AnyKyoot | undefin
   });
 };
 
-// Drop the continuation a frame still holds and return its unwinding, or
-// undefined if the frame had resumed: its token holds the frames then. The
-// frame itself, first in what it holds, stays: it is the one doing the
-// dropping.
 const dropHeld = (frame: HandlerFrame): AnyKyoot | undefined => {
   if (frame.status !== "held") return undefined;
   const held = frame.captured!;
@@ -148,11 +121,6 @@ const dropHeld = (frame: HandlerFrame): AnyKyoot | undefined => {
   return unwinding(held, 1);
 };
 
-/**
- * An interpreter for one program at a time. It keeps its stack across
- * asynchronous suspension and scheduler yields. Callers start, continue,
- * resume, or raise it, and read the outcome off its fields.
- */
 export class Machine {
   private readonly stack: StackEntry[] = [];
   private state: MachineState = "idle";
@@ -160,10 +128,7 @@ export class Machine {
   private current!: AnyKyoot;
   private remaining = Infinity;
 
-  // The result, once `done`.
   value: unknown;
-  // The op no frame answered, once `suspended`; `handlers` is the frames it
-  // crossed, innermost first, when it collects them.
   key: PropertyKey = "";
   payload: unknown;
   handlers: readonly Snapshot[] | undefined;
@@ -194,8 +159,6 @@ export class Machine {
     return this.advance(budget, true, error);
   }
 
-  // Ready for another program. The stack keeps its capacity. Setting
-  // `length` is a runtime call even when it is already 0, so skip it then.
   reset(): void {
     if (this.stack.length !== 0) this.stack.length = 0;
     this.state = "idle";
@@ -305,8 +268,6 @@ export class Machine {
           this.phase = "node";
         }
       } else {
-        // The handler's program finished. If it never resumed, the
-        // continuation is dropped: unwind it, then carry the value on.
         const fin = dropHeld((top as SettleFrame).frame);
         if (fin !== undefined) {
           const value = this.value;
@@ -326,8 +287,6 @@ export class Machine {
       if (entry instanceof HandlerFrame && entry.handler.b === key) break;
     }
 
-    // An op built with a list collects the frames it crosses, the one that
-    // answers it included, so a fiber it spawns can inherit them.
     const inherited = node.c === undefined ? undefined : this.crossed(node.c, Math.max(index, 0));
 
     if (index < 0) {
@@ -344,8 +303,6 @@ export class Machine {
       const resume = (frame.resume ??= makeResume(frame));
       output = frame.handler.c.onOp(node.b, resume, frame.state, inherited);
     } catch (error) {
-      // A throw in onOp is a defect of the handler's scope. The frames the
-      // op crossed unwind first; the handler's own frame is gone.
       frame.status = "idle";
       const crossed = this.stack.splice(index + 1);
       this.stack.length = index;
@@ -361,14 +318,10 @@ export class Machine {
     }
 
     if (output === frame.token) {
-      // Resumed in place: continue right here, nothing captured.
       this.continueFrom(frame);
       return undefined;
     }
 
-    // The handler's program runs outside its own frame: the frame and what
-    // it encloses come off the stack and go back when its token is reached.
-    // Until it resumes, a settle frame under the program catches a drop.
     frame.captured = this.stack.splice(index);
     if ((frame.status as Status) !== "resumed") {
       frame.status = "held";
@@ -379,7 +332,6 @@ export class Machine {
     return undefined;
   }
 
-  // The token was reached: put back the frames the handler held.
   private restore(frame: HandlerFrame): void {
     const captured = frame.captured;
     if (captured === undefined) throw new Error(ONE_SHOT);
@@ -399,16 +351,12 @@ export class Machine {
     }
   }
 
-  // Run a cleanup program, then throw `error` on past it.
   private cleanupThen(cleanup: AnyKyoot, error: unknown): void {
     this.stack.push(rethrow(error));
     this.current = cleanup;
     this.phase = "node";
   }
 
-  // An error on its way out. An interrupt runs every frame's `onInterrupt`;
-  // a defect stops at the first frame with `onDefect`. A dropped continuation
-  // on the way unwinds first, either way.
   private unwind(error: unknown): void {
     const interrupted = error instanceof InterruptedError;
     while (this.stack.length > 0) {
@@ -436,9 +384,6 @@ export class Machine {
     throw error;
   }
 
-  // The frames an op that collects them crossed: the seed it carries, then
-  // every frame from the top of the stack down to `to`, innermost first.
-  // A `fork: "none"` handler is left out here, so `inherit` never sees one.
   private crossed(seed: readonly Snapshot[], to: number): readonly Snapshot[] {
     let snapshots: Snapshot[] | undefined;
     for (let index = this.stack.length - 1; index >= to; index--) {

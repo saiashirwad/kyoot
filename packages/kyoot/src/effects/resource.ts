@@ -13,15 +13,11 @@ export interface ResourceOp<S extends Row = {}> {
 export const acquire = <R, C>(open: () => R, close: (r: R) => C) =>
   op<R>()("resource", { acquire: open, release: close } as ResourceOp<RowOf<C>>);
 
-// Wrap acquire and release: count what is open, log it, fake it. `S` is
-// the row the program's finalizers need, `{}` when they need nothing.
 export const intercept = <S extends Row = {}>() =>
   makeIntercept<"resource", ResourceOp<S>, unknown>("resource");
 
 const unit = succeed(undefined);
 
-// A scope around one finalizer, there for its `onDefect`: a finalizer that
-// throws is noted and the rest still run. Its key is never performed.
 const attempting = Symbol("resource/finalizer");
 
 const attempt = (f: Finalizer, errors: unknown[]) =>
@@ -42,7 +38,6 @@ const attempt = (f: Finalizer, errors: unknown[]) =>
     },
   );
 
-// Run every finalizer, last acquired first; the errors they threw come back.
 const finalize = (finalizers: readonly Finalizer[]) =>
   gen(function* () {
     const errors: unknown[] = [];
@@ -52,12 +47,10 @@ const finalize = (finalizers: readonly Finalizer[]) =>
 
 type ReleaseRow<R> = R extends ResourceOp<infer S> ? S : never;
 
-// The finalizer list is a cell made per run, so it grows in place.
 export const run = <A, S extends Row & { resource?: ResourceOp<any> }>(
   k: Kyoot<A, S>,
 ): Kyoot<A, MergeAll<Omit<S, "resource"> | ReleaseRow<S["resource"]>>> =>
   makeHandler("resource", k, {
-    // A fiber gets a scope of its own, released when the fiber ends.
     fork: "scope",
     create: () => [] as Finalizer[],
     onOp: (res, resume, finalizers) => {

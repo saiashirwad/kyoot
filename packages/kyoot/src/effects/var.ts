@@ -15,7 +15,6 @@ export interface Tag<Id extends string, V> {
   get(): Kyoot<V, VarRow<Id, V>>;
   set(value: V): Kyoot<void, VarRow<Id, V>>;
   update(f: (value: V) => V): Kyoot<void, VarRow<Id, V>>;
-  // See every get, set, and update: validate a set, log a change.
   readonly intercept: Intercept<`var/${Id}`, VarOp<V>, any, {}, V>;
   run(
     initial: V,
@@ -24,12 +23,10 @@ export interface Tag<Id extends string, V> {
   ) => Kyoot<readonly [A, V], MergeAll<Omit<S, `var/${Id}`>>>;
 }
 
-// The row records the state type, not the op.
 export const tag =
   <V>() =>
   <const Id extends string>(id: Id): Tag<Id, V> => {
     const v = effect<VarOp<V>, any, {}, V>()(`var/${id}` as const);
-    // Nodes are immutable, so every `get` is the same one.
     const get = v({ kind: "get" });
     return {
       get: () => get,

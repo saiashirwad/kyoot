@@ -2,7 +2,6 @@ import { effect } from "../core.ts";
 
 const random = effect<void, number>()("random");
 
-// Nodes are immutable, so every `next` is the same one.
 const nextOp = random(undefined);
 
 export const next = () => nextOp;

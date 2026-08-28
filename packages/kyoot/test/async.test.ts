@@ -409,10 +409,6 @@ test("all: a failure stops scheduling the rest", async () => {
   assert.equal(started, 1);
 });
 
-// ---------------------------------------------------------------------------
-// Fibers inherit the handlers around the fork.
-// ---------------------------------------------------------------------------
-
 test("fork: a fiber sees the Env provided outside the fork", async () => {
   const Name = Env.tag<string>()("name");
   const prog = Kyoot.gen(function* () {
@@ -606,10 +602,6 @@ test("fork: a user effect handled outside the fork answers inside it", async () 
   }).pipe(Ask.handle({ onOp: (q, resume) => resume(q.length) }));
   assert.deepEqual(await Kyoot.runPromise(prog), [1, 2]);
 });
-
-// ---------------------------------------------------------------------------
-// A fiber yields to the event loop every few thousand steps.
-// ---------------------------------------------------------------------------
 
 const hotLoop = (n: number) =>
   Kyoot.gen(function* () {

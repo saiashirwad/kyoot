@@ -15,7 +15,6 @@ const at = (level: Level) => (message: string) => log({ level, message });
 
 export const handle = log.handle;
 
-// Rewrite or drop entries on their way out: redaction, a level filter.
 export const intercept = log.intercept;
 
 export const debug = at("debug");
@@ -30,8 +29,6 @@ export const print = log.handle({
   },
 });
 
-// The list is a cell made per run, so fibers forked under the handler log
-// into the same list.
 export const collect = <A, S extends Row & { log?: Entry }>(k: Kyoot<A, S>) =>
   makeHandler("log", k, {
     create: () => [] as Entry[],

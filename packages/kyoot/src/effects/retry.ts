@@ -13,8 +13,6 @@ export interface Policy {
 const delayOf = ({ delay = 0 }: Policy, attempt: number) =>
   typeof delay === "function" ? delay(attempt) : delay;
 
-// Re-run `k` on a typed failure, up to `times` more attempts, sleeping between them.
-// Defects are not retried. The last failure stays in the row.
 export const run =
   (policy: Policy) =>
   <A, S extends Row & { fail?: unknown }>(k: Kyoot<A, S>) => {

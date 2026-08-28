@@ -155,10 +155,6 @@ test("Resource: an acquire that throws releases what the scope already holds", (
   assert.deepEqual(events, ["open a", "close a"]);
 });
 
-// A handler outside Resource.run that does not resume drops the scope. The
-// scope is unwound as on an interrupt, so the order of the two no longer
-// matters for cleanup.
-
 class Boom {
   readonly _tag = "Boom";
 }
@@ -250,7 +246,9 @@ test("a handler that resumes does not release early", () => {
     return n;
   }).pipe(
     Resource.run,
-    Ask.handle({ onOp: (_, resume) => Sync.defer(() => events.push("asked")).flatMap(() => resume(7)) }),
+    Ask.handle({
+      onOp: (_, resume) => Sync.defer(() => events.push("asked")).flatMap(() => resume(7)),
+    }),
     Sync.run,
     Kyoot.runSync,
   );

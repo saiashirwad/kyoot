@@ -11,7 +11,7 @@ import { fail, fromResult } from "./fail.ts";
 import { sleep } from "./clock.ts";
 import { Result } from "../result.ts";
 import type { AnyKyoot, Kyoot } from "../model.ts";
-import type { AsyncOp, AsyncRuntime, FiberHandle, Served } from "../runtime.ts";
+import { EMPTY_HANDLERS, type AsyncOp, type AsyncRuntime, type FiberHandle, type Served } from "../runtime.ts";
 import type { FailRow, MergeAll, Row } from "../types.ts";
 
 type AsyncRow = { async: AsyncOp };
@@ -21,7 +21,7 @@ const asyncEffect = effect<AsyncOp, unknown>()("async");
 // Built with a list so it collects the frames it crosses (see makeOp): a
 // fiber it spawns inherits them.
 const asyncOp = <A>(execute: (rt: AsyncRuntime) => Promise<A>) =>
-  makeOp("async", { execute } as AsyncOp, []) as Kyoot<A, AsyncRow>;
+  makeOp("async", { execute } as AsyncOp, EMPTY_HANDLERS) as Kyoot<A, AsyncRow>;
 
 // See every promise, fork, join, and sleep-free wait: trace it, time it,
 // give it a deadline. A fiber forked through it inherits it.
@@ -62,7 +62,7 @@ const catchFail = (k: AnyKyoot): AnyKyoot =>
 // fiber; the failure crosses `join` and meets the handlers there.
 const spawn = (rt: AsyncRuntime, k: AnyKyoot) => {
   const program = catchFail(k.map((a: unknown) => new Exit(Result.ok(a))));
-  const handlers = rt.handlers?.filter((h) => h.effectKey !== "fail");
+  const handlers = rt.handlers?.filter((h) => h.b !== "fail");
   return rt.spawn(catchFail(inherit(program, handlers)));
 };
 

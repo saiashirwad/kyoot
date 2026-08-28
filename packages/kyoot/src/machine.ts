@@ -6,7 +6,6 @@ type MachineState = "idle" | "running" | "done" | "suspended" | "yielded";
 type Failure = { readonly error: unknown };
 type OpNode = Extract<RuntimeNode, { _tag: "op" }>;
 type FlatMapNode = Extract<RuntimeNode, { _tag: "flatMap" }>;
-type ResumeNode = Extract<RuntimeNode, { _tag: "resume" }>;
 
 // How a step ended. `done`: read `value`. `suspended`: an op no frame
 // answers; read `key`, `payload`, and `handlers`. `yielded`: out of budget.
@@ -61,9 +60,9 @@ class HandlerFrame {
   // continues in place, with nothing captured and nothing allocated.
   private armed = false;
   private resumed = false;
-  private resumeKind: "value" | "program" = "value";
-  private resumeValue: unknown;
-  private nextState: unknown;
+  resumeKind: "value" | "program" = "value";
+  resumeValue: unknown;
+  nextState: unknown;
   readonly token: KyootImpl<any, any>;
   readonly resume: ((value: unknown, state?: unknown) => AnyKyoot) & {
     with: (program: AnyKyoot, state?: unknown) => AnyKyoot;
@@ -71,9 +70,17 @@ class HandlerFrame {
 
   constructor(handler: HandlerNode) {
     this.handler = handler;
-    this.state = handler.entered ? handler.state : handler.create?.();
+    const hooks = handler.c;
+    const entered = hooks.entered ?? hooks.create === undefined;
+    this.state = entered
+      ? hooks.entered === true
+        ? hooks.state
+        : hooks.initial
+      : hooks.create === undefined
+        ? hooks.initial
+        : hooks.create();
     this.nextState = this.state;
-    this.token = new KyootImpl({ _tag: "resume", state: this });
+    this.token = new KyootImpl("resume", this);
 
     this.resume = makeResume(this);
   }
@@ -81,11 +88,7 @@ class HandlerFrame {
   prepare(): void {
     this.armed = true;
     this.resumed = false;
-    this.captured = undefined;
-    this.resumeKind = "value";
-    this.resumeValue = undefined;
-    this.nextState = this.state;
-    (this.token[NodeSym] as ResumeNode).state = this;
+    if (this.token.a !== this) this.token.a = this;
   }
 
   disarm(): void {
@@ -125,16 +128,13 @@ class HandlerFrame {
       );
     }
     this.captured = undefined;
-    return new KyootImpl({
-      _tag: "resume",
-      state: {
-        captured,
-        frame: this,
-        state,
-        kind,
-        value,
-      } satisfies ResumeState,
-    });
+    return new KyootImpl("resume", {
+      captured,
+      frame: this,
+      state,
+      kind,
+      value,
+    } satisfies ResumeState);
   }
 }
 
@@ -173,7 +173,7 @@ const unwinding = (entries: readonly StackEntry[], from = 0): AnyKyoot | undefin
       const inner = dropHeld(entry.frame);
       if (inner !== undefined) steps.push(() => inner);
     } else if (entry instanceof HandlerFrame) {
-      const { onInterrupt } = entry.handler;
+      const { onInterrupt } = entry.handler.c;
       if (onInterrupt === undefined) continue;
       steps.push(() => {
         const fin = onInterrupt(entry.state);
@@ -291,19 +291,19 @@ export class Machine {
         const node = this.current[NodeSym];
         switch (node._tag) {
           case "pure":
-            this.value = node.value;
+            this.value = node.a;
             this.phase = "value";
             break;
           case "map":
-            this.stack.push(node.mapper);
-            this.current = node.self;
+            this.stack.push(node.b);
+            this.current = node.a;
             break;
           case "flatMap":
             this.stack.push(this.current);
-            this.current = node.self;
+            this.current = node.a;
             break;
           case "gen":
-            this.stack.push(new GeneratorFrame(node.factory()));
+            this.stack.push(new GeneratorFrame(node.a()));
             this.value = undefined;
             this.phase = "value";
             break;
@@ -314,13 +314,13 @@ export class Machine {
           }
           case "handler":
             this.stack.push(new HandlerFrame(node));
-            this.current = node.self;
+            this.current = node.a;
             break;
           case "resume":
-            this.restore(node.state);
+            this.restore(node.a);
             break;
           case "raise":
-            throw node.error;
+            throw node.a;
         }
         continue;
       }
@@ -331,19 +331,30 @@ export class Machine {
       if (typeof top === "function") {
         this.value = top(this.value);
       } else if (top instanceof KyootImpl) {
-        this.current = (top[NodeSym] as FlatMapNode).mapper(this.value);
+        this.current = (top[NodeSym] as FlatMapNode).b(this.value);
         this.phase = "node";
       } else if (top instanceof GeneratorFrame) {
-        const step = top.generator.next(this.value);
-        if (step.done) {
-          this.value = step.value;
-        } else {
-          this.stack.push(top);
-          this.current = step.value;
-          this.phase = "node";
+        let step = top.generator.next(this.value);
+        while (!step.done) {
+          const yielded = step.value[NodeSym];
+          if (yielded._tag !== "pure") {
+            this.stack.push(top);
+            this.current = step.value;
+            this.phase = "node";
+            break;
+          }
+          if (!this.spend()) {
+            this.stack.push(top);
+            this.current = step.value;
+            this.phase = "node";
+            return "yielded";
+          }
+          this.value = yielded.a;
+          step = top.generator.next(this.value);
         }
+        if (step.done) this.value = step.value;
       } else if (top instanceof HandlerFrame) {
-        const onSuccess = top.handler.onSuccess;
+        const onSuccess = top.handler.c.onSuccess;
         if (onSuccess !== undefined) {
           this.current = onSuccess(this.value, top.state);
           this.phase = "node";
@@ -365,21 +376,21 @@ export class Machine {
   }
 
   private handle(node: OpNode): Outcome | undefined {
-    const key = node.effectKey;
+    const key = node.a;
     let index = this.stack.length - 1;
     for (; index >= 0; index--) {
       const entry = this.stack[index];
-      if (entry instanceof HandlerFrame && entry.handler.effectKey === key) break;
+      if (entry instanceof HandlerFrame && entry.handler.b === key) break;
     }
 
     // An op built with a list collects the frames it crosses, the one that
     // answers it included, so a fiber it spawns can inherit them.
     const inherited =
-      node.handlers === undefined ? undefined : this.crossed(node.handlers, Math.max(index, 0));
+      node.c === undefined ? undefined : this.crossed(node.c, Math.max(index, 0));
 
     if (index < 0) {
       this.key = key;
-      this.payload = node.payload;
+      this.payload = node.b;
       this.handlers = inherited;
       return "suspended";
     }
@@ -388,7 +399,7 @@ export class Machine {
     frame.prepare();
     let output: AnyKyoot;
     try {
-      output = frame.handler.onOp(node.payload, frame.resume, frame.state, inherited);
+      output = frame.handler.c.onOp(node.b, frame.resume, frame.state, inherited);
     } catch (error) {
       // A throw in onOp is a defect of the handler's scope. The frames the
       // op crossed unwind first; the handler's own frame is gone.
@@ -396,7 +407,7 @@ export class Machine {
       const crossed = this.stack.splice(index + 1);
       this.stack.length = index;
       const fin = unwinding(crossed);
-      const onDefect = frame.handler.onDefect;
+      const onDefect = frame.handler.c.onDefect;
       const next = (): AnyKyoot => {
         if (onDefect === undefined) throw error;
         return onDefect(error, frame.state);
@@ -408,13 +419,12 @@ export class Machine {
     frame.disarm();
 
     if (output === frame.token) {
-      const resume = frame.takeResume([]);
-      frame.state = resume.state;
-      if (resume.kind === "program") {
-        this.current = resume.value as AnyKyoot;
+      frame.state = frame.nextState;
+      if (frame.resumeKind === "program") {
+        this.current = frame.resumeValue as AnyKyoot;
         this.phase = "node";
       } else {
-        this.value = resume.value;
+        this.value = frame.resumeValue;
         this.phase = "value";
       }
       return undefined;
@@ -424,7 +434,7 @@ export class Machine {
     // it encloses come off the stack and go back when the program resumes.
     const captured = this.stack.splice(index);
     if (frame.didResume()) {
-      (frame.token[NodeSym] as ResumeNode).state = frame.takeResume(captured);
+      frame.token.a = frame.takeResume(captured);
     } else {
       frame.captured = captured;
       this.stack.push(new SettleFrame(frame));
@@ -468,7 +478,7 @@ export class Machine {
       if (!(entry instanceof HandlerFrame)) continue;
 
       if (interrupted) {
-        const cleanup = entry.handler.onInterrupt?.(entry.state);
+        const cleanup = entry.handler.c.onInterrupt?.(entry.state);
         if (isKyoot(cleanup)) {
           this.stack.push(new RethrowFrame(error));
           this.current = cleanup;
@@ -478,7 +488,7 @@ export class Machine {
         continue;
       }
 
-      const onDefect = entry.handler.onDefect;
+      const onDefect = entry.handler.c.onDefect;
       if (onDefect !== undefined) {
         this.current = onDefect(error, entry.state);
         this.phase = "node";
@@ -490,16 +500,21 @@ export class Machine {
 
   // The frames an op that collects them crossed: the seed it carries, then
   // every frame from the top of the stack down to `to`, innermost first.
-  private crossed(seed: readonly HandlerNode[], to: number): HandlerNode[] {
-    const handlers = seed.slice();
+  private crossed(seed: readonly HandlerNode[], to: number): readonly HandlerNode[] {
+    let handlers: HandlerNode[] | undefined;
     for (let index = this.stack.length - 1; index >= to; index--) {
       const entry = this.stack[index];
-      if (!(entry instanceof HandlerFrame) || entry.handler.fork === "none") continue;
-      handlers.push({ ...entry.handler, state: entry.state, entered: true });
+      if (!(entry instanceof HandlerFrame) || entry.handler.c.fork === "none") continue;
+      const snapshot = new KyootImpl("handler", entry.handler.a, entry.handler.b, {
+        ...entry.handler.c,
+        state: entry.state,
+        entered: true,
+      })[NodeSym];
+      if (handlers === undefined) handlers = seed.slice();
+      handlers.push(snapshot as HandlerNode);
     }
-    return handlers;
+    return handlers ?? seed;
   }
-
   private spend(): boolean {
     if (this.remaining <= 0) return false;
     this.remaining--;

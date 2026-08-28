@@ -3,6 +3,7 @@ import {
   type AnyKyoot,
   type ForkMode,
   type HandlerNode,
+  type HandlerHooks,
   type Kyoot,
   type OnOp,
   type RowOf,
@@ -12,43 +13,84 @@ import { pipeArguments, type Pipeable } from "./pipe.ts";
 import type { FailRow, MergeAll, Row, Simplify } from "./types.ts";
 
 // One `yield*` on a program: hand the program out, then hand the answer
-// back. `yield*` reads each result before it calls `next` again, so one
-// result object serves both.
+// back. The iterator is also its result object; `yield*` reads it before `next`.
 class KyootIterator<A, S extends Row> implements Iterator<Kyoot<unknown, S>, A, unknown> {
   private used = false;
-  private readonly result: { done: boolean; value: unknown };
+  done = false;
+  value: unknown;
+
   constructor(k: Kyoot<unknown, S>) {
-    this.result = { done: false, value: k };
+    this.value = k;
   }
+
   next(v?: unknown): IteratorResult<Kyoot<unknown, S>, A> {
     if (this.used) {
-      this.result.done = true;
-      this.result.value = v;
+      this.done = true;
+      this.value = v;
     } else {
       this.used = true;
     }
-    return this.result as IteratorResult<Kyoot<unknown, S>, A>;
+    return this as unknown as IteratorResult<Kyoot<unknown, S>, A>;
   }
 }
+
+type HandlerNodeInput = {
+  readonly _tag: "handler";
+  readonly effectKey: PropertyKey;
+  readonly self: AnyKyoot;
+  readonly state?: unknown;
+  readonly create?: () => unknown;
+  readonly entered?: boolean;
+  readonly fork?: ForkMode;
+  readonly onOp: OnOp;
+  readonly onSuccess?: HandlerHooks["onSuccess"];
+  readonly onDefect?: HandlerHooks["onDefect"];
+  readonly onInterrupt?: HandlerHooks["onInterrupt"];
+};
 
 // The interface carries pipe's overloads; the class merges with it.
 // oxlint-disable-next-line no-unused-vars, typescript/no-unsafe-declaration-merging
 export interface KyootImpl<A, S extends Row = {}> extends Pipeable {}
 export class KyootImpl<A, S extends Row = {}> implements Kyoot<A, S> {
-  readonly [NodeSym]: RuntimeNode;
+  readonly _tag: RuntimeNode["_tag"];
+  a: unknown;
+  readonly b: unknown;
+  readonly c: unknown;
 
-  constructor(node: RuntimeNode) {
-    this[NodeSym] = node;
+  constructor(node: HandlerNodeInput);
+  constructor(_tag: RuntimeNode["_tag"], a: unknown, b?: unknown, c?: unknown);
+  constructor(
+    _tagOrNode: RuntimeNode["_tag"] | HandlerNodeInput,
+    a?: unknown,
+    b?: unknown,
+    c?: unknown,
+  ) {
+    if (typeof _tagOrNode === "object") {
+      this._tag = "handler";
+      this.a = _tagOrNode.self;
+      this.b = _tagOrNode.effectKey;
+      this.c = _tagOrNode;
+    } else {
+      this._tag = _tagOrNode;
+      this.a = a;
+      this.b = b;
+      this.c = c;
+    }
+  }
+
+  get [NodeSym](): RuntimeNode {
+    // Constructors below establish the slot types for each tag.
+    return this as unknown as RuntimeNode;
   }
 
   // Parameter typed by A so a KyootImpl never infers A as `any` downstream;
   // return types stay `any` so the class does not repeat Kyoot's row math.
   map(mapper: (a: A) => any): any {
-    return new KyootImpl({ _tag: "map", self: this as AnyKyoot, mapper });
+    return new KyootImpl("map", this as AnyKyoot, mapper);
   }
 
   flatMap(mapper: (a: A) => AnyKyoot): any {
-    return new KyootImpl({ _tag: "flatMap", self: this as AnyKyoot, mapper });
+    return new KyootImpl("flatMap", this as AnyKyoot, mapper);
   }
 
   [Symbol.iterator]() {
@@ -58,16 +100,16 @@ export class KyootImpl<A, S extends Row = {}> implements Kyoot<A, S> {
 
 export const isKyoot = (value: unknown): value is AnyKyoot => value instanceof KyootImpl;
 
-export const succeed = <A>(value: A): Kyoot<A, {}> => new KyootImpl({ _tag: "pure", value });
+export const succeed = <A>(value: A): Kyoot<A, {}> => new KyootImpl("pure", value);
 
 // An op built with a `handlers` list collects the frames it crosses on its
 // way out (see Machine), so a fiber it spawns can inherit them. `async` is
 // one; an interceptor's `next` passes on what the op had crossed.
 export const makeOp = (key: PropertyKey, payload: unknown, handlers?: readonly HandlerNode[]) =>
-  new KyootImpl({ _tag: "op", effectKey: key, payload, handlers });
+  new KyootImpl("op", key, payload, handlers);
 
 export const genNode = (factory: () => Generator<AnyKyoot, unknown, unknown>): AnyKyoot =>
-  new KyootImpl({ _tag: "gen", factory });
+  new KyootImpl("gen", factory);
 
 // Typed op constructor. The row records the key and the payload type, so a
 // handler's `onOp` can read the payload type back off the row. `A` is what
@@ -225,22 +267,10 @@ export function makeHandler<
     onSuccess?: (a: A, state: St) => Kyoot<B, R2>;
   },
 ): Kyoot<B | B2 | B3, MergeAll<Omit<S, K> | R1 | R2 | R3 | R4>> {
-  const { initial, create, fork, onOp, onSuccess, onDefect, onInterrupt } = hooks;
-  // One fixed shape for every handler node. A frame with a cell to make is
-  // entered on its first step; the rest start entered, state in hand.
-  return new KyootImpl({
-    _tag: "handler",
-    effectKey,
-    self,
-    state: initial,
-    entered: create === undefined,
-    create: create ?? (initial === undefined ? undefined : () => initial),
-    fork,
-    onOp: onOp as OnOp,
-    onSuccess,
-    onDefect,
-    onInterrupt,
-  }) as AnyKyoot;
+  // The public hook type is more precise than the machine's erased runtime
+  // view. The same record is stored; handler construction adds no wrapper.
+  const runtimeHooks = hooks as unknown as HandlerHooks;
+  return new KyootImpl("handler", self, effectKey, runtimeHooks) as AnyKyoot;
 }
 
 export class InterruptedError extends Error {
@@ -254,26 +284,28 @@ export class InterruptedError extends Error {
 // Wrap a fiber's program in the handlers that enclosed the fork.
 export const inherit = (k: AnyKyoot, handlers: readonly HandlerNode[] = []): AnyKyoot => {
   for (const h of handlers) {
-    switch (h.fork ?? "copy") {
+    const hooks = h.c;
+    switch (hooks.fork ?? "copy") {
       case "copy":
-        k = new KyootImpl({
-          ...h,
-          self: k,
+        k = new KyootImpl("handler", k, h.b, {
+          ...hooks,
+          initial: hooks.state,
+          create: undefined,
+          entered: true,
           onSuccess: undefined,
           onDefect: undefined,
           onInterrupt: undefined,
-        });
+        } satisfies HandlerHooks);
         break;
       case "scope": {
         // The end hook runs, but the fiber's value stays its own.
-        const { onSuccess } = h;
-        k = new KyootImpl({
-          ...h,
-          self: k,
+        const { onSuccess } = hooks;
+        k = new KyootImpl("handler", k, h.b, {
+          ...hooks,
           state: undefined,
           entered: false,
           onSuccess: onSuccess && ((a, st) => onSuccess(a, st).map(() => a)),
-        });
+        } satisfies HandlerHooks);
         break;
       }
       case "none":

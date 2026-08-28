@@ -21,33 +21,54 @@ export type OnOp = (
 export type ForkMode = "copy" | "scope" | "none";
 
 export type RuntimeNode =
-  | { readonly _tag: "pure"; readonly value: unknown }
+  | { readonly _tag: "pure"; readonly a: unknown; readonly b: undefined; readonly c: undefined }
   | {
       readonly _tag: "op";
-      readonly effectKey: PropertyKey;
-      readonly payload: unknown;
+      readonly a: PropertyKey;
+      readonly b: unknown;
       // Present on an op that collects the frames it crosses (see makeOp).
-      readonly handlers?: readonly HandlerNode[];
+      readonly c: readonly HandlerNode[] | undefined;
     }
-  | { readonly _tag: "map"; readonly self: AnyKyoot; readonly mapper: (a: any) => any }
-  | { readonly _tag: "flatMap"; readonly self: AnyKyoot; readonly mapper: (a: any) => AnyKyoot }
-  | { readonly _tag: "gen"; readonly factory: () => Generator<AnyKyoot, unknown, unknown> }
+  | {
+      readonly _tag: "map";
+      readonly a: AnyKyoot;
+      readonly b: (a: unknown) => unknown;
+      readonly c: undefined;
+    }
+  | {
+      readonly _tag: "flatMap";
+      readonly a: AnyKyoot;
+      readonly b: (a: unknown) => AnyKyoot;
+      readonly c: undefined;
+    }
+  | {
+      readonly _tag: "gen";
+      readonly a: () => Generator<AnyKyoot, unknown, unknown>;
+      readonly b: undefined;
+      readonly c: undefined;
+    }
   // A handler's continuation, resumed: the machine restores what it holds.
-  | { readonly _tag: "resume"; state: unknown }
+  | { readonly _tag: "resume"; a: unknown; readonly b: undefined; readonly c: undefined }
   | {
       readonly _tag: "handler";
-      readonly effectKey: PropertyKey;
-      readonly self: AnyKyoot;
-      readonly state?: unknown;
-      readonly create?: () => unknown;
-      readonly entered?: boolean;
-      readonly fork?: ForkMode;
-      readonly onOp: OnOp;
-      readonly onSuccess?: (a: any, state: any) => AnyKyoot;
-      readonly onDefect?: (d: unknown, state: any) => AnyKyoot;
-      readonly onInterrupt?: (state: any) => void | AnyKyoot;
+      readonly a: AnyKyoot;
+      readonly b: PropertyKey;
+      readonly c: HandlerHooks;
     }
-  | { readonly _tag: "raise"; readonly error: unknown };
+  | { readonly _tag: "raise"; readonly a: unknown; readonly b: undefined; readonly c: undefined };
+
+export interface HandlerHooks {
+  readonly initial?: unknown;
+  readonly create?: () => unknown;
+  readonly fork?: ForkMode;
+  // Set only on a frame snapshot collected for fiber inheritance.
+  readonly state?: unknown;
+  readonly entered?: boolean;
+  readonly onOp: OnOp;
+  readonly onSuccess?: (a: unknown, state: unknown) => AnyKyoot;
+  readonly onDefect?: (d: unknown, state: unknown) => AnyKyoot;
+  readonly onInterrupt?: (state: unknown) => void | AnyKyoot;
+}
 
 export type HandlerNode = Extract<RuntimeNode, { _tag: "handler" }>;
 

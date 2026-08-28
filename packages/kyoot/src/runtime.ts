@@ -12,6 +12,9 @@ const served = (key: PropertyKey): key is Served =>
 const unhandledEffect = (edge: string, key: PropertyKey) =>
   new Error(`${edge} encountered unhandled effect '${String(key)}'`);
 
+// Shared by async ops that request inheritance but cross no handler frames.
+export const EMPTY_HANDLERS: readonly HandlerNode[] = [];
+
 // One machine serves every runSync in turn; a nested call, from inside a
 // program, makes its own while the outer holds this one.
 let spare: Machine | undefined;
@@ -19,7 +22,7 @@ let spare: Machine | undefined;
 export function runSync<A, S extends Row>(k: Kyoot<A, S> & Only<S>): A {
   // A plain value needs no machine.
   const node = k[NodeSym];
-  if (node._tag === "pure") return node.value as A;
+  if (node._tag === "pure") return node.a as A;
   const machine = spare ?? new Machine();
   spare = undefined;
   try {
@@ -77,6 +80,7 @@ function asyncDrive<A>(k: Kyoot<A, any>, parent: AsyncRuntime): FiberHandle<A> {
   const children = new Set<Promise<unknown>>();
   const rt: AsyncRuntime = {
     signal: controller.signal,
+    handlers: EMPTY_HANDLERS,
     spawn: (k2) => {
       const h = asyncDrive(k2, rt);
       children.add(h.promise);
@@ -138,7 +142,11 @@ function asyncDrive<A>(k: Kyoot<A, any>, parent: AsyncRuntime): FiberHandle<A> {
           work =
             key === "clock"
               ? realSleep(payload as number, signal)
-              : (payload as AsyncOp).execute({ ...rt, signal, handlers });
+              : (payload as AsyncOp).execute(
+                  signal === rt.signal && handlers === rt.handlers
+                    ? rt
+                    : { ...rt, signal, handlers },
+                );
         } catch (error) {
           outcome = machine.raise(error, STEP_BUDGET);
           continue;

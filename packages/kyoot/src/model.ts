@@ -17,7 +17,12 @@ export type OnOp = (
 export type ForkMode = "copy" | "scope" | "none";
 
 export type RuntimeNode =
-  | { readonly _tag: "pure"; readonly a: unknown; readonly b: undefined; readonly c: undefined }
+  | {
+      readonly _tag: "pure";
+      readonly a: unknown;
+      readonly b: undefined;
+      readonly c: undefined;
+    }
   | {
       readonly _tag: "op";
       readonly a: PropertyKey;
@@ -42,7 +47,12 @@ export type RuntimeNode =
       readonly b: undefined;
       readonly c: undefined;
     }
-  | { readonly _tag: "resume"; readonly a: unknown; readonly b: undefined; readonly c: undefined }
+  | {
+      readonly _tag: "resume";
+      readonly a: unknown;
+      readonly b: undefined;
+      readonly c: undefined;
+    }
   | {
       readonly _tag: "handler";
       readonly a: AnyKyoot;
@@ -76,7 +86,7 @@ export interface Kyoot<A, S extends Row = {}> extends Pipeable {
 
   map<B>(f: (a: A) => B): Kyoot<B, S>;
 
-  flatMap<B, S2 extends Row = {}>(f: (a: A) => Kyoot<B, S2>): Kyoot<B, Merge<S, S2>>;
+  flatMap<B, S2 extends Row>(f: (a: A) => Kyoot<B, S2>): Kyoot<B, Merge<S, S2>>;
 
   [Symbol.iterator](): Iterator<Kyoot<unknown, S>, A, unknown>;
 }

@@ -255,3 +255,102 @@ test("a handler that resumes does not release early", () => {
   assert.equal(r, 7);
   assert.deepEqual(events, ["open", "asked", "got 7", "close"]);
 });
+
+test("a handler that claims a resume token and discards it still releases", () => {
+  const events: string[] = [];
+  const Ask = effect<string, number>()("ask");
+  const r = Kyoot.gen(function* () {
+    yield* Resource.acquire(
+      () => events.push("open"),
+      () => events.push("close"),
+    );
+    yield* Ask("n");
+    return "never";
+  }).pipe(
+    Resource.run,
+    Ask.handle({
+      onOp: (_, resume) => {
+        resume(42);
+        return Kyoot.succeed("discarded");
+      },
+    }),
+    Kyoot.runSync,
+  );
+  assert.equal(r, "discarded");
+  assert.deepEqual(events, ["open", "close"]);
+});
+
+test("a handler that claims a resume.with token and discards it still releases", () => {
+  const events: string[] = [];
+  const Ask = effect<string, number>()("ask");
+  const r = Kyoot.gen(function* () {
+    yield* Resource.acquire(
+      () => events.push("open"),
+      () => events.push("close"),
+    );
+    yield* Ask("n");
+    return "never";
+  }).pipe(
+    Resource.run,
+    Ask.handle({
+      onOp: (_, resume) => {
+        resume.with(Kyoot.succeed(42));
+        return Kyoot.succeed("discarded");
+      },
+    }),
+    Kyoot.runSync,
+  );
+  assert.equal(r, "discarded");
+  assert.deepEqual(events, ["open", "close"]);
+});
+
+test("a discarded resume token releases nested captured resources, innermost first", () => {
+  const events: string[] = [];
+  const Ask = effect<string, number>()("ask");
+  const r = Kyoot.gen(function* () {
+    yield* Resource.acquire(
+      () => events.push("open outer"),
+      () => events.push("close outer"),
+    );
+    yield* Kyoot.gen(function* () {
+      yield* Resource.acquire(
+        () => events.push("open inner"),
+        () => events.push("close inner"),
+      );
+      yield* Ask("n");
+    }).pipe(Resource.run);
+    return "never";
+  }).pipe(
+    Resource.run,
+    Ask.handle({ onOp: (_, resume) => (resume(42), Kyoot.succeed("discarded nested")) }),
+    Kyoot.runSync,
+  );
+  assert.equal(r, "discarded nested");
+  assert.deepEqual(events, ["open outer", "open inner", "close inner", "close outer"]);
+});
+
+test("a resume token returned later in the handler's program still resumes", () => {
+  const events: string[] = [];
+  const Ask = effect<string, number>()("ask");
+  const r = Kyoot.gen(function* () {
+    yield* Resource.acquire(
+      () => events.push("open"),
+      () => events.push("close"),
+    );
+    const n = yield* Ask("n");
+    events.push(`got ${n}`);
+    return n;
+  }).pipe(
+    Resource.run,
+    Ask.handle({
+      onOp: (_, resume) => {
+        const token = resume(7);
+        return Sync.defer(() => events.push("asked")).flatMap(() => token);
+      },
+    }),
+    Sync.run,
+    Kyoot.runSync,
+  );
+  assert.equal(r, 7);
+  assert.deepEqual(events, ["open", "asked", "got 7", "close"]);
+});

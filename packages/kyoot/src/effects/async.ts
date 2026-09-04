@@ -39,8 +39,9 @@ export const mapPromise = <A, B>(
   f: (value: A, index: number, signal: AbortSignal) => Promise<B>,
 ): Kyoot<B[], AsyncRow> =>
   fromPromise(async (signal) => {
-    const results: B[] = new Array(values.length);
-    for (let index = 0; index < values.length; index++) {
+    const count = values.length;
+    const results: B[] = new Array(count);
+    for (let index = 0; index < count; index++) {
       if (signal.aborted) throw new InterruptedError();
       results[index] = await f(values[index]!, index, signal);
     }
@@ -52,7 +53,8 @@ export const forEachPromise = <A>(
   f: (value: A, index: number, signal: AbortSignal) => Promise<unknown>,
 ): Kyoot<void, AsyncRow> =>
   fromPromise(async (signal) => {
-    for (let index = 0; index < values.length; index++) {
+    const count = values.length;
+    for (let index = 0; index < count; index++) {
       if (signal.aborted) throw new InterruptedError();
       await f(values[index]!, index, signal);
     }
@@ -64,8 +66,9 @@ export const reducePromise = <A, B>(
   f: (accumulator: B, value: A, index: number, signal: AbortSignal) => Promise<B>,
 ): Kyoot<B, AsyncRow> =>
   fromPromise(async (signal) => {
+    const count = values.length;
     let accumulator = initial;
-    for (let index = 0; index < values.length; index++) {
+    for (let index = 0; index < count; index++) {
       if (signal.aborted) throw new InterruptedError();
       accumulator = await f(accumulator, values[index]!, index, signal);
     }

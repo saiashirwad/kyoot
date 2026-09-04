@@ -102,19 +102,19 @@ Kyoot.succeed(1).flatMap((n) => Log.info(String(n)));
 
 ## Built-in effects
 
-| Module     | Ops                                                                     | Handlers                                                                                           |
-| ---------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `Fail`     | `fail(e)`                                                               | `run` (to `Result`), `catchAll(f)`, `catchTag(tag, f)`, `mapError(f)`, `orThrow`, `intercept<E>()` |
-| `Env`      | `tag<T>()("id").get()`                                                  | `tag.provide(impl)`, `tag.provide(make)`, `tag.intercept`                                          |
-| `Var`      | `tag.get()`, `tag.set(v)`, `tag.update(f)`                              | `tag.run(initial)` (to `[A, V]`), `tag.intercept`                                                  |
-| `Log`      | `info(msg)`, `warn`, `error`, `debug`                                   | `print`, `collect` (to `[A, Entry[]]`), `discard`, `intercept`                                     |
-| `Random`   | `next()`, `int(max)`                                                    | `live`, `seeded(seed)`, `intercept`                                                                |
-| `Emit`     | `value(e)`, `fromIterable(xs)`, `fromAsyncIterable(xs)`                 | `collect` (to `[A, E[]]`), `forEach(f)`, `map(f)`, `discard`, `toAsyncIterable`, `intercept<E>()`  |
-| `Sync`     | `defer(() => x)`                                                        | `run`, `intercept`                                                                                 |
-| `Resource` | `acquire(open, close)`                                                  | `run`, `intercept<S>()`                                                                            |
-| `Clock`    | `sleep(ms)`                                                             | `virtual` (to `[A, elapsedMs]`), served by `Kyoot.runPromise`, `intercept`                         |
-| `Retry`    |                                                                         | `run({ times, delay, while })`                                                                     |
-| `Async`    | `fromPromise(f)`, `fork`, `race`, `all(ks, { concurrency })`, `timeout` | served by `Kyoot.runPromise`; `timeout` can fail with `Timeout`, `intercept`                       |
+| Module     | Ops                                                                                                                                                    | Handlers                                                                                           |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| `Fail`     | `fail(e)`                                                                                                                                              | `run` (to `Result`), `catchAll(f)`, `catchTag(tag, f)`, `mapError(f)`, `orThrow`, `intercept<E>()` |
+| `Env`      | `tag<T>()("id").get()`                                                                                                                                 | `tag.provide(impl)`, `tag.provide(make)`, `tag.intercept`                                          |
+| `Var`      | `tag.get()`, `tag.set(v)`, `tag.update(f)`                                                                                                             | `tag.run(initial)` (to `[A, V]`), `tag.intercept`                                                  |
+| `Log`      | `info(msg)`, `warn`, `error`, `debug`                                                                                                                  | `print`, `collect` (to `[A, Entry[]]`), `discard`, `intercept`                                     |
+| `Random`   | `next()`, `int(max)`                                                                                                                                   | `live`, `seeded(seed)`, `intercept`                                                                |
+| `Emit`     | `value(e)`, `fromIterable(xs)`, `fromAsyncIterable(xs)`                                                                                                | `collect` (to `[A, E[]]`), `forEach(f)`, `map(f)`, `discard`, `toAsyncIterable`, `intercept<E>()`  |
+| `Sync`     | `defer(() => x)`                                                                                                                                       | `run`, `intercept`                                                                                 |
+| `Resource` | `acquire(open, close)`                                                                                                                                 | `run`, `intercept<S>()`                                                                            |
+| `Clock`    | `sleep(ms)`                                                                                                                                            | `virtual` (to `[A, elapsedMs]`), served by `Kyoot.runPromise`, `intercept`                         |
+| `Retry`    |                                                                                                                                                        | `run({ times, delay, while })`                                                                     |
+| `Async`    | `fromPromise(f)`, `mapPromise(xs, f)`, `forEachPromise(xs, f)`, `reducePromise(xs, initial, f)`, `fork`, `race`, `all(ks, { concurrency })`, `timeout` | served by `Kyoot.runPromise`; `timeout` can fail with `Timeout`, `intercept`                       |
 
 Tags are keyed by id: `Env.tag<A>()("a")` and `Env.tag<B>()("b")` are separate keys. `Env` hands out a constant; `Var` threads state.
 
@@ -188,6 +188,30 @@ A handler says what it does at a fork with `fork`:
 `fail` handlers never cross into a fiber: the failure crosses `join` and meets the handlers there.
 
 Interrupting a fiber interrupts its children and runs their finalizers; once an interrupt is delivered, the ops that follow are cleanup and run to completion. `fromPromise` passes an `AbortSignal`; give it to `fetch` and an interrupt cancels the request. A fiber yields to the event loop every few thousand steps, so a hot loop neither starves other fibers nor blocks its own interrupt (a loop inside one `Sync.defer` is one step). `runSync` never yields.
+
+### Promise batches
+
+`mapPromise`, `forEachPromise`, and `reducePromise` run a whole sequence of native Promise waits as **one** async operation:
+
+```ts
+const load = Kyoot.gen(function* () {
+  const users = yield* Async.mapPromise(ids, (id, _index, signal) => fetchUser(id, signal));
+  yield* Log.info(`loaded ${users.length} users`);
+  return users;
+});
+```
+
+A hundred separate `yield* Async.fromPromise` waits build a hundred nodes, generator yields, and pump suspensions; a batch builds one of each, so the loop costs about half the time and half the allocation (`pnpm -F @kyoot/bench bench:async-batch`). The Promise waits themselves are unchanged, and the row is still `async`, so a batch composes in a generator like any other op.
+
+The batch is deliberately one observable effect:
+
+- `Async.intercept` sees one operation, not one per item.
+- Work is sequential and keeps input order; each callback gets its index.
+- Every callback gets the operation's `AbortSignal`.
+- An interrupt stops the batch before the next item starts; the item in flight must watch the signal to stop promptly.
+- A callback rejection is a defect, like `fromPromise`. For a typed failure, return an attempt value from the callback and `Fail.fail` after the batch.
+
+Reach for separate `yield* Async.fromPromise` operations when a handler needs to intercept, trace, retry, or otherwise interpret each item on its own.
 
 ## Your own effect
 

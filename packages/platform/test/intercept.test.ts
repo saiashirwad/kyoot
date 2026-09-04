@@ -6,9 +6,11 @@ import { FileSystem, Memory } from "@kyoot/platform";
 import * as Node from "@kyoot/platform/node";
 
 const confine = (dir: string) => {
-  const root = posix.resolve("/", dir);
+  if (!posix.isAbsolute(dir)) throw new Error(`confine needs an absolute root, got ${dir}`);
+  const root = posix.resolve(dir);
   const inside = (path: string) => {
-    const resolved = posix.resolve("/", path);
+    if (!posix.isAbsolute(path)) return false;
+    const resolved = posix.resolve(path);
     return resolved === root || resolved.startsWith(root === "/" ? "/" : `${root}/`);
   };
   return FileSystem.intercept((op, next) => {
@@ -17,9 +19,9 @@ const confine = (dir: string) => {
       : op.kind === "rename" && !inside(op.to)
         ? op.to
         : null;
-    return outside === null
-      ? next(op)
-      : Fail.fail(new FileSystem.FsError(op.kind, outside, "PermissionDenied", `outside ${root}`));
+    if (outside === null) return next(op);
+    const why = posix.isAbsolute(outside) ? `outside ${root}` : `relative to no known root`;
+    return Fail.fail(new FileSystem.FsError(op.kind, outside, "PermissionDenied", why));
   });
 };
 
@@ -97,8 +99,9 @@ test("confine checks the destination of a rename, not only the source", () => {
   const program = Kyoot.gen(function* () {
     const out = yield* FileSystem.rename("/work/secret.txt", "/etc/passwd").pipe(code);
     const traversal = yield* FileSystem.rename("/work/secret.txt", "/work/../leak.txt").pipe(code);
+    const relative = yield* FileSystem.rename("/work/secret.txt", "work/leak.txt").pipe(code);
     const within = yield* FileSystem.rename("/work/secret.txt", "/work/moved.txt").pipe(code);
-    return { out, traversal, within };
+    return { out, traversal, relative, within };
   });
   const [result, files] = Kyoot.runSync(
     program.pipe(
@@ -110,7 +113,29 @@ test("confine checks the destination of a rename, not only the source", () => {
   assert.deepEqual(result, {
     out: "PermissionDenied",
     traversal: "PermissionDenied",
+    relative: "PermissionDenied",
     within: undefined,
   });
   assert.deepEqual(files, { "/work/moved.txt": "shh", "/etc/passwd": "root" });
+});
+
+test("confine takes an absolute root and rejects relative paths, which the handlers disagree on", () => {
+  assert.throws(() => confine("work"), /absolute root/);
+
+  const write = FileSystem.writeFile("work/leak.txt", "x");
+
+  // Memory.fs resolves a relative path against "/", so unchecked it lands inside the root.
+  const [, memory] = Kyoot.runSync(write.pipe(Memory.fs({ "/work/old.txt": "" }), Fail.orThrow));
+  assert.deepEqual(memory, { "/work/old.txt": "", "/work/leak.txt": "x" });
+
+  // Node.fs resolves it against the process's cwd, which is not under "/work" at all.
+  const nodePath = posix.resolve(process.cwd(), "work/leak.txt");
+  assert.equal(nodePath.startsWith("/work/"), false);
+
+  // One base cannot stand for both, so confine refuses the path instead of picking one.
+  const [denied, files] = Kyoot.runSync(
+    write.pipe(code, confine("/work"), Memory.fs({ "/work/old.txt": "" }), Fail.orThrow),
+  );
+  assert.equal(denied, "PermissionDenied");
+  assert.deepEqual(files, { "/work/old.txt": "" });
 });

@@ -9,11 +9,15 @@ const audit = FileSystem.intercept((op, next) =>
 // A prefix test is not a path boundary: both "/work-other/x".startsWith("/work") and
 // "/work/../etc/passwd".startsWith("/work") are true. Resolve the path first, then require
 // it to be the root itself or to sit under `root + "/"`, and check every path the op
-// carries — a rename also writes to `op.to`.
+// carries — a rename also writes to `op.to`. A relative path is rejected outright: the
+// check has no base for it, and the handlers disagree on one — `Memory.fs` resolves
+// against "/", `Node.fs` against the process's cwd.
 const confine = (dir: string) => {
-  const root = posix.resolve("/", dir);
+  if (!posix.isAbsolute(dir)) throw new Error(`confine needs an absolute root, got ${dir}`);
+  const root = posix.resolve(dir);
   const inside = (path: string) => {
-    const resolved = posix.resolve("/", path);
+    if (!posix.isAbsolute(path)) return false;
+    const resolved = posix.resolve(path);
     return resolved === root || resolved.startsWith(root === "/" ? "/" : `${root}/`);
   };
   return FileSystem.intercept((op, next) => {
@@ -22,9 +26,9 @@ const confine = (dir: string) => {
       : op.kind === "rename" && !inside(op.to)
         ? op.to
         : null;
-    return outside === null
-      ? next(op)
-      : Fail.fail(new FileSystem.FsError(op.kind, outside, "PermissionDenied", `outside ${root}`));
+    if (outside === null) return next(op);
+    const why = posix.isAbsolute(outside) ? `outside ${root}` : `relative to no known root`;
+    return Fail.fail(new FileSystem.FsError(op.kind, outside, "PermissionDenied", why));
   });
 };
 
@@ -41,8 +45,9 @@ const program = Kyoot.gen(function* () {
   const listing = yield* FileSystem.readDir("/work");
   const sibling = yield* FileSystem.readFile("/work-other/notes.txt").pipe(code);
   const traversal = yield* FileSystem.readFile("/work/../etc/passwd").pipe(code);
+  const relative = yield* FileSystem.readFile("work/old.txt").pipe(code);
   const moved = yield* FileSystem.rename("/work/old.txt", "/etc/passwd").pipe(code);
-  return { listing, sibling, traversal, moved };
+  return { listing, sibling, traversal, relative, moved };
 });
 
 const [result, files] = Kyoot.runSync(

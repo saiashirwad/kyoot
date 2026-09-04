@@ -41,9 +41,11 @@ const audit = FileSystem.intercept((op, next) =>
 );
 
 const confine = (dir: string) => {
-  const root = posix.resolve("/", dir);
+  if (!posix.isAbsolute(dir)) throw new Error(`confine needs an absolute root, got ${dir}`);
+  const root = posix.resolve(dir);
   const inside = (path: string) => {
-    const resolved = posix.resolve("/", path);
+    if (!posix.isAbsolute(path)) return false;
+    const resolved = posix.resolve(path);
     return resolved === root || resolved.startsWith(root === "/" ? "/" : `${root}/`);
   };
   return FileSystem.intercept((op, next) => {
@@ -52,9 +54,9 @@ const confine = (dir: string) => {
       : op.kind === "rename" && !inside(op.to)
         ? op.to
         : null;
-    return outside === null
-      ? next(op)
-      : Fail.fail(new FileSystem.FsError(op.kind, outside, "PermissionDenied", `outside ${root}`));
+    if (outside === null) return next(op);
+    const why = posix.isAbsolute(outside) ? `outside ${root}` : `relative to no known root`;
+    return Fail.fail(new FileSystem.FsError(op.kind, outside, "PermissionDenied", why));
   });
 };
 
@@ -65,7 +67,9 @@ const dryRun = FileSystem.intercept((op, next) =>
 program.pipe(audit, confine("/work"), dryRun, Node.fs);
 ```
 
-`confine` resolves before it compares, because `op.path.startsWith(root)` is not a path test: with `root = "/work"` it accepts `/work-other/x`, a sibling directory, and `/work/../outside`, which the handler resolves out of the root. It also checks every path the op carries — `rename` writes to `op.to`, so a source check alone lets `FileSystem.rename("/work/secret.txt", "/etc/passwd")` through. `Memory.fs` resolves paths the same way, against `/`; `Node.fs` resolves relative paths against the process's cwd, so give it absolute paths or resolve them against the same base before the check.
+`confine` resolves before it compares, because `op.path.startsWith(root)` is not a path test: with `root = "/work"` it accepts `/work-other/x`, a sibling directory, and `/work/../outside`, which the handler resolves out of the root. It also checks every path the op carries — `rename` writes to `op.to`, so a source check alone lets `FileSystem.rename("/work/secret.txt", "/etc/passwd")` through.
+
+Absolute paths only, on both ends. A relative path means nothing until something resolves it, and the handlers disagree on the base: `Memory.fs` resolves against `/`, so `work/leak.txt` is `/work/leak.txt` and inside the root; `Node.fs` resolves against the process's cwd, so the same string is `<cwd>/work/leak.txt` and outside it. A check that picks one base decides for a handler that will use the other, so `confine` refuses a relative `op.path` or `op.to` instead, and takes an absolute root. Resolve paths against your chosen base before they reach the intercept.
 
 That is a policy, not a jail. It is lexical: it does not follow symlinks or hard links, so a link under the root that points outside it still resolves outside once the handler opens it, and nothing here stops a path from changing between the check and the op. A real boundary is the operating system's — a container, a `chroot`, a user with no rights outside the tree — and this intercept is how you state the policy above it.
 

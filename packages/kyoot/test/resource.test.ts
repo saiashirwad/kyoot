@@ -534,3 +534,94 @@ test("runSync releases the rest of a scope when one finalizer is unhandled", () 
   assert.throws(() => Kyoot.runSync(k as never), /unhandled effect 'missing'/);
   assert.deepEqual(events, ["open a", "open b", "close a"]);
 });
+
+test("an unhandled effect while a succeeding scope finalizes releases the rest of it", async () => {
+  const events: string[] = [];
+  const Nope = effect<undefined, number>()("nope");
+  const program = () =>
+    Kyoot.gen(function* () {
+      yield* Resource.acquire(
+        () => events.push("open a"),
+        () => events.push("close a"),
+      );
+      yield* Resource.acquire(
+        () => events.push("open b"),
+        () => Nope(undefined),
+      );
+      return "done";
+    }).pipe(Resource.run);
+  assert.throws(() => Kyoot.runSync(program() as never), /unhandled effect 'nope'/);
+  assert.deepEqual(events, ["open a", "open b", "close a"]);
+  events.length = 0;
+  await assert.rejects(Kyoot.runPromise(program() as never), /unhandled effect 'nope'/);
+  assert.deepEqual(events, ["open a", "open b", "close a"]);
+});
+
+test("a failure already in flight outranks an unhandled effect in a finalizer", async () => {
+  const events: string[] = [];
+  const Nope = effect<undefined, number>()("nope");
+  const boom = new Error("program boom");
+  const program = () =>
+    Kyoot.gen(function* () {
+      yield* Resource.acquire(
+        () => events.push("open a"),
+        () => events.push("close a"),
+      );
+      yield* Resource.acquire(
+        () => events.push("open b"),
+        () => Nope(undefined),
+      );
+      throw boom;
+    }).pipe(Resource.run);
+  assert.throws(() => Kyoot.runSync(program() as never), /program boom/);
+  assert.deepEqual(events, ["open a", "open b", "close a"]);
+  events.length = 0;
+  await assert.rejects(Kyoot.runPromise(program() as never), /program boom/);
+  assert.deepEqual(events, ["open a", "open b", "close a"]);
+});
+
+test("an unhandled effect in a finalizer does not turn an interrupt into a defect", async () => {
+  const events: string[] = [];
+  const Nope = effect<undefined, number>()("nope");
+  const r = await Kyoot.runPromise(
+    Kyoot.gen(function* () {
+      const fiber = yield* Async.fork(
+        Kyoot.gen(function* () {
+          yield* Resource.acquire(
+            () => events.push("open a"),
+            () => events.push("close a"),
+          );
+          yield* Resource.acquire(
+            () => events.push("open b"),
+            () => Nope(undefined),
+          );
+          yield* Clock.sleep(10_000);
+        }).pipe(Resource.run),
+      );
+      yield* Clock.sleep(5);
+      yield* fiber.interrupt;
+      return yield* fiber.await;
+    }),
+  );
+  assert.ok(!r.ok && r.cause._tag === "Interrupted");
+  assert.deepEqual(events, ["open a", "open b", "close a"]);
+});
+
+test("recovering from an unhandled effect does not make the run succeed", async () => {
+  const events: string[] = [];
+  const Missing = effect<string, number>()("missing");
+  const program = () =>
+    Kyoot.gen(function* () {
+      yield* Resource.acquire(
+        () => events.push("open"),
+        () => events.push("close"),
+      );
+      yield* Missing("x");
+      return "unreachable";
+    }).pipe(Resource.run, Fail.run);
+  assert.throws(() => Kyoot.runSync(program() as never), /unhandled effect 'missing'/);
+  assert.deepEqual(events, ["open", "close"]);
+  events.length = 0;
+  await assert.rejects(Kyoot.runPromise(program() as never), /unhandled effect 'missing'/);
+  assert.deepEqual(events, ["open", "close"]);
+});

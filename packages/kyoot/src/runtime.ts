@@ -20,8 +20,8 @@ export function runSync<A, S extends Row>(k: Kyoot<A, S> & Only<S>): A {
     if (machine.start(k as AnyKyoot) === "done") return machine.value as A;
     const unserved = (key: PropertyKey) => unhandledEffect("runSync", key);
     const error = unserved(machine.key);
-    machine.discard(unserved);
-    throw error;
+    const escaped = machine.discard(unserved);
+    throw escaped === undefined ? error : escaped;
   } finally {
     machine.reset();
     spare = machine;
@@ -110,7 +110,7 @@ class Fiber<A> implements FiberHandle<A> {
     try {
       this.pump(this.machine.start(k, STEP_BUDGET));
     } catch (error) {
-      this.reject(this.failure ?? error);
+      this.reject(error);
     }
   }
 
@@ -143,7 +143,7 @@ class Fiber<A> implements FiberHandle<A> {
             : machine.continue(STEP_BUDGET),
       );
     } catch (error) {
-      this.reject(this.failure ?? error);
+      this.reject(error);
     }
   }
 
@@ -156,7 +156,7 @@ class Fiber<A> implements FiberHandle<A> {
     try {
       this.pump(this.machine.raise(new InterruptedError(), STEP_BUDGET));
     } catch (error) {
-      this.reject(this.failure ?? error);
+      this.reject(error);
     }
   }
 
@@ -170,6 +170,8 @@ class Fiber<A> implements FiberHandle<A> {
     let outcome = initial;
     while (true) {
       if (outcome === "done") {
+        // A recorded failure means something recovered from an unserved op and the program carried
+        // on. It ran to the end, but it did not succeed: the op nothing could answer is the result.
         if (this.failure !== undefined) this.reject(this.failure);
         else this.resolve(machine.value as A);
         return;
@@ -183,18 +185,14 @@ class Fiber<A> implements FiberHandle<A> {
 
       const { key, payload, handlers } = machine;
       if (!served(key)) {
-        // Unwind first so the finalizers still on the stack run -- including async ones, which is
-        // why this cannot be a plain reject. The original error is what the caller finally sees.
+        // Nothing can answer this op, so fail at it and keep driving: the finalizers still on the
+        // stack -- including async ones, which is why this cannot be a plain reject -- get to run,
+        // and a scope releasing itself can absorb the defect and finish the rest of its own. An
+        // interrupt would be blunter than it needs to be here: it tears through those loops.
         const error = unhandledEffect("fiber", key);
-        if (this.failure === undefined) {
-          this.failure = error;
-          this.interrupted = true;
-          outcome = machine.raise(new InterruptedError(), STEP_BUDGET);
-        } else {
-          // A finalizer performed it. Fail at its op so the scope releasing it can absorb the
-          // defect and carry on; a second interrupt would abandon everything it has left.
-          outcome = machine.raise(error, STEP_BUDGET);
-        }
+        this.failure ??= error;
+        this.interrupted = true;
+        outcome = machine.raise(error, STEP_BUDGET);
         continue;
       }
 

@@ -11,24 +11,33 @@ const audit = FileSystem.intercept((op, next) =>
 // it to be the root itself or to sit under `root + "/"`, and check every path the op
 // carries — a rename also writes to `op.to`. A relative path is rejected outright: the
 // check has no base for it, and the handlers disagree on one — `Memory.fs` resolves
-// against "/", `Node.fs` against the process's cwd.
+// against "/", `Node.fs` against the process's cwd. So is a path holding a backslash: this
+// check reads POSIX paths, where a backslash is an ordinary character, while `Node.fs` on
+// Windows reads it as a separator, so /work/sub\..\..\etc/passwd would leave the root.
 const confine = (dir: string) => {
-  if (!posix.isAbsolute(dir)) throw new Error(`confine needs an absolute root, got ${dir}`);
+  if (!posix.isAbsolute(dir) || dir.includes("\\"))
+    throw new Error(`confine needs an absolute POSIX root, got ${dir}`);
   const root = posix.resolve(dir);
   const inside = (path: string) => {
-    if (!posix.isAbsolute(path)) return false;
+    if (path.includes("\\") || !posix.isAbsolute(path)) return false;
     const resolved = posix.resolve(path);
     return resolved === root || resolved.startsWith(root === "/" ? "/" : `${root}/`);
   };
+  const why = (path: string) =>
+    path.includes("\\")
+      ? "backslashes are not POSIX separators"
+      : posix.isAbsolute(path)
+        ? `outside ${root}`
+        : "relative to no known root";
   return FileSystem.intercept((op, next) => {
     const outside = !inside(op.path)
       ? op.path
       : op.kind === "rename" && !inside(op.to)
         ? op.to
         : null;
-    if (outside === null) return next(op);
-    const why = posix.isAbsolute(outside) ? `outside ${root}` : `relative to no known root`;
-    return Fail.fail(new FileSystem.FsError(op.kind, outside, "PermissionDenied", why));
+    return outside === null
+      ? next(op)
+      : Fail.fail(new FileSystem.FsError(op.kind, outside, "PermissionDenied", why(outside)));
   });
 };
 
@@ -46,8 +55,9 @@ const program = Kyoot.gen(function* () {
   const sibling = yield* FileSystem.readFile("/work-other/notes.txt").pipe(code);
   const traversal = yield* FileSystem.readFile("/work/../etc/passwd").pipe(code);
   const relative = yield* FileSystem.readFile("work/old.txt").pipe(code);
+  const backslash = yield* FileSystem.readFile("/work/sub\\..\\..\\etc\\passwd").pipe(code);
   const moved = yield* FileSystem.rename("/work/old.txt", "/etc/passwd").pipe(code);
-  return { listing, sibling, traversal, relative, moved };
+  return { listing, sibling, traversal, relative, backslash, moved };
 });
 
 const [result, files] = Kyoot.runSync(

@@ -6,22 +6,29 @@ import { FileSystem, Memory } from "@kyoot/platform";
 import * as Node from "@kyoot/platform/node";
 
 const confine = (dir: string) => {
-  if (!posix.isAbsolute(dir)) throw new Error(`confine needs an absolute root, got ${dir}`);
+  if (!posix.isAbsolute(dir) || dir.includes("\\"))
+    throw new Error(`confine needs an absolute POSIX root, got ${dir}`);
   const root = posix.resolve(dir);
   const inside = (path: string) => {
-    if (!posix.isAbsolute(path)) return false;
+    if (path.includes("\\") || !posix.isAbsolute(path)) return false;
     const resolved = posix.resolve(path);
     return resolved === root || resolved.startsWith(root === "/" ? "/" : `${root}/`);
   };
+  const why = (path: string) =>
+    path.includes("\\")
+      ? "backslashes are not POSIX separators"
+      : posix.isAbsolute(path)
+        ? `outside ${root}`
+        : "relative to no known root";
   return FileSystem.intercept((op, next) => {
     const outside = !inside(op.path)
       ? op.path
       : op.kind === "rename" && !inside(op.to)
         ? op.to
         : null;
-    if (outside === null) return next(op);
-    const why = posix.isAbsolute(outside) ? `outside ${root}` : `relative to no known root`;
-    return Fail.fail(new FileSystem.FsError(op.kind, outside, "PermissionDenied", why));
+    return outside === null
+      ? next(op)
+      : Fail.fail(new FileSystem.FsError(op.kind, outside, "PermissionDenied", why(outside)));
   });
 };
 
@@ -120,7 +127,7 @@ test("confine checks the destination of a rename, not only the source", () => {
 });
 
 test("confine takes an absolute root and rejects relative paths, which the handlers disagree on", () => {
-  assert.throws(() => confine("work"), /absolute root/);
+  assert.throws(() => confine("work"), /absolute POSIX root/);
 
   const write = FileSystem.writeFile("work/leak.txt", "x");
 
@@ -138,4 +145,31 @@ test("confine takes an absolute root and rejects relative paths, which the handl
   );
   assert.equal(denied, "PermissionDenied");
   assert.deepEqual(files, { "/work/old.txt": "" });
+});
+
+test("confine rejects backslashes, which Node.fs on Windows reads as separators", () => {
+  // posix.resolve keeps a backslash as an ordinary character, so these paths look like one
+  // long name inside the root; Node.fs on Windows would read them as separators and leave it.
+  assert.throws(() => confine("/work\\sub"), /absolute POSIX root/);
+  assert.equal(posix.resolve("/work/sub\\..\\..\\etc\\passwd"), "/work/sub\\..\\..\\etc\\passwd");
+
+  const program = Kyoot.gen(function* () {
+    const mixed = yield* FileSystem.readFile("/work/sub\\..\\..\\etc\\passwd").pipe(code);
+    const drive = yield* FileSystem.readFile("C:\\work\\secret.txt").pipe(code);
+    const moved = yield* FileSystem.rename("/work/secret.txt", "/work/sub\\..\\..\\leak.txt").pipe(
+      code,
+    );
+    const within = yield* FileSystem.rename("/work/secret.txt", "/work/moved.txt").pipe(code);
+    return { mixed, drive, moved, within };
+  });
+  const [result, files] = Kyoot.runSync(
+    program.pipe(confine("/work"), Memory.fs({ "/work/secret.txt": "shh" }), Fail.orThrow),
+  );
+  assert.deepEqual(result, {
+    mixed: "PermissionDenied",
+    drive: "PermissionDenied",
+    moved: "PermissionDenied",
+    within: undefined,
+  });
+  assert.deepEqual(files, { "/work/moved.txt": "shh" });
 });

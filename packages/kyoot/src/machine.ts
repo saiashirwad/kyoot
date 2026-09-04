@@ -152,19 +152,42 @@ const unwinding = (entries: readonly StackEntry[], from = 0): AnyKyoot | undefin
   });
 };
 
-// Closes every generator frame left on a stack that has nowhere to go, innermost
-// first, then reports the first `finally` that threw.
+// Closes every generator frame a machine leaves behind when it stops with a stack:
+// the frames on it, and the ones parked inside a continuation a handler is still
+// holding or has claimed and never restored. Cleanup that performs effects is not
+// run — there is no machine left to run it on. Each frame lives in exactly one of
+// these arrays, and a holder sits at its own `captured[0]`, so skipping that slot
+// visits every frame once. The first `finally` that threw is reported at the end.
 const closeAll = (entries: readonly StackEntry[]): void => {
   let raised: { error: unknown } | undefined;
-  for (let i = entries.length - 1; i >= 0; i--) {
-    const entry = entries[i]!;
-    if (!(entry instanceof GeneratorFrame)) continue;
-    try {
-      entry.close();
-    } catch (error) {
-      raised ??= { error };
+  // A handler that has held more than once leaves earlier settle frames on the
+  // stack, so the same continuation can be reached twice; walk each array once.
+  let seen: Set<readonly StackEntry[]> | undefined;
+  const walk = (frames: readonly StackEntry[], from: number): void => {
+    for (let i = frames.length - 1; i >= from; i--) {
+      const entry = frames[i]!;
+      if (entry instanceof GeneratorFrame) {
+        try {
+          entry.close();
+        } catch (error) {
+          raised ??= { error };
+        }
+        continue;
+      }
+      const captured =
+        entry instanceof SettleFrame
+          ? entry.frame.captured
+          : entry instanceof HandlerFrame
+            ? entry.captured
+            : undefined;
+      if (captured === undefined) continue;
+      seen ??= new Set();
+      if (seen.has(captured)) continue;
+      seen.add(captured);
+      walk(captured, 1);
     }
-  }
+  };
+  walk(entries, 0);
   if (raised !== undefined) throw raised.error;
 };
 
@@ -382,10 +405,12 @@ export class Machine {
     }
 
     frame.captured = this.stack.splice(index);
-    if ((frame.status as Status) !== "resumed") {
-      frame.status = "held";
-      this.stack.push(new SettleFrame(frame));
-    }
+    if ((frame.status as Status) !== "resumed") frame.status = "held";
+    // A settle frame marks where the continuation was taken from, for a held frame
+    // so a drop can unwind it, and for one already claimed so a machine that stops
+    // before the resume lands can still close the generators parked in it. It is
+    // inert once the frame is no longer held.
+    this.stack.push(new SettleFrame(frame));
     this.current = output;
     this.phase = "node";
     return undefined;

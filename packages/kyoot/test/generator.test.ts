@@ -3,6 +3,9 @@ import { test } from "node:test";
 import { Async, Clock, effect, Fail, Kyoot, Resource, Sync } from "../src/index.ts";
 
 const Stop = effect<string, never>()("stop");
+const Hold = effect<undefined, undefined>()("hold");
+const Relay = effect<undefined, undefined>()("relay");
+const Missing = effect<undefined, never>()("missing");
 
 test("generator: finally runs when Fail.run drops the continuation", () => {
   const events: string[] = [];
@@ -269,6 +272,70 @@ test("generator: finally runs in the loser of a race", async () => {
       ),
     ),
     "fast",
+  );
+  assert.deepEqual(events, ["finally"]);
+});
+
+test("generator: a drop that ends in an unhandled effect still closes the frame", () => {
+  const events: string[] = [];
+  const prog = Kyoot.gen(function* () {
+    try {
+      yield* Stop("now");
+    } finally {
+      events.push("finally");
+    }
+  }).pipe(Stop.handle({ onOp: () => Missing(undefined) }));
+  assert.throws(
+    () => Kyoot.runSync(prog as never),
+    (e: unknown) => e instanceof Error && e.message.includes("unhandled effect 'missing'"),
+  );
+  assert.deepEqual(events, ["finally"]);
+});
+
+test("generator: nested held continuations all close when the machine stops", () => {
+  const events: string[] = [];
+  const prog = Kyoot.gen(function* () {
+    try {
+      yield* Kyoot.gen(function* () {
+        try {
+          yield* Relay(undefined);
+        } finally {
+          events.push("inner");
+        }
+      });
+    } finally {
+      events.push("outer");
+    }
+  }).pipe(
+    Relay.handle({ onOp: (_payload, resume) => Hold(undefined).flatMap(() => resume(undefined)) }),
+    Hold.handle({ onOp: () => Missing(undefined) }),
+  );
+  assert.throws(
+    () => Kyoot.runSync(prog as never),
+    (e: unknown) => e instanceof Error && e.message.includes("unhandled effect 'missing'"),
+  );
+  assert.deepEqual(events, ["inner", "outer"]);
+});
+
+test("generator: a claimed continuation that never lands closes too", () => {
+  const events: string[] = [];
+  const prog = Kyoot.gen(function* () {
+    try {
+      yield* Hold(undefined);
+    } finally {
+      events.push("finally");
+    }
+  }).pipe(
+    Hold.handle({
+      onOp: (_payload, resume) => {
+        const landing = resume(undefined);
+        return Missing(undefined).flatMap(() => landing);
+      },
+    }),
+  );
+  assert.throws(
+    () => Kyoot.runSync(prog as never),
+    (e: unknown) => e instanceof Error && e.message.includes("unhandled effect 'missing'"),
   );
   assert.deepEqual(events, ["finally"]);
 });

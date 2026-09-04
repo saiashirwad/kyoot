@@ -20,8 +20,8 @@ export function runSync<A, S extends Row>(k: Kyoot<A, S> & Only<S>): A {
     if (machine.start(k as AnyKyoot) === "done") return machine.value as A;
     const unserved = (key: PropertyKey) => unhandledEffect("runSync", key);
     const error = unserved(machine.key);
-    const escaped = machine.discard(unserved);
-    throw escaped === undefined ? error : escaped;
+    machine.discard(unserved);
+    throw error;
   } finally {
     machine.reset();
     spare = machine;

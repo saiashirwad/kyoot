@@ -625,3 +625,31 @@ test("recovering from an unhandled effect does not make the run succeed", async 
   await assert.rejects(Kyoot.runPromise(program() as never), /unhandled effect 'missing'/);
   assert.deepEqual(events, ["open", "close"]);
 });
+
+test("a cleanup handler that throws undefined reports undefined, not the unhandled effect", async () => {
+  const Missing = effect<string, number>()("missing");
+  const Guard = effect<string, number>()("guard");
+  const program = () =>
+    Kyoot.gen(function* () {
+      yield* Missing("x");
+      return "unreachable";
+    }).pipe(
+      Guard.handle({
+        onOp: (_, resume) => resume(0),
+        onDefect: () => {
+          throw undefined;
+        },
+      }),
+    );
+  let thrown: unknown = "nothing thrown";
+  try {
+    Kyoot.runSync(program() as never);
+  } catch (e) {
+    thrown = e;
+  }
+  assert.equal(thrown, undefined);
+  await Kyoot.runPromise(program() as never).then(
+    () => assert.fail("expected a rejection"),
+    (e: unknown) => assert.equal(e, undefined),
+  );
+});

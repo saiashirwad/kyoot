@@ -164,17 +164,13 @@ export class Machine {
   // Called when a run stops at an effect nothing can serve: the stack still holds handler frames
   // and captured continuations whose finalizers nobody else will run. `unserved` builds the error
   // for that effect, which is raised at the op that performed it -- a defect, so a scope releasing
-  // itself can absorb it and finish the rest of its finalizers. Returns whatever finally escaped,
-  // which the caller reports instead: a failure already in flight outranks a finalizer's.
-  discard(unserved: (key: PropertyKey) => unknown): unknown {
+  // itself can absorb it and finish the rest of its finalizers. Whatever finally escapes is thrown
+  // on to the caller to report: a failure already in flight outranks a finalizer's. Returning is
+  // how this says nothing escaped -- something recovered, or there was nothing left to release.
+  discard(unserved: (key: PropertyKey) => unknown): void {
     while (this.stack.length > 0) {
-      try {
-        if (this.advance(Infinity, true, unserved(this.key)) !== "suspended") return undefined;
-      } catch (escaped) {
-        return escaped;
-      }
+      if (this.advance(Infinity, true, unserved(this.key)) !== "suspended") return;
     }
-    return undefined;
   }
 
   reset(): void {

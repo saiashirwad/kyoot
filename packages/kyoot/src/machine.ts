@@ -15,11 +15,22 @@ type FlatMapNode = Extract<RuntimeNode, { _tag: "flatMap" }>;
 
 export type Outcome = "done" | "suspended" | "yielded";
 
+const FINALLY_YIELDED =
+  "a generator finally yielded an effect while the machine was closing it; use Resource for cleanup that performs effects";
+
 class GeneratorFrame {
   readonly generator: Generator<AnyKyoot, unknown, unknown>;
 
   constructor(generator: Generator<AnyKyoot, unknown, unknown>) {
     this.generator = generator;
+  }
+
+  // Closes an abandoned frame the way the language does, so its `finally` blocks run.
+  // A `finally` that yields cannot be honoured: the handlers that gave its effects
+  // meaning are already off the stack. The frame stays parked at that yield and the
+  // drop is reported as a defect rather than half-run.
+  close(): void {
+    if (!this.generator.return(undefined).done) throw new Error(FINALLY_YIELDED);
   }
 }
 
@@ -89,9 +100,29 @@ const rethrow = (error: unknown) => () => {
 
 const unwinding = (entries: readonly StackEntry[], from = 0): AnyKyoot | undefined => {
   let steps: Array<() => AnyKyoot | undefined> | undefined;
+  let raised: { error: unknown } | undefined;
+  let deferred = false;
+  const closing = (frame: GeneratorFrame) => {
+    try {
+      frame.close();
+    } catch (error) {
+      raised ??= { error };
+    }
+  };
   for (let i = entries.length - 1; i >= from; i--) {
     const entry = entries[i]!;
-    if (entry instanceof SettleFrame) {
+    if (entry instanceof GeneratorFrame) {
+      // Innermost first. Closing runs synchronously, so a frame only needs a step of
+      // its own once cleanup programs are queued ahead of it.
+      if (steps === undefined) closing(entry);
+      else {
+        deferred = true;
+        steps.push(() => {
+          closing(entry);
+          return undefined;
+        });
+      }
+    } else if (entry instanceof SettleFrame) {
       const inner = dropHeld(entry.frame);
       if (inner !== undefined) (steps ??= []).push(() => inner);
     } else if (entry instanceof HandlerFrame) {
@@ -103,6 +134,14 @@ const unwinding = (entries: readonly StackEntry[], from = 0): AnyKyoot | undefin
       });
     }
   }
+  // A throwing `finally` never costs the rest of the walk its cleanup: it surfaces
+  // as a defect once every other step has run.
+  if (raised !== undefined || deferred) {
+    (steps ??= []).push(() => {
+      if (raised !== undefined) throw raised.error;
+      return undefined;
+    });
+  }
   if (steps === undefined) return undefined;
   const run = steps;
   return genNode(function* () {
@@ -111,6 +150,22 @@ const unwinding = (entries: readonly StackEntry[], from = 0): AnyKyoot | undefin
       if (k !== undefined) yield* k;
     }
   });
+};
+
+// Closes every generator frame left on a stack that has nowhere to go, innermost
+// first, then reports the first `finally` that threw.
+const closeAll = (entries: readonly StackEntry[]): void => {
+  let raised: { error: unknown } | undefined;
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i]!;
+    if (!(entry instanceof GeneratorFrame)) continue;
+    try {
+      entry.close();
+    } catch (error) {
+      raised ??= { error };
+    }
+  }
+  if (raised !== undefined) throw raised.error;
 };
 
 const dropHeld = (frame: HandlerFrame): AnyKyoot | undefined => {
@@ -160,13 +215,17 @@ export class Machine {
   }
 
   reset(): void {
-    if (this.stack.length !== 0) this.stack.length = 0;
+    const abandoned = this.stack.length === 0 ? undefined : this.stack.slice();
+    if (abandoned !== undefined) this.stack.length = 0;
     this.state = "idle";
     this.phase = "node";
     this.current = undefined!;
     this.value = undefined;
     this.payload = undefined;
     this.handlers = undefined;
+    // Everything above is cleared first: the machine is reusable even if a
+    // `finally` throws on the way out.
+    if (abandoned !== undefined) closeAll(abandoned);
   }
 
   private advance(budget: number, failed = false, error?: unknown): Outcome {
@@ -361,6 +420,12 @@ export class Machine {
     const interrupted = error instanceof InterruptedError;
     while (this.stack.length > 0) {
       const entry = this.stack.pop();
+      if (entry instanceof GeneratorFrame) {
+        // A `finally` that throws replaces the error in flight, as it does in
+        // JavaScript; the stack below it still unwinds.
+        entry.close();
+        continue;
+      }
       if (entry instanceof SettleFrame) {
         const fin = dropHeld(entry.frame);
         if (fin !== undefined) return this.cleanupThen(fin, error);

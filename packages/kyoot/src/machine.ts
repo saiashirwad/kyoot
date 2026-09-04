@@ -43,8 +43,7 @@ class HandlerFrame {
   resumeKind: "value" | "program" = "value";
   resumeValue: unknown;
   nextState: unknown;
-  token: KyootImpl<any, any> | undefined;
-  resume: RuntimeResume | undefined;
+  epoch = 0;
 
   constructor(handler: HandlerNode) {
     this.handler = handler;
@@ -52,26 +51,27 @@ class HandlerFrame {
     this.state = hooks.create === undefined ? hooks.initial : hooks.create();
   }
 
-  claim(kind: "value" | "program", value: unknown, state: unknown): AnyKyoot {
+  claim(epoch: number, kind: "value" | "program", value: unknown, state: unknown): AnyKyoot {
     if (this.status !== "armed" && this.status !== "held") {
       throw new Error(
         this.status === "dropped" ? "continuation resumed after it was dropped" : ONE_SHOT,
       );
     }
+    if (epoch !== this.epoch) throw new Error(ONE_SHOT);
     this.status = "resumed";
     this.resumeKind = kind;
     this.resumeValue = value;
     this.nextState = state;
-    return (this.token ??= new KyootImpl("resume", this));
+    return new KyootImpl("resume", this, epoch);
   }
 }
 
-const makeResume = (frame: HandlerFrame): RuntimeResume => {
+const makeResume = (frame: HandlerFrame, epoch: number): RuntimeResume => {
   const resume = function (value: unknown, state?: unknown): AnyKyoot {
-    return frame.claim("value", value, arguments.length > 1 ? state : frame.state);
+    return frame.claim(epoch, "value", value, arguments.length > 1 ? state : frame.state);
   };
   resume.with = function (program: AnyKyoot, state?: unknown): AnyKyoot {
-    return frame.claim("program", program, arguments.length > 1 ? state : frame.state);
+    return frame.claim(epoch, "program", program, arguments.length > 1 ? state : frame.state);
   };
   return resume;
 };
@@ -227,7 +227,7 @@ export class Machine {
             this.current = node.a;
             break;
           case "resume":
-            this.restore(node.a as HandlerFrame);
+            this.restore(node.a as HandlerFrame, node.b);
             break;
         }
         continue;
@@ -300,8 +300,12 @@ export class Machine {
     frame.status = "armed";
     let output: AnyKyoot;
     try {
-      const resume = (frame.resume ??= makeResume(frame));
-      output = frame.handler.c.onOp(node.b, resume, frame.state, inherited);
+      output = frame.handler.c.onOp(
+        node.b,
+        makeResume(frame, ++frame.epoch),
+        frame.state,
+        inherited,
+      );
     } catch (error) {
       frame.status = "idle";
       const crossed = this.stack.splice(index + 1);
@@ -317,7 +321,8 @@ export class Machine {
       return undefined;
     }
 
-    if (output === frame.token) {
+    const returned = output[NodeSym];
+    if (returned._tag === "resume" && returned.a === frame && returned.b === frame.epoch) {
       this.continueFrom(frame);
       return undefined;
     }
@@ -332,9 +337,9 @@ export class Machine {
     return undefined;
   }
 
-  private restore(frame: HandlerFrame): void {
+  private restore(frame: HandlerFrame, epoch: number): void {
     const captured = frame.captured;
-    if (captured === undefined) throw new Error(ONE_SHOT);
+    if (captured === undefined || epoch !== frame.epoch) throw new Error(ONE_SHOT);
     frame.captured = undefined;
     for (let i = 0; i < captured.length; i++) this.stack.push(captured[i]!);
     this.continueFrom(frame);

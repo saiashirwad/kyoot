@@ -149,6 +149,118 @@ test("a continuation may only be resumed once", () => {
   assert.throws(() => Kyoot.runSync(k as never), /continuation resumed twice \(one-shot law\)/);
 });
 
+test("a resume saved from one operation cannot answer a later operation", () => {
+  const Ask = effect<string, number>()("ask");
+  let saved: ((n: number) => Kyoot<never>) | undefined;
+  let calls = 0;
+  const k = Kyoot.gen(function* () {
+    return [yield* Ask("first"), yield* Ask("second")];
+  }).pipe(
+    Ask.handle({
+      onOp: (_p, resume) => {
+        if (++calls === 1) {
+          saved = resume;
+          return resume(1);
+        }
+        assert.notEqual(saved, resume);
+        return saved!(99);
+      },
+    }),
+  );
+  assert.throws(() => Kyoot.runSync(k), /continuation resumed twice \(one-shot law\)/);
+});
+
+test("a resume.with saved from one operation cannot answer a later operation", () => {
+  const Ask = effect<string, number>()("ask");
+  let saved: { with: (k: Kyoot<number>) => Kyoot<never> } | undefined;
+  let calls = 0;
+  const k = Kyoot.gen(function* () {
+    return [yield* Ask("first"), yield* Ask("second")];
+  }).pipe(
+    Ask.handle({
+      onOp: (_p, resume) => {
+        if (++calls === 1) {
+          saved = resume;
+          return resume(1);
+        }
+        return saved!.with(Kyoot.succeed(99));
+      },
+    }),
+  );
+  assert.throws(() => Kyoot.runSync(k), /continuation resumed twice \(one-shot law\)/);
+});
+
+test("a resume token saved from one operation cannot answer a later operation", () => {
+  const Ask = effect<string, number>()("ask");
+  let token: Kyoot<never> | undefined;
+  let calls = 0;
+  const k = Kyoot.gen(function* () {
+    return [yield* Ask("first"), yield* Ask("second")];
+  }).pipe(
+    Ask.handle({
+      onOp: (_p, resume) => {
+        if (++calls === 1) {
+          token = resume(1);
+          return token;
+        }
+        return token!;
+      },
+    }),
+  );
+  assert.throws(() => Kyoot.runSync(k), /continuation resumed twice \(one-shot law\)/);
+});
+
+test("a resume.with token saved from one operation cannot answer a later operation", () => {
+  const Ask = effect<string, number>()("ask");
+  let token: Kyoot<never> | undefined;
+  let calls = 0;
+  const k = Kyoot.gen(function* () {
+    return [yield* Ask("first"), yield* Ask("second")];
+  }).pipe(
+    Ask.handle({
+      onOp: (_p, resume) => {
+        if (++calls === 1) {
+          token = resume.with(Kyoot.succeed(1));
+          return token;
+        }
+        return token!;
+      },
+    }),
+  );
+  assert.throws(() => Kyoot.runSync(k), /continuation resumed twice \(one-shot law\)/);
+});
+
+test("every operation gets its own continuation, and each one still answers its own op", () => {
+  const Ask = effect<string, number>()("ask");
+  const seen: unknown[] = [];
+  let calls = 0;
+  const k = Kyoot.gen(function* () {
+    return [yield* Ask("a"), yield* Ask("b"), yield* Ask("c")];
+  }).pipe(
+    Ask.handle({
+      onOp: (_p, resume) => {
+        seen.push(resume);
+        return resume(++calls);
+      },
+    }),
+  );
+  assert.deepEqual(Kyoot.runSync(k), [1, 2, 3]);
+  assert.equal(new Set(seen).size, 3);
+});
+
+test("a continuation held past its op still resumes that op when the handler returns to it", () => {
+  const Ask = effect<string, number>()("ask");
+  let calls = 0;
+  const k = Kyoot.gen(function* () {
+    return [yield* Ask("a"), yield* Ask("b")];
+  }).pipe(
+    Ask.handle({
+      onOp: (_p, resume) => Kyoot.succeed(++calls).flatMap((n) => resume(n)),
+    }),
+  );
+  assert.deepEqual(Kyoot.runSync(k), [1, 2]);
+});
+
 test("a handler that resumes zero times short-circuits", () => {
   const k = makeHandler(
     "myfx",

@@ -128,8 +128,7 @@ test("confine takes an absolute root and rejects relative paths, which the handl
   const [, memory] = Kyoot.runSync(write.pipe(Memory.fs({ "/work/old.txt": "" }), Fail.orThrow));
   assert.deepEqual(memory, { "/work/old.txt": "", "/work/leak.txt": "x" });
 
-  // Node.fs resolves it against the process's cwd, so the same string names another file
-  // under every cwd but "/work" itself — here a cwd of "/srv/app".
+  // Node.fs resolves it against the process's cwd: two bases, two different files.
   assert.equal(posix.resolve("/", "work/leak.txt"), "/work/leak.txt");
   assert.equal(posix.resolve("/srv/app", "work/leak.txt"), "/srv/app/work/leak.txt");
 

@@ -1,8 +1,29 @@
 import assert from "node:assert/strict";
+import { posix } from "node:path";
 import { test } from "node:test";
 import { Fail, Kyoot, Log } from "kyoot";
 import { FileSystem, Memory } from "@kyoot/platform";
 import * as Node from "@kyoot/platform/node";
+
+const confine = (dir: string) => {
+  const root = posix.resolve("/", dir);
+  const inside = (path: string) => {
+    const resolved = posix.resolve("/", path);
+    return resolved === root || resolved.startsWith(root === "/" ? "/" : `${root}/`);
+  };
+  return FileSystem.intercept((op, next) => {
+    const outside = !inside(op.path)
+      ? op.path
+      : op.kind === "rename" && !inside(op.to)
+        ? op.to
+        : null;
+    return outside === null
+      ? next(op)
+      : Fail.fail(new FileSystem.FsError(op.kind, outside, "PermissionDenied", `outside ${root}`));
+  });
+};
+
+const code = Fail.catchTag("FsError", (e: FileSystem.FsError) => Kyoot.succeed(e.code));
 
 test("a failure lands at the op, where the program's own catch sees it", async () => {
   const program = FileSystem.readFile("/nope").pipe(
@@ -16,27 +37,19 @@ test("handlers between the program and the file system see every op", () => {
   const audit = FileSystem.intercept((op, next) =>
     Log.info(`${op.kind} ${op.path}`).flatMap(() => next(op)),
   );
-  const sandbox = (root: string) =>
-    FileSystem.intercept((op, next) =>
-      op.path.startsWith(root)
-        ? next(op)
-        : Fail.fail(new FileSystem.FsError(op.kind, op.path, "PermissionDenied", "sandbox")),
-    );
   const dryRun = FileSystem.intercept((op, next) =>
     op.kind === "writeFile" ? Log.warn(`skipped ${op.path}`) : next(op),
   );
   const program = Kyoot.gen(function* () {
     yield* FileSystem.writeFile("/work/new.txt", "x");
     const listing = yield* FileSystem.readDir("/work");
-    const leaked = yield* FileSystem.readFile("/etc/passwd").pipe(
-      Fail.catchTag("FsError", (e: FileSystem.FsError) => Kyoot.succeed(e.code)),
-    );
+    const leaked = yield* FileSystem.readFile("/etc/passwd").pipe(code);
     return { listing, leaked };
   });
   const [[result, files], logs] = Kyoot.runSync(
     program.pipe(
       audit,
-      sandbox("/work"),
+      confine("/work"),
       dryRun,
       Memory.fs({ "/work/old.txt": "", "/etc/passwd": "root" }),
       Log.collect,
@@ -49,4 +62,55 @@ test("handlers between the program and the file system see every op", () => {
     logs.map((l) => l.message),
     ["writeFile /work/new.txt", "skipped /work/new.txt", "readDir /work", "readFile /etc/passwd"],
   );
+});
+
+test("confine rejects a sibling of the root, and a traversal out of it", () => {
+  const program = Kyoot.gen(function* () {
+    const root = yield* FileSystem.readDir("/work");
+    const child = yield* FileSystem.readFile("/work/old.txt").pipe(code);
+    const sibling = yield* FileSystem.readFile("/work-other/notes.txt").pipe(code);
+    const traversal = yield* FileSystem.readFile("/work/../etc/passwd").pipe(code);
+    const backOut = yield* FileSystem.readFile("/work/sub/../../etc/passwd").pipe(code);
+    return { root, child, sibling, traversal, backOut };
+  });
+  const [result] = Kyoot.runSync(
+    program.pipe(
+      confine("/work"),
+      Memory.fs({
+        "/work/old.txt": "kept",
+        "/work-other/notes.txt": "sibling",
+        "/etc/passwd": "root",
+      }),
+      Fail.orThrow,
+    ),
+  );
+  assert.deepEqual(result, {
+    root: ["old.txt"],
+    child: "kept",
+    sibling: "PermissionDenied",
+    traversal: "PermissionDenied",
+    backOut: "PermissionDenied",
+  });
+});
+
+test("confine checks the destination of a rename, not only the source", () => {
+  const program = Kyoot.gen(function* () {
+    const out = yield* FileSystem.rename("/work/secret.txt", "/etc/passwd").pipe(code);
+    const traversal = yield* FileSystem.rename("/work/secret.txt", "/work/../leak.txt").pipe(code);
+    const within = yield* FileSystem.rename("/work/secret.txt", "/work/moved.txt").pipe(code);
+    return { out, traversal, within };
+  });
+  const [result, files] = Kyoot.runSync(
+    program.pipe(
+      confine("/work"),
+      Memory.fs({ "/work/secret.txt": "shh", "/etc/passwd": "root" }),
+      Fail.orThrow,
+    ),
+  );
+  assert.deepEqual(result, {
+    out: "PermissionDenied",
+    traversal: "PermissionDenied",
+    within: undefined,
+  });
+  assert.deepEqual(files, { "/work/moved.txt": "shh", "/etc/passwd": "root" });
 });

@@ -217,8 +217,8 @@ const declineAll = (reason: string) =>
 
 - `resume` works once; a second call throws.
 - A thrown exception is a defect: it skips `onOp` and goes to the nearest `onDefect`, or out of `runSync`. Use `Fail` for errors you expect.
-- A handler that does not resume drops the rest of the program. Handler order does not affect resource cleanup, but it still affects meaning because the nearest matching handler handles an operation first.
-- A dropped generator is closed, so its `try`/`finally` runs — on a handler that does not resume, on a defect, and on interruption, innermost frame first, before the cleanup of any handler outside it. A `finally` may not `yield`: the handlers that gave its effects meaning are already gone, so the frame is left parked at the yield and the drop is reported as a defect. Use `Resource` for cleanup that performs effects. A `finally` that throws wins over the error in flight, as it does in JavaScript, and the frames and scopes around it still close.
+- A handler that does not resume drops the rest of the program, and so does one that calls `resume` and then throws the token away. Handler order does not affect resource cleanup, but it still affects meaning because the nearest matching handler handles an operation first.
+- A dropped generator is closed, so its `try`/`finally` runs — on a handler that does not resume, on a defect, and on interruption, innermost frame first, before the cleanup of any handler outside it. A `finally` may not `yield`: the handlers that gave its effects meaning are already gone, so the frame is left parked at the yield and the drop is reported as a defect. Use `Resource` for cleanup that performs effects. A `finally` that throws wins over the error in flight, and an outer one wins over an inner one, as they do in JavaScript; the frames and scopes around it still close.
 - A handler that returns a value instead of resuming must be `fork: "none"`, since a fiber's value is its own. A copy that does so anyway is reported as a defect.
 - A handler's `onInterrupt` hook may return a program. Its effects join the handler's row.
 

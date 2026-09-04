@@ -45,6 +45,7 @@ class SettleFrame {
 type Status = "idle" | "armed" | "held" | "resumed" | "dropped";
 
 const ONE_SHOT = "continuation resumed twice (one-shot law)";
+const DROPPED = "continuation resumed after it was dropped";
 
 class HandlerFrame {
   readonly handler: HandlerNode;
@@ -65,9 +66,7 @@ class HandlerFrame {
 
   claim(kind: "value" | "program", value: unknown, state: unknown): AnyKyoot {
     if (this.status !== "armed" && this.status !== "held") {
-      throw new Error(
-        this.status === "dropped" ? "continuation resumed after it was dropped" : ONE_SHOT,
-      );
+      throw new Error(this.status === "dropped" ? DROPPED : ONE_SHOT);
     }
     this.status = "resumed";
     this.resumeKind = kind;
@@ -110,11 +109,13 @@ const unwinding = (entries: readonly StackEntry[], from = 0): AnyKyoot | undefin
   let steps: UnwindStep[] | undefined;
   let raised: { error: unknown } | undefined;
   let deferred = false;
+  // Last wins: the frames close innermost first, and an outer `finally` that throws
+  // replaces the error an inner one raised, as nesting them in one generator would.
   const closing = (frame: GeneratorFrame) => {
     try {
       frame.close();
     } catch (error) {
-      raised ??= { error };
+      raised = { error };
     }
   };
   for (let i = entries.length - 1; i >= from; i--) {
@@ -173,7 +174,7 @@ const unwinding = (entries: readonly StackEntry[], from = 0): AnyKyoot | undefin
         try {
           step.close();
         } catch (error) {
-          missed ??= { error };
+          missed = { error };
         }
       }
       if (missed !== undefined) raise(missed);
@@ -186,7 +187,8 @@ const unwinding = (entries: readonly StackEntry[], from = 0): AnyKyoot | undefin
 // holding or has claimed and never restored. Cleanup that performs effects is not
 // run — there is no machine left to run it on. Each frame lives in exactly one of
 // these arrays, and a holder sits at its own `captured[0]`, so skipping that slot
-// visits every frame once. The first `finally` that threw is reported at the end.
+// visits every frame once. The last `finally` to throw — the outermost — is reported
+// once they are all closed.
 const closeAll = (entries: readonly StackEntry[]): void => {
   let raised: { error: unknown } | undefined;
   // A handler that has held more than once leaves earlier settle frames on the
@@ -199,7 +201,7 @@ const closeAll = (entries: readonly StackEntry[]): void => {
         try {
           entry.close();
         } catch (error) {
-          raised ??= { error };
+          raised = { error };
         }
         continue;
       }
@@ -220,9 +222,13 @@ const closeAll = (entries: readonly StackEntry[]): void => {
   if (raised !== undefined) throw raised.error;
 };
 
+// Reaching a settle frame whose continuation is still captured means nobody restored
+// it: the handler never resumed, or it claimed a token and threw the token away. Either
+// way the continuation is dead and unwinds here. A restored one has cleared `captured`,
+// so its settle frame is inert.
 const dropHeld = (frame: HandlerFrame): AnyKyoot | undefined => {
-  if (frame.status !== "held") return undefined;
-  const held = frame.captured!;
+  const held = frame.captured;
+  if (held === undefined) return undefined;
   frame.captured = undefined;
   frame.status = "dropped";
   return unwinding(held, 1);
@@ -447,7 +453,7 @@ export class Machine {
 
   private restore(frame: HandlerFrame): void {
     const captured = frame.captured;
-    if (captured === undefined) throw new Error(ONE_SHOT);
+    if (captured === undefined) throw new Error(frame.status === "dropped" ? DROPPED : ONE_SHOT);
     frame.captured = undefined;
     for (let i = 0; i < captured.length; i++) this.stack.push(captured[i]!);
     this.continueFrom(frame);

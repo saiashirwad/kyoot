@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Async, Clock, effect, Fail, Kyoot, Resource, Sync } from "../src/index.ts";
+import type { Kyoot as KyootType } from "../src/index.ts";
 
 const Stop = effect<string, never>()("stop");
 const Hold = effect<undefined, undefined>()("hold");
@@ -404,4 +405,108 @@ test("generator: a queued frame whose finally throws still runs the cleanup befo
     (e: unknown) => e === boom,
   );
   assert.deepEqual(events, ["inner", "release", "outer"]);
+});
+
+test("generator: an outer finally that throws replaces the inner one's error", () => {
+  const events: string[] = [];
+  const inner = new Error("inner");
+  const outer = new Error("outer");
+  const raise = (error: Error) => {
+    throw error;
+  };
+  const prog = Kyoot.gen(function* () {
+    try {
+      yield* Kyoot.gen(function* () {
+        try {
+          yield* Fail.fail("stop");
+        } finally {
+          events.push("inner");
+          raise(inner);
+        }
+      });
+    } finally {
+      events.push("outer");
+      raise(outer);
+    }
+  }).pipe(Fail.run);
+  assert.throws(
+    () => Kyoot.runSync(prog),
+    (e: unknown) => e === outer,
+  );
+  assert.deepEqual(events, ["inner", "outer"]);
+});
+
+test("generator: the outer error also wins when the machine stops with a stack", () => {
+  const events: string[] = [];
+  const inner = new Error("inner");
+  const outer = new Error("outer");
+  const raise = (error: Error) => {
+    throw error;
+  };
+  const prog = Kyoot.gen(function* () {
+    try {
+      yield* Kyoot.gen(function* () {
+        try {
+          yield* Missing(undefined);
+        } finally {
+          events.push("inner");
+          raise(inner);
+        }
+      });
+    } finally {
+      events.push("outer");
+      raise(outer);
+    }
+  });
+  assert.throws(
+    () => Kyoot.runSync(prog as never),
+    (e: unknown) => e === outer,
+  );
+  assert.deepEqual(events, ["inner", "outer"]);
+});
+
+test("generator: a handler that discards the resume token still drops the continuation", () => {
+  const events: string[] = [];
+  const prog = Kyoot.gen(function* () {
+    yield* Resource.acquire(
+      () => 1,
+      () => events.push("release"),
+    );
+    try {
+      yield* Hold(undefined);
+    } finally {
+      events.push("finally");
+    }
+    return "unreachable";
+  }).pipe(
+    Resource.run,
+    Hold.handle({
+      onOp: (_payload, resume) => {
+        resume(undefined);
+        return Kyoot.succeed("stopped");
+      },
+    }),
+  );
+  assert.equal(Kyoot.runSync(prog), "stopped");
+  assert.deepEqual(events, ["finally", "release"]);
+});
+
+test("generator: a discarded token that is run later reports the drop", () => {
+  let token: unknown;
+  const prog = Kyoot.gen(function* () {
+    yield* Hold(undefined);
+    return "unreachable";
+  }).pipe(
+    Hold.handle({
+      onOp: (_payload, resume) => {
+        token = resume(undefined);
+        return Kyoot.succeed("stopped");
+      },
+    }),
+  );
+  assert.equal(Kyoot.runSync(prog), "stopped");
+  assert.throws(
+    () => Kyoot.runSync(token as KyootType<string>),
+    (e: unknown) => e instanceof Error && e.message.includes("after it was dropped"),
+  );
 });

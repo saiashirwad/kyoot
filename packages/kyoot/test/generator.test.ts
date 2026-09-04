@@ -339,3 +339,69 @@ test("generator: a claimed continuation that never lands closes too", () => {
   );
   assert.deepEqual(events, ["finally"]);
 });
+
+test("generator: frames queued behind a cleanup program close when the machine stops", () => {
+  const events: string[] = [];
+  const inner = Kyoot.gen(function* () {
+    try {
+      yield* Resource.acquire(
+        () => 1,
+        () => Missing(undefined),
+      );
+      yield* Stop("now");
+    } finally {
+      events.push("inner");
+    }
+  }).pipe(Resource.run);
+  const middle = Kyoot.gen(function* () {
+    try {
+      yield* inner;
+    } finally {
+      events.push("middle");
+    }
+  });
+  const outer = Kyoot.gen(function* () {
+    try {
+      yield* middle;
+    } finally {
+      events.push("outer");
+    }
+  }).pipe(Stop.handle({ onOp: () => Kyoot.succeed("stopped") }));
+  assert.throws(
+    () => Kyoot.runSync(outer as never),
+    (e: unknown) => e instanceof Error && e.message.includes("unhandled effect 'missing'"),
+  );
+  assert.deepEqual(events, ["inner", "middle", "outer"]);
+});
+
+test("generator: a queued frame whose finally throws still runs the cleanup before it", () => {
+  const events: string[] = [];
+  const boom = new Error("from finally");
+  const raise = () => {
+    throw boom;
+  };
+  const inner = Kyoot.gen(function* () {
+    try {
+      yield* Resource.acquire(
+        () => 1,
+        () => events.push("release"),
+      );
+      yield* Stop("now");
+    } finally {
+      events.push("inner");
+    }
+  }).pipe(Resource.run);
+  const outer = Kyoot.gen(function* () {
+    try {
+      yield* inner;
+    } finally {
+      events.push("outer");
+      raise();
+    }
+  }).pipe(Stop.handle({ onOp: () => Kyoot.succeed("stopped") }));
+  assert.throws(
+    () => Kyoot.runSync(outer),
+    (e: unknown) => e === boom,
+  );
+  assert.deepEqual(events, ["inner", "release", "outer"]);
+});

@@ -98,8 +98,16 @@ const rethrow = (error: unknown) => () => {
   throw error;
 };
 
+// Called rather than thrown inline where the throw sits in a `finally`.
+const raise = (thrown: { error: unknown }): never => {
+  throw thrown.error;
+};
+
+// A frame stands for closing it; a thunk for cleanup that may return a program.
+type UnwindStep = GeneratorFrame | (() => AnyKyoot | undefined);
+
 const unwinding = (entries: readonly StackEntry[], from = 0): AnyKyoot | undefined => {
-  let steps: Array<() => AnyKyoot | undefined> | undefined;
+  let steps: UnwindStep[] | undefined;
   let raised: { error: unknown } | undefined;
   let deferred = false;
   const closing = (frame: GeneratorFrame) => {
@@ -117,10 +125,7 @@ const unwinding = (entries: readonly StackEntry[], from = 0): AnyKyoot | undefin
       if (steps === undefined) closing(entry);
       else {
         deferred = true;
-        steps.push(() => {
-          closing(entry);
-          return undefined;
-        });
+        steps.push(entry);
       }
     } else if (entry instanceof SettleFrame) {
       const inner = dropHeld(entry.frame);
@@ -145,9 +150,33 @@ const unwinding = (entries: readonly StackEntry[], from = 0): AnyKyoot | undefin
   if (steps === undefined) return undefined;
   const run = steps;
   return genNode(function* () {
-    for (const step of run) {
-      const k = step();
-      if (k !== undefined) yield* k;
+    let i = 0;
+    try {
+      for (; i < run.length; i++) {
+        const step = run[i]!;
+        if (step instanceof GeneratorFrame) {
+          closing(step);
+          continue;
+        }
+        const k = step();
+        if (k !== undefined) yield* k;
+      }
+    } finally {
+      // This program is itself a generator frame, so if it is abandoned part-way —
+      // the machine stopped, an outer handler dropped it, a cleanup step failed —
+      // closing it lands here and the frames it never reached still close. Cleanup
+      // that performs effects is not run: there is no machine left to run it on.
+      let missed: { error: unknown } | undefined;
+      for (; i < run.length; i++) {
+        const step = run[i]!;
+        if (!(step instanceof GeneratorFrame)) continue;
+        try {
+          step.close();
+        } catch (error) {
+          missed ??= { error };
+        }
+      }
+      if (missed !== undefined) raise(missed);
     }
   });
 };

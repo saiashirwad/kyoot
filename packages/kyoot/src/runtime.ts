@@ -18,8 +18,9 @@ export function runSync<A, S extends Row>(k: Kyoot<A, S> & Only<S>): A {
   spare = undefined;
   try {
     if (machine.start(k as AnyKyoot) === "done") return machine.value as A;
-    const error = unhandledEffect("runSync", machine.key);
-    machine.discard();
+    const unserved = (key: PropertyKey) => unhandledEffect("runSync", key);
+    const error = unserved(machine.key);
+    machine.discard(unserved);
     throw error;
   } finally {
     machine.reset();
@@ -184,13 +185,16 @@ class Fiber<A> implements FiberHandle<A> {
       if (!served(key)) {
         // Unwind first so the finalizers still on the stack run -- including async ones, which is
         // why this cannot be a plain reject. The original error is what the caller finally sees.
-        if (this.failure !== undefined) {
-          this.reject(this.failure);
-          return;
+        const error = unhandledEffect("fiber", key);
+        if (this.failure === undefined) {
+          this.failure = error;
+          this.interrupted = true;
+          outcome = machine.raise(new InterruptedError(), STEP_BUDGET);
+        } else {
+          // A finalizer performed it. Fail at its op so the scope releasing it can absorb the
+          // defect and carry on; a second interrupt would abandon everything it has left.
+          outcome = machine.raise(error, STEP_BUDGET);
         }
-        this.failure = unhandledEffect("fiber", key);
-        this.interrupted = true;
-        outcome = machine.raise(new InterruptedError(), STEP_BUDGET);
         continue;
       }
 

@@ -432,3 +432,105 @@ test("runPromise runs async finalizers before reporting an unhandled effect", as
   await assert.rejects(Kyoot.runPromise(k as never), /unhandled effect 'missing'/);
   assert.deepEqual(events, ["open", "close"]);
 });
+
+test("an unhandled effect in an inner async finalizer still releases the outer scope", async () => {
+  const events: string[] = [];
+  const Ask = effect<string, number>()("ask");
+  const Missing = effect<string, number>()("missing");
+  const Nope = effect<string, number>()("nope");
+  const k = Kyoot.gen(function* () {
+    yield* Resource.acquire(
+      () => events.push("open outer"),
+      () => events.push("close outer"),
+    );
+    yield* Kyoot.gen(function* () {
+      yield* Resource.acquire(
+        () => events.push("open inner"),
+        () => Async.fromPromise(async () => void events.push("inner ran")).flatMap(() => Nope("q")),
+      );
+      yield* Ask("n");
+    }).pipe(Resource.run);
+    return "never";
+  }).pipe(
+    Resource.run,
+    Ask.handle({
+      onOp: (_, resume) => {
+        const token = resume(42);
+        return Missing("x").flatMap(() => token);
+      },
+    }),
+  );
+  await assert.rejects(Kyoot.runPromise(k as never), /unhandled effect 'missing'/);
+  assert.deepEqual(events, ["open outer", "open inner", "inner ran", "close outer"]);
+});
+
+test("an unhandled effect in one finalizer still releases the rest of its own scope", async () => {
+  const events: string[] = [];
+  const Ask = effect<string, number>()("ask");
+  const Missing = effect<string, number>()("missing");
+  const Nope = effect<string, number>()("nope");
+  const k = Kyoot.gen(function* () {
+    yield* Resource.acquire(
+      () => events.push("open a"),
+      () => events.push("close a"),
+    );
+    yield* Resource.acquire(
+      () => events.push("open b"),
+      () => Nope("q"),
+    );
+    yield* Ask("n");
+    return "never";
+  }).pipe(
+    Resource.run,
+    Ask.handle({
+      onOp: (_, resume) => {
+        const token = resume(42);
+        return Missing("x").flatMap(() => token);
+      },
+    }),
+  );
+  await assert.rejects(Kyoot.runPromise(k as never), /unhandled effect 'missing'/);
+  assert.deepEqual(events, ["open a", "open b", "close a"]);
+});
+
+test("runSync releases the outer scope when an inner finalizer is unhandled", () => {
+  const events: string[] = [];
+  const Missing = effect<string, number>()("missing");
+  const Nope = effect<string, number>()("nope");
+  const k = Kyoot.gen(function* () {
+    yield* Resource.acquire(
+      () => events.push("open outer"),
+      () => events.push("close outer"),
+    );
+    yield* Kyoot.gen(function* () {
+      yield* Resource.acquire(
+        () => events.push("open inner"),
+        () => Nope("q"),
+      );
+      yield* Missing("x");
+    }).pipe(Resource.run);
+    return "never";
+  }).pipe(Resource.run);
+  assert.throws(() => Kyoot.runSync(k as never), /unhandled effect 'missing'/);
+  assert.deepEqual(events, ["open outer", "open inner", "close outer"]);
+});
+
+test("runSync releases the rest of a scope when one finalizer is unhandled", () => {
+  const events: string[] = [];
+  const Missing = effect<string, number>()("missing");
+  const Nope = effect<string, number>()("nope");
+  const k = Kyoot.gen(function* () {
+    yield* Resource.acquire(
+      () => events.push("open a"),
+      () => events.push("close a"),
+    );
+    yield* Resource.acquire(
+      () => events.push("open b"),
+      () => Nope("q"),
+    );
+    yield* Missing("x");
+    return "never";
+  }).pipe(Resource.run);
+  assert.throws(() => Kyoot.runSync(k as never), /unhandled effect 'missing'/);
+  assert.deepEqual(events, ["open a", "open b", "close a"]);
+});

@@ -163,12 +163,21 @@ export class Machine {
 
   // Called when a run stops mid-program (an unhandled effect, a fiber torn down): the stack still
   // holds handler frames and captured continuations whose finalizers nobody else will run.
-  discard(): void {
-    if (this.stack.length === 0) return;
-    try {
-      this.advance(Infinity, true, new InterruptedError());
-    } catch {
-      // The caller already knows why the run stopped; a failing finalizer does not replace it.
+  // `unserved` builds the error for an effect a finalizer performs that nothing here can answer;
+  // it fails at that op rather than interrupting again, which would abandon the rest of the scope
+  // being released. Whatever a finalizer throws is swallowed: the caller already knows why the run
+  // stopped, and that reason stays authoritative.
+  discard(unserved: (key: PropertyKey) => unknown): void {
+    let error: unknown = new InterruptedError();
+    while (this.stack.length > 0) {
+      let outcome: Outcome;
+      try {
+        outcome = this.advance(Infinity, true, error);
+      } catch {
+        return;
+      }
+      if (outcome !== "suspended") return;
+      error = unserved(this.key);
     }
   }
 

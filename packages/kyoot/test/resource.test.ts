@@ -354,3 +354,81 @@ test("a resume token returned later in the handler's program still resumes", () 
   assert.equal(r, 7);
   assert.deepEqual(events, ["open", "asked", "got 7", "close"]);
 });
+
+test("a discarded resume token releases when the handler's program hits an unhandled effect", () => {
+  const events: string[] = [];
+  const Ask = effect<string, number>()("ask");
+  const Missing = effect<string, number>()("missing");
+  const k = Kyoot.gen(function* () {
+    yield* Resource.acquire(
+      () => events.push("open"),
+      () => events.push("close"),
+    );
+    yield* Ask("n");
+    return "never";
+  }).pipe(
+    Resource.run,
+    Ask.handle({
+      onOp: (_, resume) => {
+        const token = resume(42);
+        return Missing("x").flatMap(() => token);
+      },
+    }),
+  );
+  assert.throws(() => Kyoot.runSync(k as never), /unhandled effect 'missing'/);
+  assert.deepEqual(events, ["open", "close"]);
+});
+
+test("an unhandled effect releases resources still live on the stack", () => {
+  const events: string[] = [];
+  const Missing = effect<string, number>()("missing");
+  const k = Kyoot.gen(function* () {
+    yield* Resource.acquire(
+      () => events.push("open"),
+      () => events.push("close"),
+    );
+    yield* Missing("x");
+    return "never";
+  }).pipe(Resource.run);
+  assert.throws(() => Kyoot.runSync(k as never), /unhandled effect 'missing'/);
+  assert.deepEqual(events, ["open", "close"]);
+});
+
+test("a failing finalizer does not replace the unhandled-effect error", () => {
+  const Missing = effect<string, number>()("missing");
+  const k = Kyoot.gen(function* () {
+    yield* Resource.acquire(
+      () => 1,
+      (): number => {
+        throw new Error("finalizer boom");
+      },
+    );
+    yield* Missing("x");
+    return "never";
+  }).pipe(Resource.run);
+  assert.throws(() => Kyoot.runSync(k as never), /unhandled effect 'missing'/);
+});
+
+test("runPromise runs async finalizers before reporting an unhandled effect", async () => {
+  const events: string[] = [];
+  const Ask = effect<string, number>()("ask");
+  const Missing = effect<string, number>()("missing");
+  const k = Kyoot.gen(function* () {
+    yield* Resource.acquire(
+      () => events.push("open"),
+      () => Async.fromPromise(async () => void events.push("close")),
+    );
+    yield* Ask("n");
+    return "never";
+  }).pipe(
+    Resource.run,
+    Ask.handle({
+      onOp: (_, resume) => {
+        const token = resume(42);
+        return Missing("x").flatMap(() => token);
+      },
+    }),
+  );
+  await assert.rejects(Kyoot.runPromise(k as never), /unhandled effect 'missing'/);
+  assert.deepEqual(events, ["open", "close"]);
+});

@@ -18,7 +18,9 @@ export function runSync<A, S extends Row>(k: Kyoot<A, S> & Only<S>): A {
   spare = undefined;
   try {
     if (machine.start(k as AnyKyoot) === "done") return machine.value as A;
-    throw unhandledEffect("runSync", machine.key);
+    const error = unhandledEffect("runSync", machine.key);
+    machine.discard();
+    throw error;
   } finally {
     machine.reset();
     spare = machine;
@@ -90,6 +92,7 @@ class Fiber<A> implements FiberHandle<A> {
   private generation = 0;
   private waiting = false;
   private interrupted = false;
+  private failure: unknown;
 
   constructor(k: Kyoot<A, any>, parent: Fiber<any> | undefined) {
     const { controller } = this;
@@ -106,7 +109,7 @@ class Fiber<A> implements FiberHandle<A> {
     try {
       this.pump(this.machine.start(k, STEP_BUDGET));
     } catch (error) {
-      this.reject(error);
+      this.reject(this.failure ?? error);
     }
   }
 
@@ -139,7 +142,7 @@ class Fiber<A> implements FiberHandle<A> {
             : machine.continue(STEP_BUDGET),
       );
     } catch (error) {
-      this.reject(error);
+      this.reject(this.failure ?? error);
     }
   }
 
@@ -152,7 +155,7 @@ class Fiber<A> implements FiberHandle<A> {
     try {
       this.pump(this.machine.raise(new InterruptedError(), STEP_BUDGET));
     } catch (error) {
-      this.reject(error);
+      this.reject(this.failure ?? error);
     }
   }
 
@@ -166,7 +169,8 @@ class Fiber<A> implements FiberHandle<A> {
     let outcome = initial;
     while (true) {
       if (outcome === "done") {
-        this.resolve(machine.value as A);
+        if (this.failure !== undefined) this.reject(this.failure);
+        else this.resolve(machine.value as A);
         return;
       }
 
@@ -178,8 +182,16 @@ class Fiber<A> implements FiberHandle<A> {
 
       const { key, payload, handlers } = machine;
       if (!served(key)) {
-        this.reject(unhandledEffect("fiber", key));
-        return;
+        // Unwind first so the finalizers still on the stack run -- including async ones, which is
+        // why this cannot be a plain reject. The original error is what the caller finally sees.
+        if (this.failure !== undefined) {
+          this.reject(this.failure);
+          return;
+        }
+        this.failure = unhandledEffect("fiber", key);
+        this.interrupted = true;
+        outcome = machine.raise(new InterruptedError(), STEP_BUDGET);
+        continue;
       }
 
       if (controller.signal.aborted && !this.interrupted) {

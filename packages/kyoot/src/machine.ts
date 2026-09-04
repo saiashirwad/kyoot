@@ -161,6 +161,17 @@ export class Machine {
     return this.advance(budget, true, error);
   }
 
+  // Called when a run stops mid-program (an unhandled effect, a fiber torn down): the stack still
+  // holds handler frames and captured continuations whose finalizers nobody else will run.
+  discard(): void {
+    if (this.stack.length === 0) return;
+    try {
+      this.advance(Infinity, true, new InterruptedError());
+    } catch {
+      // The caller already knows why the run stopped; a failing finalizer does not replace it.
+    }
+  }
+
   reset(): void {
     if (this.stack.length !== 0) this.stack.length = 0;
     this.state = "idle";

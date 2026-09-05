@@ -1,4 +1,4 @@
-import { effect, Emit, Fail, Kyoot, Var } from "../src/index.ts";
+import { effect, Emit, Fail, Kyoot, Var } from "kyoot";
 
 export class OutOfStock {
   readonly _tag = "OutOfStock";

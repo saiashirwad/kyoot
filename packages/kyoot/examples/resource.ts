@@ -1,4 +1,4 @@
-import { Fail, Kyoot, Resource } from "../src/index.ts";
+import { Fail, Kyoot, Resource } from "kyoot";
 
 const connection = (name: string) =>
   Resource.acquire(

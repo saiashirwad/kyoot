@@ -1,5 +1,13 @@
 import { effect } from "kyoot";
-import type { Kyoot } from "kyoot";
+import type { Kyoot, MergeAll, Resume, Row, RowOf } from "kyoot";
+import type {
+  Kyoot as CoreKyoot,
+  Operation as CoreOperation,
+  KnownOperationsOf,
+  MergeOperations,
+  RemoveOperations,
+  ValueOf,
+} from "kyoot/internal";
 
 export type Op =
   | { readonly kind: "readFile"; readonly path: string }
@@ -41,7 +49,7 @@ export interface Stat {
   readonly mtime: Date;
 }
 
-type Answer = {
+export type Answer = {
   readFile: string;
   writeFile: void;
   appendFile: void;
@@ -53,14 +61,140 @@ type Answer = {
   rename: void;
 };
 
-const fs = effect<Op, unknown, { fail: FsError }>()("fs");
+export type Kind = Op["kind"];
 
-export const handle = fs.handle;
+export type Operation<K extends Kind> = Extract<Op, { readonly kind: K }>;
 
-export const intercept = fs.intercept;
+export type Contract = { readonly fail: FsError };
+
+/**
+ * The continuation for one filesystem operation. Its value and `with` program both use the
+ * answer associated with that operation's `kind`.
+ */
+export type OperationResume<K extends Kind, St = undefined> = Resume<Answer[K], St, Contract>;
+
+type Handler<K extends Kind> = (
+  operation: Operation<K>,
+  resume: OperationResume<K>,
+) => Kyoot<unknown, any>;
+
+/**
+ * A handler must describe every filesystem operation. This is deliberate: a handler cannot
+ * accidentally claim an operation and then forward its answer through an untyped channel.
+ */
+export type HandlerTable = {
+  readonly [K in Kind]: Handler<K>;
+};
+
+type HandlerProgram<H extends HandlerTable> = H[Kind] extends infer F
+  ? F extends (...args: any[]) => infer R
+    ? R
+    : never
+  : never;
+type RemoveFs<S> = S extends unknown ? Omit<S, "fs"> : never;
+type FamilyOperation = {
+  [K in Kind]: CoreOperation<"fs", Operation<K>, Answer[K], Contract>;
+}[Kind];
+type FamilyCheck<Ops> = 0 extends 1 & Ops
+  ? unknown
+  : Exclude<Extract<Ops, { readonly key: "fs" }>, FamilyOperation> extends never
+    ? unknown
+    : { readonly "filesystem operation signature mismatch": Ops };
+
+const raw = effect<Op, unknown, Contract>()("fs");
+
+/**
+ * Install a typed filesystem-operation handler.
+ *
+ * Each table entry receives the exact payload and continuation answer for its operation. Effects
+ * returned directly from a table entry run in the handler; use `resume.with` to deliver an
+ * expected `FsError` back to the operation site.
+ */
+export const handle =
+  <H extends HandlerTable>(table: H) =>
+  <A, S extends Row & { fs?: Op }, Ops>(
+    program: Kyoot<A, S, Ops> & FamilyCheck<Ops>,
+  ): Kyoot<
+    A | ValueOf<HandlerProgram<H>>,
+    MergeAll<RemoveFs<S> | RowOf<HandlerProgram<H>>>,
+    MergeOperations<RemoveOperations<Ops, "fs">, KnownOperationsOf<HandlerProgram<H>>>
+  > =>
+    raw.handle({
+      onOp: (operation, resume) => {
+        switch (operation.kind) {
+          case "readFile":
+            return table.readFile(operation, resume as OperationResume<"readFile">);
+          case "writeFile":
+            return table.writeFile(operation, resume as OperationResume<"writeFile">);
+          case "appendFile":
+            return table.appendFile(operation, resume as OperationResume<"appendFile">);
+          case "readDir":
+            return table.readDir(operation, resume as OperationResume<"readDir">);
+          case "stat":
+            return table.stat(operation, resume as OperationResume<"stat">);
+          case "exists":
+            return table.exists(operation, resume as OperationResume<"exists">);
+          case "mkdir":
+            return table.mkdir(operation, resume as OperationResume<"mkdir">);
+          case "remove":
+            return table.remove(operation, resume as OperationResume<"remove">);
+          case "rename":
+            return table.rename(operation, resume as OperationResume<"rename">);
+        }
+      },
+    })(program as never) as never;
+
+type FamilyNext<K extends Kind> = (
+  operation: Operation<K>,
+) => Kyoot<
+  Answer[K],
+  { fs: Op; fail: FsError },
+  CoreOperation<"fs", Operation<K>, Answer[K], Contract>
+>;
+type FamilyInterceptor<K extends Kind> = (
+  operation: Operation<K>,
+  next: FamilyNext<K>,
+) => Kyoot<Answer[K], any>;
+export type InterceptorTable = { readonly [K in Kind]?: FamilyInterceptor<K> };
+type TableResult<H extends InterceptorTable> = H[keyof H] extends infer F
+  ? F extends (...args: any[]) => infer R
+    ? R
+    : never
+  : never;
+
+/** Install typed interceptors. Omitted operation kinds pass through unchanged. */
+export const intercept =
+  <H extends InterceptorTable>(table: H) =>
+  <A, S extends Row & { fs?: Op }, Ops>(
+    program: Kyoot<A, S, Ops> & FamilyCheck<Ops>,
+  ): Kyoot<
+    A,
+    MergeAll<S | RowOf<TableResult<H>>>,
+    MergeOperations<Ops, KnownOperationsOf<TableResult<H>>>
+  > =>
+    raw.intercept((operation, next) => {
+      const interceptor = table[operation.kind] as FamilyInterceptor<Kind> | undefined;
+      return interceptor
+        ? interceptor(operation as never, next as never)
+        : (next(operation) as never);
+    })(program as never) as never;
+
+/** Untyped low-level interceptor retained for trusted interpreter code. */
+export const unsafeIntercept =
+  <R extends Kyoot<unknown, any>>(
+    f: (operation: Op, next: (operation: Op) => Kyoot<unknown, { fs: Op; fail: FsError }>) => R,
+  ) =>
+  <A, S extends Row & { fs?: Op }>(
+    program: Kyoot<A, S>,
+  ): Kyoot<A, MergeAll<RemoveFs<S> | RowOf<R>>> =>
+    raw.intercept(f)(program) as never;
 
 const perform = <O extends Op>(op: O) =>
-  fs(op) as Kyoot<Answer[O["kind"]], { fs: Op; fail: FsError }>;
+  raw(op) as CoreKyoot<
+    Answer[O["kind"]],
+    { fs: Op; fail: FsError },
+    CoreOperation<"fs", O, Answer[O["kind"]], Contract>
+  >;
 
 export const readFile = (path: string) => perform({ kind: "readFile", path });
 

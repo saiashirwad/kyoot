@@ -3,18 +3,22 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "pnpm --filter kyoot --filter @kyoot/ai --filter @kyoot/platform --filter @kyoot/registry -r run build",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "lint": "oxlint",
-    "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test",
+    "pack:smoke": "pnpm run build && node scripts/pack-smoke.mjs",
+    "typecheck": "pnpm run build && pnpm -r typecheck",
+    "test": "pnpm run build && pnpm -r test",
     "bench": "pnpm -F @kyoot/bench bench",
-    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test"
+    "examples": "pnpm run build && node scripts/examples.mjs",
+    "check": "pnpm format:check && pnpm lint && pnpm run build && pnpm -r typecheck && pnpm -r test"
   },
   "devDependencies": {
     "@types/node": "^26.1.2",
     "oxfmt": "^0.64.0",
     "oxlint": "^1.79.0",
-    "typescript": "^7.0.2"
-  }
+    "typescript": "7.0.2"
+  },
+  "packageManager": "pnpm@11.20.0"
 }

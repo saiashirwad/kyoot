@@ -1,6 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Async, Clock, effect, Fail, Kyoot, Resource, Sync } from "../src/index.ts";
+import {
+  Async,
+  CleanupError,
+  Clock,
+  effect,
+  Fail,
+  InterruptedError,
+  Kyoot,
+  Resource,
+  Sync,
+} from "../src/index.ts";
+import { unsafeRunFiber } from "../src/internal/run-fiber.ts";
 
 test("Resource: release runs on success", () => {
   const events: string[] = [];
@@ -17,6 +28,87 @@ test("Resource: release runs on success", () => {
   });
   assert.equal(Kyoot.runSync(prog.pipe(Resource.run)), "done");
   assert.deepEqual(events, ["acquire", "use conn", "release"]);
+});
+
+test("Resource: promise acquire and release are awaited", async () => {
+  const events: string[] = [];
+  const prog = Kyoot.gen(function* () {
+    const value = yield* Resource.acquirePromise(
+      async () => {
+        await Promise.resolve();
+        events.push("acquire");
+        return "value";
+      },
+      async (resource) => {
+        await Promise.resolve();
+        events.push(`release ${resource}`);
+      },
+    );
+    events.push(value);
+    return value;
+  }).pipe(Resource.run);
+  assert.equal(await Kyoot.runPromise(prog), "value");
+  assert.deepEqual(events, ["acquire", "value", "release value"]);
+});
+
+test("Resource owns a promised finalizer before a sync edge rejects async work", async () => {
+  const promise = Promise.reject(new Error("late release failure"));
+  let unhandled = false;
+  const onUnhandled = () => (unhandled = true);
+  process.once("unhandledRejection", onUnhandled);
+  const program = Resource.acquire(
+    () => "value",
+    () => promise,
+  ).pipe(Resource.run);
+
+  assert.throws(() => Kyoot.runSync(program as never), CleanupError);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  process.removeListener("unhandledRejection", onUnhandled);
+  assert.equal(unhandled, false);
+});
+
+test("Resource: interruption during promised acquire still releases the acquired value", async () => {
+  let resolve!: (value: string) => void;
+  const opened = new Promise<string>((done) => (resolve = done));
+  const released: string[] = [];
+  const fiber = unsafeRunFiber(
+    Resource.acquirePromise(
+      () => opened,
+      async (value) => {
+        released.push(value);
+      },
+    ).pipe(Resource.run),
+  );
+
+  fiber.interrupt();
+  resolve("late");
+  await assert.rejects(fiber.promise, InterruptedError);
+  assert.deepEqual(released, ["late"]);
+});
+
+test("Resource: effectful acquire and release are interpreted", () => {
+  const events: string[] = [];
+  const prog = Kyoot.gen(function* () {
+    const value = yield* Resource.acquireEffect(
+      () => Kyoot.succeed("effect-value").map((v) => (events.push("acquire"), v)),
+      (resource) => Kyoot.succeed(undefined).map(() => events.push(`release ${resource}`)),
+    );
+    events.push(value);
+    return value;
+  }).pipe(Resource.run);
+  assert.equal(Kyoot.runSync(prog), "effect-value");
+  assert.deepEqual(events, ["acquire", "effect-value", "release effect-value"]);
+});
+
+test("Resource: plain acquire keeps a Kyoot opener as a value", () => {
+  const marker = Kyoot.succeed("marker");
+  const program = Kyoot.gen(function* () {
+    return yield* Resource.acquire(
+      () => marker,
+      () => undefined,
+    );
+  }).pipe(Resource.run);
+  assert.equal(Kyoot.runSync(program), marker);
 });
 
 test("Resource: finalizers run in LIFO order", () => {
@@ -364,4 +456,148 @@ test("a resume token returned later in the handler's program still resumes", () 
   );
   assert.equal(r, 7);
   assert.deepEqual(events, ["open", "asked", "got 7", "close"]);
+});
+
+test("Resource: sync and async edges release before reporting an unhandled effect", async () => {
+  const Missing = effect<undefined, never>()("resource/missing-at-edge");
+  const events: string[] = [];
+  const program = Kyoot.gen(function* () {
+    yield* Resource.acquire(
+      () => events.push("open"),
+      () => events.push("close"),
+    );
+    return yield* Missing(undefined);
+  }).pipe(Resource.run);
+
+  assert.throws(
+    () => Kyoot.runSync(program as never),
+    (error: unknown) =>
+      error instanceof Error && error.message.includes("resource/missing-at-edge"),
+  );
+  await assert.rejects(
+    Kyoot.runPromise(program as never),
+    (error: unknown) =>
+      error instanceof Error && error.message.includes("resource/missing-at-edge"),
+  );
+  assert.deepEqual(events, ["open", "close", "open", "close"]);
+});
+
+test("Resource: every finalizer is tried and its cause is kept", async () => {
+  const Missing = effect<undefined, never>()("resource/missing-finalizer");
+  const defect = new Error("cleanup defect");
+  const events: string[] = [];
+  const program = Kyoot.gen(function* () {
+    yield* Resource.acquire(
+      () => 1,
+      () => events.push("ok"),
+    );
+    yield* Resource.acquire(
+      () => 2,
+      () => (events.push("unhandled"), Missing(undefined)),
+    );
+    yield* Resource.acquire(
+      () => 3,
+      () => (events.push("fail"), Fail.fail("cleanup failure")),
+    );
+    yield* Resource.acquire(
+      () => 4,
+      () =>
+        Async.fromPromise(() => {
+          events.push("interrupted");
+          return Promise.reject(new InterruptedError("cleanup interrupted"));
+        }),
+    );
+    yield* Resource.acquire(
+      () => 5,
+      () => {
+        events.push("defect");
+        throw defect;
+      },
+    );
+  }).pipe(Resource.run);
+
+  await assert.rejects(unsafeRunFiber(program).promise, (error: unknown) => {
+    assert.ok(error instanceof CleanupError);
+    assert.deepEqual(
+      error.failures.map((failure) => failure._tag),
+      ["Defect", "Interrupted", "Fail", "Defect"],
+    );
+    assert.equal(error.failures[0]?._tag === "Defect" && error.failures[0].defect, defect);
+    return true;
+  });
+  assert.deepEqual(events, ["defect", "interrupted", "fail", "unhandled", "ok"]);
+});
+
+test("Resource: a main failure stays primary when cleanup also fails", () => {
+  const body = new Error("body");
+  const cleanup = new Error("cleanup");
+  const result = Kyoot.gen(function* () {
+    yield* Resource.acquire(
+      () => 1,
+      (): void => {
+        throw cleanup;
+      },
+    );
+    throw body;
+  }).pipe(Resource.run, Fail.run, Kyoot.runSync);
+
+  assert.ok(!result.ok && result.cause._tag === "Defect");
+  assert.equal(!result.ok && result.cause._tag === "Defect" && result.cause.defect, body);
+  assert.deepEqual(!result.ok && result.cause.cleanup, [{ _tag: "Defect", defect: cleanup }]);
+});
+
+test("Resource: a typed failure stays primary in either handler order", () => {
+  const make = () =>
+    Kyoot.gen(function* () {
+      yield* Resource.acquire(
+        () => 1,
+        () => Fail.fail("cleanup" as const),
+      );
+      return yield* Fail.fail("body" as const);
+    });
+
+  const outside = make().pipe(Resource.run, Fail.run, Kyoot.runSync);
+  const inside = Kyoot.runSync(make().pipe(Fail.run, Resource.run) as never) as typeof outside;
+  for (const result of [inside, outside]) {
+    assert.ok(!result.ok && result.cause._tag === "Fail");
+    assert.equal(!result.ok && result.cause._tag === "Fail" && result.cause.error, "body");
+    assert.deepEqual(!result.ok && result.cause.cleanup, [{ _tag: "Fail", error: "cleanup" }]);
+  }
+});
+
+test("Resource: an interrupt during cleanup waits for the protected finalizer", async () => {
+  let started!: () => void;
+  let finish!: () => void;
+  const cleanupStarted = new Promise<void>((resolve) => (started = resolve));
+  const mayFinish = new Promise<void>((resolve) => (finish = resolve));
+  const events: string[] = [];
+  const child = Kyoot.gen(function* () {
+    yield* Resource.acquire(
+      () => 1,
+      () => events.push("last"),
+    );
+    yield* Resource.acquire(
+      () => 2,
+      () =>
+        Async.fromPromise(async (signal) => {
+          events.push(`start ${signal.aborted}`);
+          started();
+          await mayFinish;
+          events.push(`end ${signal.aborted}`);
+        }),
+    );
+  }).pipe(Resource.run);
+
+  const result = await Kyoot.runPromise(
+    Kyoot.gen(function* () {
+      const fiber = yield* Async.fork(child);
+      yield* Async.fromPromise(() => cleanupStarted);
+      yield* fiber.interrupt;
+      finish();
+      return yield* fiber.await;
+    }),
+  );
+
+  assert.ok(!result.ok && result.cause._tag === "Interrupted");
+  assert.deepEqual(events, ["start false", "end false", "last"]);
 });

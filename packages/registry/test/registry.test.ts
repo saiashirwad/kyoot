@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Async, Kyoot, Resource, Sync } from "kyoot";
+import { Async, Env, Kyoot, Resource, Sync } from "kyoot";
 import * as Registry from "@kyoot/registry";
 import { Cache, Db, deferred, lifecycle, log, provider, Trigger, X, Y } from "./helpers.ts";
 
@@ -289,7 +289,7 @@ test("failed setup releases resources, preserves peers, and retries after a targ
   );
 });
 
-test("use waits for setup to land", async () => {
+test("parent scope exit interrupts a use that has not landed", async () => {
   const events: string[] = [];
   const started = deferred();
   let returned = false;
@@ -314,7 +314,7 @@ test("use waits for setup to land", async () => {
     }).pipe(Resource.run),
   );
 
-  assert.equal(returned, true, "use resolves once the registry is disposed");
+  assert.equal(returned, false, "scope exit interrupts its child before registry disposal");
   assert.deepEqual(events, ["partial up", "partial down"]);
 });
 
@@ -522,4 +522,190 @@ test("a binding becomes visible only when its provider lands", async () => {
       assert.deepEqual(events.slice(0, 3), ["provider up", "provider landed", "consumer up"]);
     }).pipe(Resource.run),
   );
+});
+
+test("tags with the same key share one registry binding", async () => {
+  const events: string[] = [];
+  const sameX = Env.tag<{ name: string }>()("x");
+  const consumer = Registry.component({
+    inject: { x: X },
+    run: ({ x }) => lifecycle(events, `consumer ${x.name}`),
+  });
+
+  await Kyoot.runPromise(
+    Kyoot.gen(function* () {
+      const registry = yield* Registry.make();
+      const handle = yield* registry.use(consumer);
+      yield* registry.use(provider(events, "provider", sameX, { name: "shared" }));
+      yield* registry.settled();
+      assert.equal(handle.active, true);
+    }).pipe(Resource.run),
+  );
+
+  assert.deepEqual(events, [
+    "provider up",
+    "consumer shared up",
+    "consumer shared down",
+    "provider down",
+  ]);
+});
+
+test("each execution of one use program owns a fresh entry", async () => {
+  const events: string[] = [];
+  const service = Registry.component({ inject: {}, run: () => lifecycle(events, "service") });
+
+  await Kyoot.runPromise(
+    Kyoot.gen(function* () {
+      const registry = yield* Registry.make();
+      const useService = registry.use(service);
+      const first = yield* useService;
+      const second = yield* useService;
+      assert.equal(first.active, true);
+      assert.equal(second.active, true);
+      yield* first.remove();
+      assert.equal(second.active, true);
+      yield* second.remove();
+    }).pipe(Resource.run),
+  );
+
+  assert.deepEqual(events, ["service up", "service up", "service down", "service down"]);
+});
+
+test("interrupting use during setup removes its entry and releases its resources", async () => {
+  const events: string[] = [];
+  const started = deferred();
+  const slow = Registry.component({
+    inject: {},
+    run: () =>
+      Kyoot.gen(function* () {
+        yield* lifecycle(events, "slow");
+        yield* Async.fromPromise(() => {
+          started.resolve();
+          return new Promise<never>(() => {});
+        });
+      }),
+  });
+
+  await Kyoot.runPromise(
+    Kyoot.gen(function* () {
+      const registry = yield* Registry.make();
+      const fiber = yield* Async.fork(registry.use(slow));
+      yield* Async.fromPromise(() => started.promise);
+      yield* fiber.interrupt;
+      yield* registry.settled();
+    }).pipe(Resource.run),
+  );
+
+  assert.deepEqual(events, ["slow up", "slow down"]);
+});
+
+test("a stale setup completion cannot publish a binding after removal", async () => {
+  const events: string[] = [];
+  const started = deferred();
+  const release = deferred();
+  const slowProvider = Registry.component({
+    inject: {},
+    run: (_, ctx) =>
+      Kyoot.gen(function* () {
+        yield* lifecycle(events, "old provider");
+        yield* Async.fromPromise(() => {
+          started.resolve();
+          return release.promise;
+        });
+        yield* ctx.set(X, { name: "old" });
+      }),
+  });
+  const consumer = Registry.component({
+    inject: { x: X },
+    run: ({ x }) => lifecycle(events, `consumer ${x.name}`),
+  });
+
+  await Kyoot.runPromise(
+    Kyoot.gen(function* () {
+      const registry = yield* Registry.make();
+      const consumerHandle = yield* registry.use(consumer);
+      const pending = yield* Async.fork(registry.use(slowProvider));
+      yield* Async.fromPromise(() => started.promise);
+      yield* pending.interrupt;
+      release.resolve();
+      yield* registry.settled();
+      assert.equal(consumerHandle.active, false);
+      yield* registry.use(provider(events, "new provider", X, { name: "new" }));
+      yield* registry.settled();
+      assert.equal(consumerHandle.active, true);
+    }).pipe(Resource.run),
+  );
+
+  assert.equal(events.includes("consumer old up"), false);
+  assert.equal(events.filter((event) => event === "old provider down").length, 1);
+});
+
+test("settled waits for transitions that activation schedules", async () => {
+  const events: string[] = [];
+  const middle = Registry.component({
+    inject: { x: X },
+    run: (_, ctx) =>
+      Kyoot.gen(function* () {
+        yield* lifecycle(events, "middle");
+        yield* ctx.set(Y, { name: "y" });
+      }),
+  });
+  const leaf = Registry.component({ inject: { y: Y }, run: () => lifecycle(events, "leaf") });
+
+  await Kyoot.runPromise(
+    Kyoot.gen(function* () {
+      const registry = yield* Registry.make();
+      yield* registry.use(middle);
+      const leafHandle = yield* registry.use(leaf);
+      yield* registry.use(provider(events, "root", X, { name: "x" }));
+      yield* registry.settled();
+      assert.equal(leafHandle.active, true);
+      assert.deepEqual(events.slice(0, 3), ["root up", "middle up", "leaf up"]);
+    }).pipe(Resource.run),
+  );
+});
+
+test("dispose is terminal for use and root bindings", async () => {
+  const registry = new Registry.Registry();
+  const service = Registry.component({ inject: {}, run: () => Async.never });
+
+  await Kyoot.runPromise(registry.dispose());
+  await assert.rejects(Kyoot.runPromise(registry.use(service)), Registry.RegistryDisposedError);
+  await assert.rejects(
+    Kyoot.runPromise(
+      Kyoot.gen(function* () {
+        yield* registry.set(X, { name: "closed" });
+      }).pipe(Resource.run),
+    ),
+    Registry.RegistryDisposedError,
+  );
+});
+
+test("a use racing disposal cannot expose a live entry", async () => {
+  const events: string[] = [];
+  const started = deferred();
+  const registry = new Registry.Registry();
+  const slow = Registry.component({
+    inject: {},
+    run: () =>
+      Kyoot.gen(function* () {
+        yield* lifecycle(events, "slow");
+        yield* Async.fromPromise(() => {
+          started.resolve();
+          return new Promise<never>(() => {});
+        });
+      }),
+  });
+  const late = Registry.component({ inject: {}, run: () => lifecycle(events, "late") });
+
+  const initial = Kyoot.runPromise(registry.use(slow));
+  await started.promise;
+  const disposing = Kyoot.runPromise(registry.dispose());
+  const afterDispose = Kyoot.runPromise(registry.use(late));
+
+  const removed = await initial;
+  assert.equal(removed.active, false);
+  await assert.rejects(afterDispose, Registry.RegistryDisposedError);
+  await disposing;
+  assert.deepEqual(events, ["slow up", "slow down"]);
 });

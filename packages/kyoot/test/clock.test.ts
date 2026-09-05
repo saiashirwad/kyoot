@@ -13,6 +13,12 @@ test("Clock.virtual: sleeps finish at once and add up", () => {
   assert.deepEqual(Kyoot.runSync(boilEgg(60_000).pipe(Clock.virtual)), ["egg ready", 420_000]);
 });
 
+test("Clock.sleep rejects invalid delays", () => {
+  for (const ms of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.throws(() => Clock.sleep(ms), RangeError);
+  }
+});
+
 test("Clock.virtual: time is per run, not shared", () => {
   const prog = Clock.sleep(1_000).map(() => "x");
   assert.deepEqual(Kyoot.runSync(prog.pipe(Clock.virtual)), ["x", 1_000]);

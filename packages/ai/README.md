@@ -16,9 +16,12 @@ const weather = Tool(
 
 const Answer = z.object({ value: z.number() });
 
-const answer = await AI.gen(Answer, "What is the temperature in Paris?", { tools: [weather] })
-  .pipe(Deepseek(), Events.print, Fail.orThrow)
-  .map(Kyoot.runPromise);
+const answer = await AI.gen(Answer, "What is the temperature in Paris?", { tools: [weather] }).pipe(
+  Deepseek(),
+  Events.print,
+  Fail.orThrow,
+  Kyoot.runPromise,
+);
 ```
 
 ## Pieces
@@ -42,3 +45,15 @@ const askPoet = Tool("poet", "Ask the poet", z.object({ request: z.string() }), 
 ```
 
 `examples/deepseek.ts` stages a debate: two agents on the same model, a parallel judge panel with structured verdicts, the motion from `Random`, the score in a `Var`. Run it with `DEEPSEEK_API_KEY` set.
+
+## Turn and provider guarantees
+
+Requires Node 24+ and TypeScript 7.0.2. The [compiled quickstart](examples/quickstart.ts) uses a live provider and needs its API key; it is separate from the deterministic example script.
+
+Tool names must be unique, and `answer` is reserved for structured output. A response may not mix the structured `answer` call with other tool calls. These violations produce `ToolPolicyError`. Tool argument validation errors and typed tool failures become tool results for the model; defects abort the turn. Tools grant the model the actions their programs expose, so choose them and any approval handler for the intended task.
+
+`rounds` is a non-negative integer counting model calls, with a default of 8. Zero makes no model call and fails with `TooManyRounds`; exhausting the budget does the same. Invalid counts throw `RangeError`.
+
+The one-shot `AI.ask` and `AI.gen` programs start with fresh history on every run. `AI.make` creates an instance whose history spans its turns; construct it inside `Kyoot.gen` or `Kyoot.defer` for a fresh instance per program run. A turn commits new messages only after it succeeds. Failed or interrupted turns leave the previous history intact. Concurrent turns on one instance fail with `ConcurrentTurnError`; use separate instances for parallel conversations. Usage collection includes calls in child fibers.
+
+Provider adapters parse SSE frames, decode JSON, validate chunks, and assemble tool calls before exposing a completion. HTTP, transport, and malformed-response failures use typed `ProviderError`, whose `status` is zero when no HTTP response exists. Cancellation closes the response stream. Default retries cover 429 and 5xx responses with three retries after the first attempt. Custom retry policies still cannot retry an attempt after it has emitted text: repeating it could duplicate output the caller already saw. Retries cannot undo external tool actions.

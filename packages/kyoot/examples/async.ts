@@ -1,4 +1,4 @@
-import { Async, Fail, Kyoot } from "../src/index.ts";
+import { Async, Fail, Kyoot } from "kyoot";
 
 class NotFound {
   readonly _tag = "NotFound";

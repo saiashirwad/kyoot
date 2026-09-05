@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Async, effect, Fail, Kyoot, Resource, Sync } from "../src/index.ts";
+import { Async, CleanupError, effect, Fail, Kyoot, Resource, Sync } from "../src/index.ts";
 
 const Stop = effect<string, never>()("stop");
 const Hold = effect<undefined, undefined>()("hold");
@@ -307,7 +307,14 @@ test("generator: frames queued behind a cleanup program close when the machine s
   }).pipe(Stop.handle({ onOp: () => Kyoot.succeed("stopped") }));
   assert.throws(
     () => Kyoot.runSync(outer as never),
-    (e: unknown) => e instanceof Error && e.message.includes("unhandled effect 'missing'"),
+    (e: unknown) =>
+      e instanceof CleanupError &&
+      e.failures.some(
+        (failure) =>
+          failure._tag === "Defect" &&
+          failure.defect instanceof Error &&
+          failure.defect.message.includes("unhandled effect 'missing'"),
+      ),
   );
   assert.deepEqual(events, ["inner", "middle", "outer"]);
 });
@@ -423,7 +430,7 @@ test("generator: a token saved past a closed continuation cannot restore it", ()
   assert.deepEqual(events, ["finally"]);
 });
 
-test("generator: a frame queued inside a dropped continuation closes too", () => {
+test("generator: a frame queued inside a dropped continuation releases too", () => {
   const events: string[] = [];
   const held = Kyoot.gen(function* () {
     try {
@@ -452,9 +459,16 @@ test("generator: a frame queued inside a dropped continuation closes too", () =>
   );
   assert.throws(
     () => Kyoot.runSync(prog as never),
-    (e: unknown) => e instanceof Error && e.message.includes("unhandled effect 'missing'"),
+    (e: unknown) =>
+      e instanceof CleanupError &&
+      e.failures.some(
+        (failure) =>
+          failure._tag === "Defect" &&
+          failure.defect instanceof Error &&
+          failure.defect.message.includes("unhandled effect 'missing'"),
+      ),
   );
-  assert.deepEqual(events, ["outer"]);
+  assert.deepEqual(events, ["release", "outer"]);
 });
 
 test("generator: a dropped cleanup plan still reports the error its finally raised", () => {

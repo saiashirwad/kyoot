@@ -1,4 +1,10 @@
 {
   "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "kyoot": ["./src/index.ts"],
+      "kyoot/internal": ["./src/internal/index.ts"]
+    }
+  },
   "include": ["src", "test", "examples"]
 }

@@ -29,7 +29,7 @@ export const print = log.handle({
   },
 });
 
-export const collect = <A, S extends Row & { log?: Entry }>(k: Kyoot<A, S>) =>
+export const collect = <A, S extends Row & { log?: Entry }, Ops>(k: Kyoot<A, S, Ops>) =>
   makeHandler("log", k, {
     create: () => [] as Entry[],
     onOp: (entry, resume, entries) => {

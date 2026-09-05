@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { effect, Emit, Fail, Kyoot } from "kyoot";
+import { Async, effect, Emit, Fail, Kyoot } from "kyoot";
 import { z } from "zod";
 import {
   AI,
@@ -12,6 +12,7 @@ import {
   needsApproval,
   TooManyRounds,
   Tool,
+  ToolPolicyError,
   type Completion,
   type Requires,
   type Request,
@@ -92,6 +93,27 @@ test("ask: gives up with TooManyRounds", () => {
   assert.ok(!r.ok && r.cause._tag === "Fail" && r.cause.error instanceof TooManyRounds);
 });
 
+test("AI rounds accepts zero and rejects invalid values", () => {
+  const zero = Kyoot.runSync(
+    AI.ask("no turns", { rounds: 0 }).pipe(scripted([say("unexpected")]), Emit.discard, Fail.run),
+  );
+  assert.ok(!zero.ok && zero.cause._tag === "Fail" && zero.cause.error instanceof TooManyRounds);
+  for (const rounds of [-1, 1.5, NaN, Infinity, -Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+    const seen: Request[] = [];
+    assert.throws(
+      () =>
+        AI.ask("bad", { rounds }).pipe(
+          scripted([say("unexpected")], seen),
+          Emit.discard,
+          Fail.orThrow,
+          Kyoot.runSync,
+        ),
+      RangeError,
+    );
+    assert.equal(seen.length, 0);
+  }
+});
+
 test("generate: one shot, returns the new messages", () => {
   const [value, added] = Kyoot.runSync(
     generate([{ role: "user", content: "hi" }]).pipe(
@@ -129,6 +151,113 @@ test("instances keep history; agents compose as tools with their own model", () 
   assert.deepEqual(usage, { input: 6, output: 2 });
   assert.equal(critic.messages.length, 2);
   assert.equal(seen.at(-1)!.messages.length, 5);
+});
+
+test("top-level programs start with a fresh conversation on every run", () => {
+  const seen: Request[] = [];
+  const program = AI.ask("hello").pipe(scripted([say("hi")], seen), Emit.discard, Fail.orThrow);
+  assert.equal(Kyoot.runSync(program), "hi");
+  assert.equal(Kyoot.runSync(program), "hi");
+  assert.deepEqual(
+    seen.map((request) => request.messages),
+    [[{ role: "user", content: "hello" }], [{ role: "user", content: "hello" }]],
+  );
+});
+
+test("instances commit a whole turn only after it succeeds", () => {
+  const agent = AI.make({ tools: [calc], rounds: 1 });
+  const failed = Kyoot.runSync(
+    agent
+      .ask("bad")
+      .pipe(scripted([call("calc", { expression: "1" })]), evaluate, Emit.discard, Fail.run),
+  );
+  assert.ok(!failed.ok && failed.cause._tag === "Fail");
+  assert.deepEqual(agent.messages, []);
+
+  assert.equal(
+    Kyoot.runSync(
+      agent.ask("good").pipe(scripted([say("ok")]), evaluate, Emit.discard, Fail.orThrow),
+    ),
+    "ok",
+  );
+  assert.deepEqual(agent.messages, [
+    { role: "user", content: "good" },
+    { role: "assistant", content: "ok" },
+  ]);
+});
+
+test("instances reject concurrent turns and release the turn lock after interruption", async () => {
+  const agent = AI.make();
+  const result = await Kyoot.runPromise(
+    Async.all([agent.ask("first"), agent.ask("second")]).pipe(
+      Model.handle({ onOp: () => Async.never }),
+      Emit.discard,
+      Fail.run,
+    ),
+  );
+  assert.ok(
+    !result.ok &&
+      result.cause._tag === "Fail" &&
+      result.cause.error instanceof AI.ConcurrentTurnError,
+  );
+  assert.deepEqual(agent.messages, []);
+  assert.equal(
+    Kyoot.runSync(
+      agent.ask("after").pipe(scripted([say("ok")]), evaluate, Emit.discard, Fail.orThrow),
+    ),
+    "ok",
+  );
+});
+
+test("tool names are unique and cannot claim the answer channel", () => {
+  const duplicate = Tool("same", "one", z.object({}), () => Kyoot.succeed(undefined));
+  const duplicateAgain = Tool("same", "two", z.object({}), () => Kyoot.succeed(undefined));
+  const reserved = Tool("answer", "bad", z.object({}), () => Kyoot.succeed(undefined));
+  for (const tools of [[duplicate, duplicateAgain], [reserved]] as const) {
+    const result = Kyoot.runSync(
+      AI.ask("hi", { tools }).pipe(scripted([say("unused")]), Emit.discard, Fail.run),
+    );
+    assert.ok(
+      !result.ok && result.cause._tag === "Fail" && result.cause.error instanceof ToolPolicyError,
+    );
+  }
+});
+
+test("a mixed answer response fails before an incomplete tool protocol can commit", () => {
+  const agent = AI.make({ tools: [calc] });
+  const result = Kyoot.runSync(
+    agent.gen(z.object({ value: z.number() }), "solve").pipe(
+      scripted([
+        {
+          text: "",
+          toolCalls: [
+            { id: "answer", name: "answer", arguments: '{"value":4}' },
+            { id: "calc", name: "calc", arguments: '{"expression":"2+2"}' },
+          ],
+        },
+      ]),
+      evaluate,
+      Emit.discard,
+      Fail.run,
+    ),
+  );
+  assert.ok(
+    !result.ok && result.cause._tag === "Fail" && result.cause.error instanceof ToolPolicyError,
+  );
+  assert.deepEqual(agent.messages, []);
+});
+
+test("usage includes model calls made by concurrent child fibers", async () => {
+  const [answers, total] = await Kyoot.runPromise(
+    Async.all([AI.ask("a"), AI.ask("b")]).pipe(
+      Mode.usage,
+      Model.handle({ onOp: (_request, resume) => resume(say("ok", { input: 2, output: 1 })) }),
+      Emit.discard,
+      Fail.orThrow,
+    ),
+  );
+  assert.deepEqual(answers, ["ok", "ok"]);
+  assert.deepEqual(total, { input: 4, output: 2 });
 });
 
 test("modes: system prompts and config layer around the model", () => {

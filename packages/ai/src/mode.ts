@@ -1,6 +1,9 @@
-import { Kyoot, makeHandler } from "kyoot";
+import { Kyoot } from "kyoot";
+import { makeHandler } from "kyoot/internal";
 import type { Kyoot as K, Row } from "kyoot";
-import { Model, type Request, type Usage } from "./model.ts";
+import { Model, type Request } from "./model.ts";
+
+type UsageTotal = { input: number; output: number };
 
 export const system = (content: string) =>
   Model.intercept((req, next) =>
@@ -10,15 +13,16 @@ export const system = (content: string) =>
 export const config = (patch: Pick<Request, "temperature" | "maxTokens">) =>
   Model.intercept((req, next) => next({ ...req, ...patch }));
 
-export const usage = <A, S extends Row & { "ai/model"?: Request }>(k: K<A, S>) =>
+export const usage = <A, S extends Row & { "ai/model"?: Request }, Ops>(k: K<A, S, Ops>) =>
   makeHandler("ai/model", k, {
-    initial: { input: 0, output: 0 } as Usage,
+    // Child fibers inherit this object. Mutating it lets one run include model calls
+    // made by concurrent children, while create keeps separate program runs isolated.
+    create: () => ({ input: 0, output: 0 }) as UsageTotal,
     onOp: (req, resume, total) =>
-      Model(req).flatMap((c) =>
-        resume(c, {
-          input: total.input + (c.usage?.input ?? 0),
-          output: total.output + (c.usage?.output ?? 0),
-        }),
-      ),
-    onSuccess: (a, total) => Kyoot.succeed([a, total] as const),
+      Model(req).flatMap((c) => {
+        total.input += c.usage?.input ?? 0;
+        total.output += c.usage?.output ?? 0;
+        return resume(c);
+      }),
+    onSuccess: (a, total) => Kyoot.succeed([a, { ...total }] as const),
   });

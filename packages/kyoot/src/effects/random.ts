@@ -10,7 +10,12 @@ export const handle = random.handle;
 
 export const intercept = random.intercept;
 
-export const int = (max: number) => next().map((x) => Math.floor(x * max));
+export const int = (max: number) => {
+  if (!Number.isSafeInteger(max) || max <= 0) {
+    throw new RangeError("Random.int bound must be a positive safe integer");
+  }
+  return next().map((x) => Math.floor(x * max));
+};
 
 export const live = random.handle({ onOp: (_, resume) => resume(Math.random()) });
 

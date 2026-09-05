@@ -30,3 +30,16 @@ test("Random.live draws from Math.random", () => {
     Math.random = random;
   }
 });
+
+test("Random.int rejects invalid bounds", () => {
+  for (const max of [
+    0,
+    -1,
+    1.5,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    Number.MAX_SAFE_INTEGER + 1,
+  ]) {
+    assert.throws(() => Random.int(max), RangeError);
+  }
+});

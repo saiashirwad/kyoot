@@ -1,4 +1,4 @@
-import { Emit, Fail, Kyoot } from "../src/index.ts";
+import { Emit, Fail, Kyoot } from "kyoot";
 import { checkout, Inventory, OutOfStock, Payments } from "./checkout.ts";
 
 const order = { id: "o-1", items: [{ sku: "book", qty: 2, priceCents: 1200 }] };

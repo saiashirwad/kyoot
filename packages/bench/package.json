@@ -8,13 +8,22 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "bench": "node perf.ts",
-    "bench:async-batch": "node --expose-gc async-batch.ts"
+    "bench:async-batch": "node --expose-gc async-batch.ts",
+    "bench:scopes": "node scopes.ts",
+    "bench:scopes:heavy": "BENCH_HEAVY=1 node scopes.ts",
+    "bench:cancellation": "node cancellation.ts",
+    "bench:cancellation:heavy": "BENCH_HEAVY=1 node cancellation.ts",
+    "bench:stream": "node stream.ts",
+    "bench:stream:heavy": "BENCH_HEAVY=1 node stream.ts",
+    "bench:memory": "node --expose-gc memory.ts",
+    "bench:memory:heavy": "BENCH_HEAVY=1 node --expose-gc memory.ts",
+    "bench:typecheck": "node typecheck.ts"
   },
   "devDependencies": {
     "@types/node": "^26.1.2",
     "effect": "4.0.0-rc.112",
     "kyoot": "workspace:*",
     "mitata": "^1.0.34",
-    "typescript": "^7.0.2"
+    "typescript": "7.0.2"
   }
 }

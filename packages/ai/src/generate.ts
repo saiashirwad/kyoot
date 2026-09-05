@@ -9,6 +9,12 @@ export class TooManyRounds {
   readonly _tag = "TooManyRounds";
 }
 
+/** A model response or tool list that cannot be represented safely in the chat protocol. */
+export class ToolPolicyError {
+  readonly _tag = "ToolPolicyError";
+  constructor(readonly message: string) {}
+}
+
 export interface Options<A, T extends Tool> {
   readonly tools?: readonly T[];
   readonly rounds?: number;
@@ -16,9 +22,19 @@ export interface Options<A, T extends Tool> {
 }
 
 export type Requires<T extends Tool> = MergeAll<
-  | { "ai/model": Request; emit: Events.Event; fail: TooManyRounds }
+  | { "ai/model": Request; emit: Events.Event; fail: TooManyRounds | ToolPolicyError }
   | (T extends Tool<any, any, infer S> ? Omit<S, "fail"> : never)
 >;
+
+const toolPolicy = (tools: readonly Tool[]) => {
+  const names = new Set<string>();
+  for (const tool of tools) {
+    if (tool.name === "answer") return new ToolPolicyError("tool name 'answer' is reserved");
+    if (names.has(tool.name)) return new ToolPolicyError(`duplicate tool name '${tool.name}'`);
+    names.add(tool.name);
+  }
+  return undefined;
+};
 
 const show = (e: unknown) => (e instanceof Error ? e.message : JSON.stringify(e));
 
@@ -52,7 +68,12 @@ export function generate<A = string, T extends Tool = never>(
   messages: readonly Message[],
   { tools = [], rounds = 8, schema }: Options<A, T> = {},
 ): K<readonly [A, Message[]], Requires<T>> {
+  if (!Number.isSafeInteger(rounds) || rounds < 0) {
+    throw new RangeError("AI rounds must be a non-negative integer");
+  }
   return Kyoot.gen(function* () {
+    const policy = toolPolicy(tools);
+    if (policy) return yield* Fail.fail(policy);
     const schemas = tools.map(schemaOf);
     if (schema)
       schemas.push({
@@ -67,6 +88,11 @@ export function generate<A = string, T extends Tool = never>(
         tools: schemas.length > 0 ? schemas : undefined,
         toolChoice: schema ? "required" : "auto",
       });
+      if (schema && toolCalls.length > 1 && toolCalls.some((call) => call.name === "answer")) {
+        return yield* Fail.fail(
+          new ToolPolicyError("an 'answer' call must be the only tool call in a model response"),
+        );
+      }
       added.push({ role: "assistant", content: text, ...(toolCalls.length > 0 && { toolCalls }) });
       if (!schema && toolCalls.length === 0) return [text as A, added] as const;
       for (const call of toolCalls) {

@@ -1,4 +1,4 @@
-import { Kyoot, Var } from "../src/index.ts";
+import { Kyoot, Var } from "kyoot";
 
 const Count = Var.tag<number>()("Count");
 const Name = Var.tag<string>()("Name");

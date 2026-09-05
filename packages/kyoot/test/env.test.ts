@@ -9,7 +9,7 @@ const makeDb = Config.get().map(({ url }) => ({ query: (sql: string) => `${url}:
 
 test("Env: provide(make) runs the program, which may use a handler outside", () => {
   const prog = Db.get().map((db) => db.query("select 1"));
-  const r = Kyoot.runSync(prog.pipe(Db.provide(makeDb), Config.provide({ url: "pg" })));
+  const r = Kyoot.runSync(prog.pipe(Db.provideEffect(makeDb), Config.provide({ url: "pg" })));
   assert.equal(r, "pg: select 1");
 });
 
@@ -25,11 +25,17 @@ test("Env: provide(make) runs once per run, however often the service is used", 
     const b = yield* Db;
     return a.query("1") + b.query("2");
   });
-  const app = prog.pipe(Db.provide(make), Config.provide({ url: "pg" }));
+  const app = prog.pipe(Db.provideEffect(make), Config.provide({ url: "pg" }));
   assert.equal(Kyoot.runSync(app), "pg: 1pg: 2");
   assert.equal(built, 1);
   Kyoot.runSync(app);
   assert.equal(built, 2);
+});
+
+test("Env: provide keeps a Kyoot service as a value", () => {
+  const service = Kyoot.succeed({ query: () => "ok" });
+  const provided = Db.provide(service as never);
+  assert.equal(Kyoot.runSync(Db.get().pipe(provided as never) as never), service);
 });
 
 test("Env: a resource the program opens is released after the program", () => {
@@ -48,7 +54,7 @@ test("Env: a resource the program opens is released after the program", () => {
     events.push("use");
     return db.query("select 1");
   });
-  assert.equal(Kyoot.runSync(prog.pipe(Db.provide(make), Resource.run)), "ran select 1");
+  assert.equal(Kyoot.runSync(prog.pipe(Db.provideEffect(make), Resource.run)), "ran select 1");
   assert.deepEqual(events, ["open", "use", "close"]);
 });
 
@@ -62,7 +68,7 @@ test("Env: a program that fails fails the whole program", () => {
     return { query: (sql: string) => sql };
   });
   const prog = Db.get().map((db) => db.query("select 1"));
-  const r = Kyoot.runSync(prog.pipe(Db.provide(make), Config.provide({ url: "" }), Fail.run));
+  const r = Kyoot.runSync(prog.pipe(Db.provideEffect(make), Config.provide({ url: "" }), Fail.run));
   assert.equal(r.ok, false);
   if (!r.ok) assert.equal(r.cause._tag, "Fail");
 });
@@ -81,7 +87,7 @@ test("Env: intercept wraps a provided service", () => {
     const db = yield* Db;
     return db.query("a") + db.query("b");
   });
-  const app = prog.pipe(spy, Db.provide(makeDb), Config.provide({ url: "pg" }));
+  const app = prog.pipe(spy, Db.provideEffect(makeDb), Config.provide({ url: "pg" }));
   assert.equal(Kyoot.runSync(app), "pg: apg: b");
   assert.deepEqual(seen, ["a", "b"]);
 });

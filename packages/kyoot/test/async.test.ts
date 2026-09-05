@@ -27,6 +27,18 @@ test("fromPromise resolves through runPromise", async () => {
   assert.equal(r, 42);
 });
 
+test("tryPromise turns rejection into a typed failure", async () => {
+  const boom = new Error("boom");
+  const result = await Kyoot.runPromise(
+    Async.tryPromise(
+      () => Promise.reject(boom),
+      (reason) => ({ reason }),
+    ).pipe(Fail.run),
+  );
+  assert.ok(!result.ok && result.cause._tag === "Fail");
+  if (!result.ok && result.cause._tag === "Fail") assert.equal(result.cause.error.reason, boom);
+});
+
 test("fromPromise exposes an AbortSignal from day one", async () => {
   const r = await Kyoot.runPromise(Async.fromPromise((signal) => Promise.resolve(signal.aborted)));
   assert.equal(r, false);
@@ -104,6 +116,13 @@ test("timeout: a slow computation fails with a typed Timeout", async () => {
   const r = await Kyoot.runPromise(Async.timeout(5, Clock.sleep(50)).pipe(Fail.run));
   assert.equal(r.ok, false);
   assert.ok(!r.ok && r.cause._tag === "Fail" && r.cause.error instanceof Async.Timeout);
+});
+
+test("timeout rejects invalid delays", () => {
+  const program = Kyoot.succeed("ok");
+  for (const ms of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.throws(() => Async.timeout(ms, program), RangeError);
+  }
 });
 
 test("timeout: a fast computation wins", async () => {
@@ -191,6 +210,57 @@ test("structured concurrency: a completed parent interrupts its children", async
   );
   assert.deepEqual(events, ["release"]);
 });
+
+test("scope ownership: success waits for child release before parent release", async () => {
+  const events: string[] = [];
+  const child = Kyoot.gen(function* () {
+    yield* Resource.acquire(
+      () => events.push("open child"),
+      () => events.push("release child"),
+    );
+    yield* Async.never;
+  }).pipe(Resource.run);
+  const parent = Kyoot.gen(function* () {
+    yield* Resource.acquire(
+      () => events.push("open parent"),
+      () => events.push("release parent"),
+    );
+    yield* Async.fork(child);
+    return "done";
+  }).pipe(Resource.run);
+
+  assert.equal(await Kyoot.runPromise(parent), "done");
+  assert.deepEqual(events, ["open parent", "open child", "release child", "release parent"]);
+});
+
+test("scope ownership: interrupt waits for child release before parent release", async () => {
+  const events: string[] = [];
+  const child = Kyoot.gen(function* () {
+    yield* Resource.acquire(
+      () => events.push("open child"),
+      () => events.push("release child"),
+    );
+    yield* Async.never;
+  }).pipe(Resource.run);
+  const parent = Kyoot.gen(function* () {
+    yield* Resource.acquire(
+      () => events.push("open parent"),
+      () => events.push("release parent"),
+    );
+    yield* Async.fork(child);
+    yield* Async.never;
+  }).pipe(Resource.run);
+  const result = await Kyoot.runPromise(
+    Kyoot.gen(function* () {
+      const fiber = yield* Async.fork(parent);
+      yield* fiber.interrupt;
+      return yield* fiber.await;
+    }),
+  );
+
+  assert.ok(!result.ok && result.cause._tag === "Interrupted");
+  assert.deepEqual(events, ["open parent", "open child", "release child", "release parent"]);
+});
 for (const timing of ["before", "after"] as const) {
   for (const completion of ["resolve", "reject"] as const) {
     test(`interrupt: stale wait may ${completion} ${timing} async cleanup`, async () => {
@@ -270,9 +340,9 @@ test("all: empty array resolves immediately", async () => {
   assert.deepEqual(await Kyoot.runPromise(Async.all([])), []);
 });
 
-test("all: NaN concurrency runs every branch", async () => {
+test("all: rejects invalid concurrency", () => {
   const ks = [1, 2, 3].map((n) => Async.fromPromise(() => Promise.resolve(n)));
-  assert.deepEqual(await Kyoot.runPromise(Async.all(ks, { concurrency: NaN })), [1, 2, 3]);
+  assert.throws(() => Async.all(ks, { concurrency: NaN }), RangeError);
 });
 
 test("all: first failure interrupts the rest and runs their finalizers", async () => {

@@ -1,83 +1,51 @@
 # @kyoot/platform
 
-The file system and processes as kyoot effects. A program says `FileSystem.readFile(path)`; which file system that is gets decided by the handler you pipe in.
+Filesystems and commands as Kyoot effects. Requires Node 24+ and TypeScript 7.0.2. The Node handler uses Node's filesystem and child-process APIs; the memory handler supports deterministic tests.
 
 ```ts
-import { Fail, Kyoot, Log } from "kyoot";
-import { Command, FileSystem } from "@kyoot/platform";
-import * as Node from "@kyoot/platform/node";
+import { Fail, Kyoot } from "kyoot";
+import { FileSystem, Memory } from "@kyoot/platform";
 
 const program = Kyoot.gen(function* () {
-  const { stdout } = yield* Command.run("git", ["ls-files"]);
-  for (const file of stdout.trim().split("\n"))
-    yield* FileSystem.appendFile("manifest.txt", `${file}\n`);
+  yield* FileSystem.writeFile("/report.txt", "hello");
+  return yield* FileSystem.readFile("/report.txt");
 });
-
-await program.pipe(Node.provide, Fail.orThrow, Kyoot.runPromise);
+const result = program.pipe(Memory.fs(), Fail.orThrow, Kyoot.runSync);
+// ["hello", { "/report.txt": "hello" }]
 ```
 
-## Effects
+For live I/O, import `* as Node from "@kyoot/platform/node"` and use `Node.fs`, `Node.command`, or `Node.provide` for both. Finish with `Fail.orThrow, Kyoot.runPromise`.
 
-- `FileSystem` — `readFile`, `writeFile`, `appendFile`, `readDir`, `stat`, `exists`, `mkdir`, `remove`, `rename`. Each puts `fs` and `fail: FsError` in the row. An `FsError` carries the op, the path, and a `code`: `NotFound`, `AlreadyExists`, `PermissionDenied`, `NotADirectory`, `IsADirectory`, `NotEmpty`, `Other`.
-- `Command` — `run(command, args, { cwd, env, stdin })` returns `{ code, stdout, stderr }`. A non-zero exit is an output; a program that cannot start is a `CommandError`.
+## Filesystems
 
-## Handlers
+`FileSystem` provides `readFile`, `writeFile`, `appendFile`, `readDir`, `stat`, `exists`, `mkdir`, `remove`, and `rename`. Each operation declares `fs` and `fail: FsError`. Errors carry the operation, path, message, and code: `NotFound`, `AlreadyExists`, `PermissionDenied`, `NotADirectory`, `IsADirectory`, `NotEmpty`, or `Other`.
 
-- `@kyoot/platform/node` — `Node.fs`, `Node.command`, and `Node.provide` for both. Works on Bun too, since Bun implements `node:fs` and `node:child_process`.
-- `Memory.fs(initial)` — an in-memory file system. Returns `[result, files]` so a test can assert on what was written. It enforces the same rules as a real one: parents must exist, `mkdir` on an existing path fails, `remove` on a non-empty directory needs `recursive`.
-- `FileSystem.handle` / `Command.handle` — build your own, or a fake for one test.
+`Memory.fs(initial)` creates fresh state for each run and returns `[value, files]`. File size counts UTF-8 bytes. Parents must exist, file/directory conflicts fail, non-recursive removal rejects a non-empty directory, and rename checks source and target types.
 
-## Interception
+`FileSystem.handle(table)` requires one entry per operation. Each entry receives that operation's payload and a continuation with its exact answer type. It is stateless; use the memory handler or trusted internal machinery when implementing a stateful runtime. Return expected errors with `resume.with(Fail.fail(error))`, so application catches around the operation see them.
 
-Every call is a value passing through one point, so a policy over all file access is a handler. `intercept` sees the op and a `next` that performs it for the handlers outside; `handle` with `resume.with` hands the program a failure it can catch itself.
+`FileSystem.intercept(table)` accepts a partial table with matching payload and answer types. Omitted operations pass through:
 
 ```ts
-import { posix } from "node:path";
-
-const writes = new Set(["writeFile", "appendFile", "mkdir", "remove", "rename"]);
-
-const audit = FileSystem.intercept((op, next) =>
-  Log.info(`${op.kind} ${op.path}`).flatMap(() => next(op)),
-);
-
-// A path posix.resolve and the handler will read the same way: not relative, no backslash
-// separators, no leading "//", which Windows reads as a UNC share.
-const plainPosix = (path: string) =>
-  posix.isAbsolute(path) && !path.startsWith("//") && !path.includes("\\");
-
-const confine = (dir: string) => {
-  if (!plainPosix(dir)) throw new Error(`confine needs an absolute POSIX root, got ${dir}`);
-  const root = posix.resolve(dir);
-  const inside = (path: string) => {
-    if (!plainPosix(path)) return false;
-    const resolved = posix.resolve(path);
-    return resolved === root || resolved.startsWith(root === "/" ? "/" : `${root}/`);
-  };
-  return FileSystem.intercept((op, next) => {
-    const denied = !inside(op.path)
-      ? op.path
-      : op.kind === "rename" && !inside(op.to)
-        ? op.to
-        : null;
-    return denied === null
-      ? next(op)
-      : Fail.fail(new FileSystem.FsError(op.kind, denied, "PermissionDenied", `not under ${root}`));
-  });
-};
-
-const dryRun = FileSystem.intercept((op, next) =>
-  writes.has(op.kind) ? Log.warn(`skipped ${op.kind} ${op.path}`) : next(op),
-);
-
-program.pipe(audit, confine("/work"), dryRun, Node.fs);
+const cached = FileSystem.intercept({
+  readFile: (op, next) => (op.path === "/cached.txt" ? Kyoot.succeed("cached") : next(op)),
+});
 ```
 
-`confine` resolves before it compares, because `op.path.startsWith(root)` is not a path test: with `root = "/work"` it accepts `/work-other/x`, a sibling directory, and `/work/../outside`, which the handler resolves out of the root. It checks `op.to` as well, or `FileSystem.rename("/work/secret.txt", "/etc/passwd")` gets in on its source. It takes absolute POSIX paths and denies the rest, because a path the check and the handler read differently is worse than no path: `Memory.fs` resolves a relative path against `/` and `Node.fs` against the process's cwd, a backslash is an ordinary character to `posix.resolve` but a separator to `Node.fs` on Windows, and a leading `//` is a share there — `posix.resolve("//work/share/file")` is `/work/share/file`, inside the root, while Windows opens `\\work\share\file` on a host called `work`. Resolve paths against your own base before they reach the intercept.
+`unsafeIntercept` exposes the raw family callback for trusted code. Its answer is uncorrelated; prefer the safe table API in applications.
 
-That is a policy, not a jail. The check is lexical, so a symlink under the root still opens whatever it points at, and nothing here stops a path from changing between the check and the op. The boundary is the operating system's — a container, a `chroot`, a user with no rights outside the tree — and this intercept is how you state the policy above it.
+## Commands
 
-`examples/intercept.ts` runs these against `Memory.fs` and shows the log, the caught `PermissionDenied`, and the files a dry run did not write. In a service-object design each of these means wrapping every method; here they are a few lines each and know nothing about each other.
+`Command.run(command, args, options)` accepts `cwd`, `env`, `stdin`, and `maxOutputBytes`. It returns `{ code, signal, stdout, stderr }`. A normal exit has a numeric code and null signal, including nonzero exits. Signal termination has a null code and the signal name.
 
-A handler for another runtime is the same three functions against that runtime's APIs. The effects and the programs written against them don't change.
+The default output limit is 1 MiB across stdout and stderr combined, counted in UTF-8 bytes. The limit must be a non-negative safe integer. Failure to start, an invalid limit, or output beyond the limit produces a typed `CommandError`. The handler returns these failures through `resume.with`, where application catches can see them.
 
-`test/fs.test.ts` runs one program against `Memory.fs` and `Node.fs` and expects the same answer.
+On cancellation, the Node handler sends SIGTERM to the direct child and awaits its close event. It does not terminate the child's descendants or escalate to SIGKILL. A child that ignores SIGTERM can keep cancellation or output-limit cleanup waiting indefinitely.
+
+## Path policy limits
+
+The [interception example](examples/intercept.ts) checks absolute POSIX paths, resolves `..`, rejects ambiguous backslashes and leading `//`, and checks both paths in a rename. A raw prefix test is insufficient: `/work-other` and `/work/../outside` must not pass a `/work` policy.
+
+This is a lexical policy. Symlinks can point outside the root, and paths can change between checking and use. Memory resolves relative paths against `/`; Node uses its working directory. Windows interprets separators and network paths differently. Normalize paths against your chosen base before interception, and use operating-system isolation when access must be confined.
+
+`pnpm examples` runs the memory example. The live command example, [loc.ts](examples/loc.ts), runs only when invoked explicitly.

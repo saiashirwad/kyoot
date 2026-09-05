@@ -1,4 +1,4 @@
-import { Async, Clock, effect, Emit, Fail, Kyoot, Log, Retry } from "../src/index.ts";
+import { Async, Clock, effect, Emit, Fail, Kyoot, Log, Retry } from "kyoot";
 
 interface Prompt {
   readonly messages: readonly string[];
@@ -39,7 +39,7 @@ const flakyModel = (failures: number) => {
   return Model.handle({
     onOp: (prompt, resume) =>
       complete(prompt)
-        .pipe(Retry.run({ times: 3, delay: (n) => 50 * 2 ** n }))
+        .pipe(Retry.run({ retries: 3, delay: (n) => 50 * 2 ** n }))
         .flatMap(resume),
   });
 };

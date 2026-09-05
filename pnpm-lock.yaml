@@ -18,7 +18,7 @@ importers:
         specifier: ^1.79.0
         version: 1.79.0
       typescript:
-        specifier: ^7.0.2
+        specifier: 7.0.2
         version: 7.0.2
 
   packages/ai:
@@ -31,7 +31,7 @@ importers:
         specifier: ^26.1.2
         version: 26.1.2
       typescript:
-        specifier: ^7.0.2
+        specifier: 7.0.2
         version: 7.0.2
       zod:
         specifier: ^4.4.3
@@ -52,7 +52,7 @@ importers:
         specifier: ^1.0.34
         version: 1.0.34
       typescript:
-        specifier: ^7.0.2
+        specifier: 7.0.2
         version: 7.0.2
 
   packages/kyoot:
@@ -61,7 +61,7 @@ importers:
         specifier: ^26.1.2
         version: 26.1.2
       typescript:
-        specifier: ^7.0.2
+        specifier: 7.0.2
         version: 7.0.2
 
   packages/platform:
@@ -74,7 +74,7 @@ importers:
         specifier: ^26.1.2
         version: 26.1.2
       typescript:
-        specifier: ^7.0.2
+        specifier: 7.0.2
         version: 7.0.2
 
   packages/registry:
@@ -87,7 +87,7 @@ importers:
         specifier: ^26.1.2
         version: 26.1.2
       typescript:
-        specifier: ^7.0.2
+        specifier: 7.0.2
         version: 7.0.2
 
 packages:

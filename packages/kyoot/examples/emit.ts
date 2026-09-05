@@ -1,4 +1,4 @@
-import { Emit, Kyoot } from "../src/index.ts";
+import { Emit, Kyoot } from "kyoot";
 
 const program = Kyoot.gen(function* () {
   yield* Emit.value("started");

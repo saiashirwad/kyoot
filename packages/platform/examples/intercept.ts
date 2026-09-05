@@ -1,10 +1,22 @@
 import { posix } from "node:path";
 import { Fail, Kyoot, Log } from "kyoot";
+import type { Kyoot as Program } from "kyoot";
 import { FileSystem, Memory } from "@kyoot/platform";
 
-const audit = FileSystem.intercept((op, next) =>
-  Log.info(`${op.kind} ${op.path}`).flatMap(() => next(op)),
-);
+type FsRow = { fs: FileSystem.Op; fail: FileSystem.FsError };
+const auditOp = <O extends FileSystem.Op, A>(op: O, next: (op: O) => Program<A, FsRow>) =>
+  Log.info(`${op.kind} ${op.path}`).flatMap(() => next(op));
+const audit = FileSystem.intercept({
+  readFile: auditOp,
+  writeFile: auditOp,
+  appendFile: auditOp,
+  readDir: auditOp,
+  stat: auditOp,
+  exists: auditOp,
+  mkdir: auditOp,
+  remove: auditOp,
+  rename: auditOp,
+});
 
 // A path posix.resolve and the handler read the same way: absolute, no backslash separators,
 // no leading "//", which Windows reads as a UNC share.
@@ -22,7 +34,7 @@ const confine = (dir: string) => {
     const resolved = posix.resolve(path);
     return resolved === root || resolved.startsWith(root === "/" ? "/" : `${root}/`);
   };
-  return FileSystem.intercept((op, next) => {
+  const check = <O extends FileSystem.Op, A>(op: O, next: (op: O) => Program<A, FsRow>) => {
     const denied = !inside(op.path)
       ? op.path
       : op.kind === "rename" && !inside(op.to)
@@ -31,14 +43,28 @@ const confine = (dir: string) => {
     return denied === null
       ? next(op)
       : Fail.fail(new FileSystem.FsError(op.kind, denied, "PermissionDenied", `not under ${root}`));
+  };
+  return FileSystem.intercept({
+    readFile: check,
+    writeFile: check,
+    appendFile: check,
+    readDir: check,
+    stat: check,
+    exists: check,
+    mkdir: check,
+    remove: check,
+    rename: check,
   });
 };
 
-const writes = new Set(["writeFile", "appendFile", "mkdir", "remove", "rename"]);
-
-const dryRun = FileSystem.intercept((op, next) =>
-  writes.has(op.kind) ? Log.warn(`skipped ${op.kind} ${op.path}`) : next(op),
-);
+const skip = (op: FileSystem.Op) => Log.warn(`skipped ${op.kind} ${op.path}`);
+const dryRun = FileSystem.intercept({
+  writeFile: skip,
+  appendFile: skip,
+  mkdir: skip,
+  remove: skip,
+  rename: skip,
+});
 
 const code = Fail.catchTag("FsError", (e: FileSystem.FsError) => Kyoot.succeed(e.code));
 

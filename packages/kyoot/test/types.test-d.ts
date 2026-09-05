@@ -6,13 +6,15 @@ import {
   Env,
   Fail,
   Kyoot,
-  makeHandler,
+  Log,
   op,
   Resource,
   Retry,
   Sync,
   Var,
+  runFiber,
 } from "../src/index.ts";
+import { makeHandler } from "../src/internal/index.ts";
 import type { AsyncOp, Kyoot as KyootT, Result, RowsOf } from "../src/index.ts";
 
 type Expect<T extends true> = T;
@@ -52,6 +54,8 @@ const slept: Promise<void> = Kyoot.runPromise(Clock.sleep(1));
 Kyoot.runSync(mixed);
 
 const syncProg = Sync.defer(() => 1);
+const lazy = Kyoot.defer(() => Fail.fail("lazy" as const));
+type _lazyFailure = Expect<Equal<RowsOf<typeof lazy>["fail"], "lazy">>;
 // @ts-expect-error runSync requires an empty row
 Kyoot.runSync(syncProg);
 const s1: number = Kyoot.runSync(syncProg.pipe(Sync.run));
@@ -149,6 +153,55 @@ type _neverMapKeys = Expect<Equal<keyof RowsOf<typeof neverMapped>, "async">>;
 const forked = Async.fork(neverMapped);
 type _forkKeys = Expect<Equal<keyof RowsOf<typeof forked>, "async">>;
 
+// Forking retains the failure payload even when its value is undefined.
+const undefinedFailureFiber = Async.fork(Fail.fail(undefined));
+type _undefinedFailureFiber = Expect<
+  Equal<RowsOf<ValueOf<typeof undefinedFailureFiber>["join"]>["fail"], undefined>
+>;
+
+const taggedField = Fail.fail({ _tag: "Known", present: true } as const);
+taggedField.pipe(
+  // @ts-expect-error the callback cannot require a field absent from the actual tagged failure
+  Fail.catchTag("Known", (e: { readonly _tag: "Known"; missing: string }) =>
+    Kyoot.succeed(e.missing),
+  ),
+);
+
+const sameKeyNumber = effect<string, number>()("same-key");
+const sameKeyString = effect<string, string>()("same-key");
+const sameKeyProgram = Kyoot.gen(function* () {
+  const n = yield* sameKeyNumber("x");
+  return yield* sameKeyString("x").map(() => n);
+});
+// @ts-expect-error one key cannot carry incompatible answer types
+sameKeyNumber.handle({ onOp: (_, resume) => resume(1) })(sameKeyProgram);
+
+const contractA = effect<string, number, { readonly fail: { readonly _tag: "A" } }>()("contract");
+const contractB = effect<string, number, { readonly fail: { readonly _tag: "B" } }>()("contract");
+const contractProgram = Kyoot.gen(function* () {
+  yield* contractA("x");
+  yield* contractB("x");
+});
+// @ts-expect-error one key cannot carry incompatible contracts
+contractA.handle({ onOp: (_, resume) => resume(1) })(contractProgram);
+
+const literalPayload = effect<number, void>()("literal-payload")(1);
+// @ts-expect-error an operation payload type cannot be narrowed from number to literal 1
+effect<1, void>()("literal-payload").handle({ onOp: (_, resume) => resume() })(literalPayload);
+
+// @ts-expect-error the checked runner rejects an unhandled operation row
+runFiber(Fail.fail("unhandled" as const));
+
+declare const unionRunnerProgram: KyootT<number, { fail: string } | { clock: number }>;
+// @ts-expect-error a union-shaped row still contains unhandled operations
+Kyoot.runSync(unionRunnerProgram);
+// @ts-expect-error a union-shaped row still contains unhandled operations
+Kyoot.runPromise(unionRunnerProgram);
+
+declare const unionHandlerProgram: KyootT<number, { ask: string } | { ask: number }>;
+// @ts-expect-error the handler must account for every payload in the incoming union
+Ask.handle({ onOp: (payload, resume) => resume(payload.length) })(unionHandlerProgram);
+
 const flatMapped = Kyoot.succeed(1).flatMap((n) => Fail.fail(String(n)));
 type _flatKeys = Expect<Equal<keyof RowsOf<typeof flatMapped>, "fail">>;
 type _flatFail = Expect<Equal<RowsOf<typeof flatMapped>["fail"], string>>;
@@ -242,7 +295,7 @@ type _raceKeys = Expect<Equal<keyof RowsOf<typeof raced>, "async" | "env/greeter
 type _raceFail = Expect<Equal<RowsOf<typeof raced>["fail"], FetchFailed | "other">>;
 const allOf = Async.all([needsGreeter, needsGreeter]);
 type _allKeys = Expect<Equal<keyof RowsOf<typeof allOf>, "async" | "env/greeter" | "fail">>;
-type _allValue = Expect<Equal<ValueOf<typeof allOf>, number[]>>;
+type _allValue = Expect<Equal<ValueOf<typeof allOf>, [number, number]>>;
 const none = Async.all([]);
 type _noneKeys = Expect<Equal<keyof RowsOf<typeof none>, "async">>;
 
@@ -268,13 +321,13 @@ const makeDb = Kyoot.gen(function* () {
 });
 
 const usesDb = Db.get().flatMap((db) => db.query("select 1"));
-const provided = usesDb.pipe(Db.provide(makeDb));
+const provided = usesDb.pipe(Db.provideEffect(makeDb));
 type _providedRow = Expect<
   Equal<keyof RowsOf<typeof provided>, "async" | "env/config" | "resource">
 >;
-const wired = usesDb.pipe(Db.provide(makeDb), Config.provide({ url: "" }), Resource.run);
+const wired = usesDb.pipe(Db.provideEffect(makeDb), Config.provide({ url: "" }), Resource.run);
 type _wiredRow = Expect<Equal<keyof RowsOf<typeof wired>, "async">>;
-const backwards = usesDb.pipe(Config.provide({ url: "" }), Db.provide(makeDb));
+const backwards = usesDb.pipe(Config.provide({ url: "" }), Db.provideEffect(makeDb));
 type _backwardsRow = Expect<
   Equal<keyof RowsOf<typeof backwards>, "async" | "env/config" | "resource">
 >;
@@ -286,6 +339,7 @@ const Pay = effect<number, string, { fail: Declined }>()("pay");
 type _payRow = Expect<Equal<keyof RowsOf<ReturnType<typeof Pay>>, "pay" | "fail">>;
 Pay.handle({ onOp: (_, resume) => resume.with(Fail.fail(new Declined())) });
 Pay.handle({ onOp: (_, resume) => resume.with(Kyoot.succeed("ok")) });
+Log.handle({ onOp: (_, resume) => resume() });
 // @ts-expect-error a failure outside the contract
 Pay.handle({ onOp: (_, resume) => resume.with(Fail.fail("wrong type")) });
 // @ts-expect-error an effect the op site was not told about
@@ -293,3 +347,28 @@ Pay.handle({ onOp: (_, resume) => resume.with(Log.info("x").map(() => "ok")) });
 const Plain = effect<number, string>()("plain");
 // @ts-expect-error no contract: nothing may be handed back but a value
 Plain.handle({ onOp: (_, resume) => resume.with(Fail.fail(new Declined())) });
+
+const WrongPay = effect<number, boolean, { fail: Declined }>()("pay");
+const payAfterEnv = Pay(1).pipe(Greeter.provide({ greet: (name) => name }));
+const payAfterEmit = Pay(1).pipe(Emit.discard);
+const SignatureVar = Var.tag<number>()("signature");
+const payAfterVar = Pay(1).pipe(SignatureVar.run(0));
+const wrongPayHandler = WrongPay.handle({ onOp: (_, resume) => resume(true) });
+// @ts-expect-error Env.provide must preserve the operation answer signature
+wrongPayHandler(payAfterEnv);
+// @ts-expect-error Emit handlers must preserve the operation answer signature
+wrongPayHandler(payAfterEmit);
+// @ts-expect-error Var.run must preserve the operation answer signature
+wrongPayHandler(payAfterVar);
+
+const UnknownPay = effect<number, unknown, { fail: Declined }>()("pay");
+const unknownPayHandler = UnknownPay.handle({ onOp: (_, resume) => resume("not a boolean") });
+// @ts-expect-error an unknown-answer handler cannot claim a known-answer operation
+unknownPayHandler(WrongPay(1));
+
+const stringResource = Resource.acquire(
+  () => "resource",
+  () => undefined,
+);
+// @ts-expect-error the interceptor answer must match the acquired value
+Resource.intercept<number>()((op, next) => next(op))(stringResource);

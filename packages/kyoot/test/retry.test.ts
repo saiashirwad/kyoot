@@ -71,3 +71,15 @@ test("Retry: works under runPromise with the real clock", async () => {
     2,
   );
 });
+
+test("Retry: validates retries and delay, preferring retries over times", () => {
+  const apply = (policy: Retry.Policy) => Retry.run(policy)(Fail.fail("x"));
+  assert.throws(() => apply({ retries: -1 }), RangeError);
+  assert.throws(() => apply({ retries: 1.5 }), RangeError);
+  assert.throws(() => apply({ retries: 1, delay: -1 }), RangeError);
+  assert.throws(() => apply({ retries: 1, delay: Number.NaN }), RangeError);
+
+  const { prog, calls } = failingFor(2);
+  Kyoot.runSync(prog.pipe(Retry.run({ retries: 1, times: 10 }), Fail.run, Clock.virtual));
+  assert.equal(calls(), 2);
+});

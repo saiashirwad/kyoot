@@ -1,4 +1,4 @@
-import { Clock, Kyoot } from "../src/index.ts";
+import { Clock, Kyoot } from "kyoot";
 
 const boilEgg = (minute: number) =>
   Kyoot.gen(function* () {

@@ -1,4 +1,4 @@
 {
   "extends": "../../tsconfig.base.json",
-  "include": ["perf.ts", "async-batch.ts"]
+  "include": ["*.ts"]
 }

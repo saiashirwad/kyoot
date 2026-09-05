@@ -1,4 +1,4 @@
-import { genNode, InterruptedError, isKyoot, KyootImpl } from "./core.ts";
+import { InterruptedError, isKyoot, KyootImpl } from "./core.ts";
 import {
   NodeSym,
   type AnyKyoot,
@@ -7,6 +7,7 @@ import {
   type RuntimeResume,
   type Snapshot,
 } from "./model.ts";
+import { CleanupError, Result, cleanupFailuresFrom } from "./result.ts";
 
 type Phase = "node" | "value";
 type MachineState = "idle" | "running" | "done" | "suspended" | "yielded";
@@ -20,6 +21,7 @@ const FINALLY_YIELDED =
 
 class GeneratorFrame {
   readonly generator: Generator<AnyKyoot, unknown, unknown>;
+  private closed = false;
 
   constructor(generator: Generator<AnyKyoot, unknown, unknown>) {
     this.generator = generator;
@@ -29,6 +31,8 @@ class GeneratorFrame {
   // handlers that gave its effects meaning are already off the stack — so the frame
   // stays parked there and the drop is reported as a defect.
   close(): void {
+    if (this.closed) return;
+    this.closed = true;
     if (!this.generator.return(undefined).done) throw new Error(FINALLY_YIELDED);
   }
 }
@@ -41,7 +45,7 @@ class SettleFrame {
   }
 }
 
-type Status = "idle" | "armed" | "held" | "resumed" | "dropped";
+type Status = "idle" | "armed" | "held" | "claimed" | "running" | "dropped";
 
 const ONE_SHOT = "continuation resumed twice (one-shot law)";
 const DROPPED = "continuation resumed after it was dropped";
@@ -67,11 +71,18 @@ class HandlerFrame {
       throw new Error(this.status === "dropped" ? DROPPED : ONE_SHOT);
     }
     if (epoch !== this.epoch) throw new Error(ONE_SHOT);
-    this.status = "resumed";
+    this.status = "claimed";
     this.resumeKind = kind;
     this.resumeValue = value;
     this.nextState = state;
     return new KyootImpl("resume", this, epoch);
+  }
+
+  execute(epoch: number): void {
+    if (epoch !== this.epoch || this.status !== "claimed") {
+      throw new Error(this.status === "dropped" ? DROPPED : ONE_SHOT);
+    }
+    this.status = "running";
   }
 }
 
@@ -132,85 +143,92 @@ const closer = (saved: { error: unknown } | undefined) => {
   };
 };
 
-// The steps a walk did not reach, innermost first, carrying any error it already has.
-const closeSteps = (
-  steps: readonly UnwindStep[],
-  from: number,
-  saved: { error: unknown } | undefined,
-): void => {
-  const { close, finish } = closer(saved);
-  for (let i = from; i < steps.length; i++) close(steps[i]!);
-  finish();
+const unwindAttempt = Symbol("kyoot/unwind-attempt");
+const restoreAfterCleanup = Symbol("kyoot/restore-after-cleanup");
+const unit = new KyootImpl("pure", undefined);
+
+const raise = (error: unknown): AnyKyoot =>
+  unit.map(() => {
+    throw error;
+  });
+
+const afterCleanup = (cleanup: AnyKyoot, value: unknown): AnyKyoot =>
+  new KyootImpl("handler", cleanup, restoreAfterCleanup, {
+    recoverInterrupt: true,
+    onOp: () => {
+      throw new Error("unreachable cleanup restore handler");
+    },
+    onSuccess: () => new KyootImpl("pure", value),
+    onDefect: (error: unknown) => {
+      if (error instanceof CleanupError) {
+        const amended = Result.addCleanupTo(value, cleanupFailuresFrom(error));
+        if (amended !== undefined) return new KyootImpl("pure", amended);
+      }
+      return raise(error);
+    },
+    onInterrupt: (_state: unknown, cause?: unknown) => {
+      if (cause === undefined) return unit;
+      const amended = Result.addCleanupTo(value, [{ _tag: "Interrupted" }]);
+      return amended === undefined ? raise(new InterruptedError()) : new KyootImpl("pure", amended);
+    },
+  });
+
+interface UnwindWalk {
+  readonly steps: readonly (() => AnyKyoot | undefined)[];
+  index: number;
+  raised: { error: unknown } | undefined;
+}
+
+const walk = (state: UnwindWalk): AnyKyoot => {
+  const step = state.steps[state.index++];
+  if (step === undefined) {
+    if (state.raised !== undefined) {
+      const error = state.raised.error;
+      return raise(error);
+    }
+    return unit;
+  }
+
+  const deferred = unit.flatMap(() => step() ?? unit);
+  return new KyootImpl("handler", deferred, unwindAttempt, {
+    interruptMask: true,
+    recoverInterrupt: true,
+    onOp: () => {
+      throw new Error("unreachable unwind handler");
+    },
+    onSuccess: () => walk(state),
+    onDefect: (error: unknown) => {
+      state.raised = { error };
+      return walk(state);
+    },
+    onInterrupt: (_handlerState: unknown, cause?: unknown) => {
+      if (cause !== undefined) state.raised = { error: cause };
+      return walk(state);
+    },
+  });
 };
 
 const unwinding = (entries: readonly StackEntry[], from = 0): AnyKyoot | undefined => {
-  let steps: UnwindStep[] | undefined;
-  let raised: { error: unknown } | undefined;
-  // Last wins, as in `closer`.
-  const closeFrame = (frame: GeneratorFrame) => {
-    try {
-      frame.close();
-    } catch (error) {
-      raised = { error };
-    }
-  };
+  const steps: Array<() => AnyKyoot | undefined> = [];
   for (let i = entries.length - 1; i >= from; i--) {
     const entry = entries[i]!;
     if (entry instanceof GeneratorFrame) {
-      // Innermost first. Closing is synchronous, so a frame only needs a step of its
-      // own once cleanup programs are queued ahead of it.
-      if (steps === undefined) closeFrame(entry);
-      else steps.push(entry);
+      steps.push(() => {
+        entry.close();
+        return undefined;
+      });
     } else if (entry instanceof SettleFrame) {
-      // Dropped when the step runs, not now: until then the continuation stays reachable
-      // for whatever closes this walk if it is abandoned.
-      if (entry.frame.captured !== undefined) (steps ??= []).push(entry);
+      if (entry.frame.captured !== undefined) steps.push(() => dropHeld(entry.frame));
     } else if (entry instanceof HandlerFrame) {
       const { onInterrupt } = entry.handler.c;
       if (onInterrupt === undefined) continue;
-      (steps ??= []).push(() => {
-        const fin = onInterrupt(entry.state);
-        return isKyoot(fin) ? fin : undefined;
+      steps.push(() => {
+        const cleanup = onInterrupt(entry.state);
+        return isKyoot(cleanup) ? cleanup : undefined;
       });
     }
   }
-  // A throwing `finally` costs the rest of the walk nothing: it surfaces once the
-  // other steps have run. Errors raised while they run are the plan's own to report.
-  if (raised !== undefined) {
-    (steps ??= []).push(() => {
-      throw raised!.error;
-    });
-  }
-  if (steps === undefined) return undefined;
-  const run = steps;
-  return genNode(function* () {
-    let i = 0;
-    let failed = false;
-    try {
-      for (; i < run.length; i++) {
-        const step = run[i]!;
-        if (step instanceof GeneratorFrame) {
-          closeFrame(step);
-          continue;
-        }
-        if (step instanceof SettleFrame) {
-          const inner = dropHeld(step.frame);
-          if (inner !== undefined) yield* inner;
-          continue;
-        }
-        const k = step();
-        if (k !== undefined) yield* k;
-      }
-    } catch (error) {
-      failed = true;
-      throw error;
-    } finally {
-      // This program is a generator frame itself, so whatever abandons it part-way
-      // closes it and lands here: the frames it never reached still close, and an error
-      // a `finally` already raised still escapes unless a step has one in flight.
-      closeSteps(run, i, failed ? undefined : raised);
-    }
-  });
+  return steps.length === 0 ? undefined : walk({ steps, index: 0, raised: undefined });
 };
 
 const closeAll = (entries: readonly StackEntry[]): void => {
@@ -241,6 +259,14 @@ export class Machine {
   key: PropertyKey = "";
   payload: unknown;
   handlers: readonly Snapshot[] | undefined;
+
+  get interruptMasked(): boolean {
+    for (let i = this.stack.length - 1; i >= 0; i--) {
+      const entry = this.stack[i];
+      if (entry instanceof HandlerFrame && entry.handler.c.interruptMask === true) return true;
+    }
+    return false;
+  }
 
   start(program: AnyKyoot, budget = Infinity): Outcome {
     if (this.state !== "idle") throw new Error("machine already started");
@@ -382,9 +408,7 @@ export class Machine {
       } else {
         const fin = dropHeld((top as SettleFrame).frame);
         if (fin !== undefined) {
-          const value = this.value;
-          this.stack.push(() => value);
-          this.current = fin;
+          this.current = afterCleanup(fin, this.value);
           this.phase = "node";
         }
       }
@@ -415,7 +439,7 @@ export class Machine {
       const resume = makeResume(frame, ++frame.epoch);
       output = frame.handler.c.onOp(node.b, resume, frame.state, inherited);
     } catch (error) {
-      frame.status = "idle";
+      frame.status = (frame.status as Status) === "claimed" ? "dropped" : "idle";
       const crossed = this.stack.splice(index + 1);
       this.stack.length = index;
       const fin = unwinding(crossed);
@@ -431,12 +455,13 @@ export class Machine {
 
     const returned = output[NodeSym];
     if (returned._tag === "resume" && returned.a === frame && returned.b === frame.epoch) {
+      frame.execute(frame.epoch);
       this.continueFrom(frame);
       return undefined;
     }
 
     frame.captured = this.stack.splice(index);
-    if ((frame.status as Status) !== "resumed") frame.status = "held";
+    if ((frame.status as Status) !== "claimed") frame.status = "held";
     this.stack.push(new SettleFrame(frame));
     this.current = output;
     this.phase = "node";
@@ -446,7 +471,7 @@ export class Machine {
   private restore(frame: HandlerFrame, epoch: number): void {
     const captured = frame.captured;
     if (captured === undefined) throw new Error(frame.status === "dropped" ? DROPPED : ONE_SHOT);
-    if (epoch !== frame.epoch) throw new Error(ONE_SHOT);
+    frame.execute(epoch);
     frame.captured = undefined;
     for (let i = 0; i < captured.length; i++) this.stack.push(captured[i]!);
     this.continueFrom(frame);
@@ -485,8 +510,18 @@ export class Machine {
       if (!(entry instanceof HandlerFrame)) continue;
 
       if (interrupted) {
-        const cleanup = entry.handler.c.onInterrupt?.(entry.state);
-        if (isKyoot(cleanup)) return this.cleanupThen(cleanup, error);
+        const hooks = entry.handler.c;
+        const cleanup = hooks.onInterrupt?.(entry.state, error);
+        if (isKyoot(cleanup)) {
+          if (hooks.recoverInterrupt === true) {
+            this.current = cleanup;
+            this.phase = "node";
+          } else {
+            this.cleanupThen(cleanup, error);
+          }
+          return;
+        }
+        if (hooks.recoverInterrupt === true) continue;
         continue;
       }
 

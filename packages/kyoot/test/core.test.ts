@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { makeHandler, makeOp, succeed } from "../src/core.ts";
+import { defer, makeHandler, makeOp, succeed } from "../src/core.ts";
 import {
   Async,
   Clock,
@@ -17,6 +17,17 @@ import {
 } from "../src/index.ts";
 
 const Count = Var.tag<number>()("Count");
+
+test("defer does not run its factory until execution", () => {
+  let calls = 0;
+  const program = defer(() => {
+    calls++;
+    return succeed(42);
+  });
+  assert.equal(calls, 0);
+  assert.equal(Kyoot.runSync(program), 42);
+  assert.equal(calls, 1);
+});
 
 test("map keeps a returned Kyoot as a value", () => {
   const nested = Kyoot.runSync(Kyoot.succeed(1).map((x) => Kyoot.succeed(x + 1)));
@@ -292,6 +303,33 @@ test("a throw inside onOp goes to the same handler's onDefect", () => {
   assert.equal(Kyoot.runSync(k as never), "caught");
 });
 
+test("a token claimed before onOp throws is dropped, not spent", () => {
+  const Ask = effect<undefined, number>()("ask/claim-then-throw");
+  const boom = new Error("boom");
+  const events: string[] = [];
+  let token: Kyoot<never> | undefined;
+  const k = Kyoot.gen(function* () {
+    try {
+      yield* Ask(undefined);
+    } finally {
+      events.push("finally");
+    }
+  }).pipe(
+    Ask.handle({
+      onOp: (_payload, resume) => {
+        token = resume(1);
+        throw boom;
+      },
+      onDefect: (defect) => Kyoot.succeed(defect === boom ? "caught" : "wrong"),
+    }),
+  );
+
+  assert.equal(Kyoot.runSync(k), "caught");
+  assert.deepEqual(events, ["finally"]);
+  assert.throws(() => Kyoot.runSync(token!), /continuation resumed after it was dropped/);
+  assert.deepEqual(events, ["finally"]);
+});
+
 test("resume.with continues the program at the op, where its own handlers see it", () => {
   const Fetch = effect<string, string, { fail: string }>()("fetch");
   const program = Fetch("a").pipe(Fail.catchAll((e: string) => Kyoot.succeed(`caught ${e}`)));
@@ -387,6 +425,7 @@ test("Env intercept wraps the service the handler outside provides", () => {
   const program = Kyoot.gen(function* () {
     return (yield* Db).find("1");
   });
+  console.log(program.pipe(loud, Db.provide({ find: () => "ada" }), Kyoot.runSync));
   assert.equal(program.pipe(loud, Db.provide({ find: () => "ada" }), Kyoot.runSync), "ADA");
 });
 
@@ -395,9 +434,9 @@ test("Var intercept validates a set; the failure lands at the set", () => {
   class Negative {
     readonly _tag = "Negative";
   }
-  const guard = Balance.intercept((op, next) =>
-    op.kind === "set" && op.value < 0 ? Fail.fail(new Negative()) : next(op),
-  );
+  const guard = Balance.intercept({
+    set: (op, next) => (op.value < 0 ? Fail.fail(new Negative()) : next(op)),
+  });
   const program = Kyoot.gen(function* () {
     yield* Balance.set(5);
     const refused = yield* Balance.set(-1).pipe(
@@ -411,7 +450,7 @@ test("Var intercept validates a set; the failure lands at the set", () => {
 
 test("Resource intercept sees each acquire", () => {
   const opened: unknown[] = [];
-  const audit = Resource.intercept()((op, next) =>
+  const audit = Resource.intercept<string>()((op, next) =>
     next({
       ...op,
       acquire: () => {

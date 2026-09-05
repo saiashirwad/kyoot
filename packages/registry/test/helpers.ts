@@ -13,7 +13,12 @@ export const lifecycle = (events: string[], name: string) =>
     () => events.push(`${name} down`),
   );
 
-export const provider = <E>(events: string[], name: string, tag: Env.Tag<string, E>, impl: E) =>
+export const provider = <Id extends string, E>(
+  events: string[],
+  name: string,
+  tag: Env.Tag<Id, E>,
+  impl: E,
+) =>
   Registry.component({
     inject: {},
     run: (_, ctx) =>

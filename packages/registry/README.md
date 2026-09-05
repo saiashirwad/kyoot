@@ -36,3 +36,13 @@ const main = Kyoot.gen(function* () {
 ```
 
 `use` returns a handle with `active`, `error`, and `remove`, and resolves once the component has landed (its setup finished) or been found to be waiting. A component's bindings become visible to dependents only when it lands, so activation is atomic; a target change during setup interrupts it and releases what it acquired. A component's `run` may use `resource`, `async`, and `clock`; anything else must be handled inside it. A component whose setup throws — including providing a tag another component already provides — is left inactive with the error on its handle. The registry itself is a resource, so interrupting the program that made it unloads every component in reverse order. `examples/registry.ts` runs this sequence. The design follows the component calculus of the Cordis paper: revertible effects (`Resource`) plus reactive dependencies.
+
+## Lifecycle
+
+Entries move through waiting, starting, active, stopping, failed, and removed states. Each transition carries a generation so stale setup work cannot publish a binding after removal or replacement. Tag identity uses its key, so two tag objects with the same key refer to the same binding.
+
+`settled()` waits for current setup, teardown, and reconciliation work to finish. It does not freeze the registry against later changes. A failed component retains its error and retries when its dependencies change; the failure alone does not start a retry loop.
+
+`dispose()` is terminal and awaits teardown. Later attempts to add work fail with `RegistryDisposedError`; calling dispose again is safe. Components and registry state are fresh each time the maker program runs. Teardown awaits resource cleanup and has no deadline, so a release that never finishes can prevent settling or disposal.
+
+Requires Node 24+ and TypeScript 7.0.2. See the complete [registry example](examples/registry.ts), which uses public package imports and runs in `pnpm examples`.

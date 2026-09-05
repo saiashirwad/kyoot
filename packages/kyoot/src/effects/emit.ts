@@ -65,6 +65,7 @@ export const toAsyncIterable = <S extends Row & { emit?: unknown }>(
     const capacity = Math.max(1, options.buffer ?? 16);
     const buffer: S["emit"][] = [];
     let finished = false;
+    let failed = false;
     let failure: unknown;
     let wake = () => {};
     let drain = () => {};
@@ -84,7 +85,7 @@ export const toAsyncIterable = <S extends Row & { emit?: unknown }>(
     );
     fiber.promise.then(
       () => ((finished = true), wake()),
-      (e: unknown) => ((failure = e), (finished = true), wake()),
+      (e: unknown) => ((failed = true), (failure = e), (finished = true), wake()),
     );
     return {
       async next() {
@@ -94,7 +95,7 @@ export const toAsyncIterable = <S extends Row & { emit?: unknown }>(
           drain();
           return { value, done: false };
         }
-        if (failure !== undefined) throw failure;
+        if (failed) throw failure;
         return { value: undefined, done: true };
       },
       async return() {

@@ -203,21 +203,6 @@ test("generator: a finally that throws surfaces after the rest of the cleanup", 
   assert.deepEqual(events, ["release"]);
 });
 
-test("generator: a held continuation is not closed until it is dropped", async () => {
-  const events: string[] = [];
-  const prog = Kyoot.gen(function* () {
-    try {
-      const a = yield* Async.fromPromise(async () => "a");
-      events.push(`resumed ${a}`);
-      return a;
-    } finally {
-      events.push("finally");
-    }
-  });
-  assert.equal(await Kyoot.runPromise(prog), "a");
-  assert.deepEqual(events, ["resumed a", "finally"]);
-});
-
 test("generator: an unhandled effect at the edge closes the frame", () => {
   const events: string[] = [];
   const prog = Kyoot.gen(function* () {

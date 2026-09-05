@@ -213,7 +213,6 @@ const unwinding = (entries: readonly StackEntry[], from = 0): AnyKyoot | undefin
   });
 };
 
-// The stack a machine stops on.
 const closeAll = (entries: readonly StackEntry[]): void => {
   const { close, finish } = closer(undefined);
   for (let i = entries.length - 1; i >= 0; i--) close(entries[i]!);

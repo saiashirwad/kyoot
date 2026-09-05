@@ -758,25 +758,27 @@ test("a pending batch callback sees the operation's abort signal", async () => {
 });
 
 test("a batch takes the source's length once, so a callback cannot extend it", async () => {
-  const grow = <A>(values: A[], value: A) => (values.push(value), values);
   const mapValues = [1, 2];
   const forEachValues = [1, 2];
   const reduceValues = [1, 2];
   const forEached: number[] = [];
   const prog = Kyoot.gen(function* () {
-    const mapped = yield* Async.mapPromise(mapValues, (value) =>
-      Promise.resolve(grow(mapValues, value + 10).length),
-    );
-    yield* Async.forEachPromise(forEachValues, (value) => {
-      forEached.push(value);
-      return Promise.resolve(grow(forEachValues, value + 10));
+    const mapped = yield* Async.mapPromise(mapValues, (value) => {
+      mapValues.push(value + 10);
+      return Promise.resolve(value * 2);
     });
-    const reduced = yield* Async.reducePromise(reduceValues, 0, (sum, value) =>
-      Promise.resolve(sum + grow(reduceValues, value + 10)[0]!),
-    );
+    yield* Async.forEachPromise(forEachValues, (value) => {
+      forEachValues.push(value + 10);
+      forEached.push(value);
+      return Promise.resolve();
+    });
+    const reduced = yield* Async.reducePromise(reduceValues, 0, (sum, value) => {
+      reduceValues.push(value + 10);
+      return Promise.resolve(sum + value);
+    });
     return { mapped, reduced };
   });
-  assert.deepEqual(await Kyoot.runPromise(prog), { mapped: [3, 4], reduced: 2 });
+  assert.deepEqual(await Kyoot.runPromise(prog), { mapped: [2, 4], reduced: 3 });
   assert.deepEqual(forEached, [1, 2]);
   assert.deepEqual(mapValues, [1, 2, 11, 12]);
   assert.deepEqual(forEachValues, [1, 2, 11, 12]);

@@ -49,21 +49,15 @@ const confine = (dir: string) => {
     const resolved = posix.resolve(path);
     return resolved === root || resolved.startsWith(root === "/" ? "/" : `${root}/`);
   };
-  const why = (path: string) =>
-    path.includes("\\")
-      ? "backslashes are not POSIX separators"
-      : posix.isAbsolute(path)
-        ? `outside ${root}`
-        : "relative to no known root";
   return FileSystem.intercept((op, next) => {
-    const outside = !inside(op.path)
+    const denied = !inside(op.path)
       ? op.path
       : op.kind === "rename" && !inside(op.to)
         ? op.to
         : null;
-    return outside === null
+    return denied === null
       ? next(op)
-      : Fail.fail(new FileSystem.FsError(op.kind, outside, "PermissionDenied", why(outside)));
+      : Fail.fail(new FileSystem.FsError(op.kind, denied, "PermissionDenied", `not under ${root}`));
   });
 };
 
@@ -74,15 +68,11 @@ const dryRun = FileSystem.intercept((op, next) =>
 program.pipe(audit, confine("/work"), dryRun, Node.fs);
 ```
 
-`confine` resolves before it compares, because `op.path.startsWith(root)` is not a path test: with `root = "/work"` it accepts `/work-other/x`, a sibling directory, and `/work/../outside`, which the handler resolves out of the root. It also checks every path the op carries — `rename` writes to `op.to`, so a source check alone lets `FileSystem.rename("/work/secret.txt", "/etc/passwd")` through.
+`confine` resolves before it compares, because `op.path.startsWith(root)` is not a path test: with `root = "/work"` it accepts `/work-other/x`, a sibling directory, and `/work/../outside`, which the handler resolves out of the root. It checks `op.to` as well, or `FileSystem.rename("/work/secret.txt", "/etc/passwd")` gets in on its source. It takes absolute POSIX paths and denies the rest, because a path the check and the handler read differently is worse than no path: `Memory.fs` resolves a relative path against `/` and `Node.fs` against the process's cwd, and a backslash is an ordinary character to `posix.resolve` but a separator to `Node.fs` on Windows. Resolve paths against your own base before they reach the intercept.
 
-Absolute paths only, on both ends. A relative path means nothing until something resolves it, and the handlers disagree on the base: `Memory.fs` resolves against `/`, so `work/leak.txt` is `/work/leak.txt` and inside the root; `Node.fs` resolves against the process's cwd, so the same string means `/work/leak.txt` when cwd is `/`, `/srv/app/work/leak.txt` when cwd is `/srv/app`, and another path under another cwd. A check that picks one base decides for a handler that will use the other, so `confine` refuses a relative `op.path` or `op.to` instead, and takes an absolute root. Resolve paths against your chosen base before they reach the intercept.
+That is a policy, not a jail. The check is lexical, so a symlink under the root still opens whatever it points at, and nothing here stops a path from changing between the check and the op. The boundary is the operating system's — a container, a `chroot`, a user with no rights outside the tree — and this intercept is how you state the policy above it.
 
-POSIX paths only, too. `posix.resolve` reads `\` as an ordinary character in a name, so `/work/sub\..\..\etc\passwd` is one file called `sub\..\..\etc\passwd` inside the root — but `Node.fs` on Windows reads those as separators and lands on `\etc\passwd`, outside it. Rather than resolve a path one way and hand it to a handler that reads it another, `confine` rejects any `op.path` or `op.to` holding a backslash, and takes a backslash-free root. A policy for Windows paths is the same shape against `path.win32`.
-
-That is a policy, not a jail. It is lexical: it does not follow symlinks or hard links, so a link under the root that points outside it still resolves outside once the handler opens it, and nothing here stops a path from changing between the check and the op. A real boundary is the operating system's — a container, a `chroot`, a user with no rights outside the tree — and this intercept is how you state the policy above it.
-
-`examples/intercept.ts` runs these against `Memory.fs` and shows the log, the `PermissionDenied` the program caught for a sibling path, a traversal, and a rename out of the root, and the files a dry run did not write. In a service-object design each of these means wrapping every method; here they are a few lines each and know nothing about each other.
+`examples/intercept.ts` runs these against `Memory.fs` and shows the log, the caught `PermissionDenied`, and the files a dry run did not write. In a service-object design each of these means wrapping every method; here they are a few lines each and know nothing about each other.
 
 A handler for another runtime is the same three functions against that runtime's APIs. The effects and the programs written against them don't change.
 

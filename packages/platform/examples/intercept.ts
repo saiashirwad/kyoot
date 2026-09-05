@@ -6,14 +6,9 @@ const audit = FileSystem.intercept((op, next) =>
   Log.info(`${op.kind} ${op.path}`).flatMap(() => next(op)),
 );
 
-// A prefix test is not a path boundary: both "/work-other/x".startsWith("/work") and
-// "/work/../etc/passwd".startsWith("/work") are true. Resolve the path first, then require
-// it to be the root itself or to sit under `root + "/"`, and check every path the op
-// carries — a rename also writes to `op.to`. A relative path is rejected outright: the
-// check has no base for it, and the handlers disagree on one — `Memory.fs` resolves
-// against "/", `Node.fs` against the process's cwd. So is a path holding a backslash: this
-// check reads POSIX paths, where a backslash is an ordinary character, while `Node.fs` on
-// Windows reads it as a separator, so /work/sub\..\..\etc/passwd would leave the root.
+// Absolute POSIX paths only, resolved before they are compared, and every path the op
+// carries — a prefix test on `op.path` alone lets through "/work-other/x", a sibling of the
+// root, "/work/../etc/passwd", which resolves out of it, and any rename destination.
 const confine = (dir: string) => {
   if (!posix.isAbsolute(dir) || dir.includes("\\"))
     throw new Error(`confine needs an absolute POSIX root, got ${dir}`);
@@ -23,21 +18,15 @@ const confine = (dir: string) => {
     const resolved = posix.resolve(path);
     return resolved === root || resolved.startsWith(root === "/" ? "/" : `${root}/`);
   };
-  const why = (path: string) =>
-    path.includes("\\")
-      ? "backslashes are not POSIX separators"
-      : posix.isAbsolute(path)
-        ? `outside ${root}`
-        : "relative to no known root";
   return FileSystem.intercept((op, next) => {
-    const outside = !inside(op.path)
+    const denied = !inside(op.path)
       ? op.path
       : op.kind === "rename" && !inside(op.to)
         ? op.to
         : null;
-    return outside === null
+    return denied === null
       ? next(op)
-      : Fail.fail(new FileSystem.FsError(op.kind, outside, "PermissionDenied", why(outside)));
+      : Fail.fail(new FileSystem.FsError(op.kind, denied, "PermissionDenied", `not under ${root}`));
   });
 };
 

@@ -14,21 +14,15 @@ const confine = (dir: string) => {
     const resolved = posix.resolve(path);
     return resolved === root || resolved.startsWith(root === "/" ? "/" : `${root}/`);
   };
-  const why = (path: string) =>
-    path.includes("\\")
-      ? "backslashes are not POSIX separators"
-      : posix.isAbsolute(path)
-        ? `outside ${root}`
-        : "relative to no known root";
   return FileSystem.intercept((op, next) => {
-    const outside = !inside(op.path)
+    const denied = !inside(op.path)
       ? op.path
       : op.kind === "rename" && !inside(op.to)
         ? op.to
         : null;
-    return outside === null
+    return denied === null
       ? next(op)
-      : Fail.fail(new FileSystem.FsError(op.kind, outside, "PermissionDenied", why(outside)));
+      : Fail.fail(new FileSystem.FsError(op.kind, denied, "PermissionDenied", `not under ${root}`));
   });
 };
 
@@ -73,14 +67,15 @@ test("handlers between the program and the file system see every op", () => {
   );
 });
 
-test("confine rejects a sibling of the root, and a traversal out of it", () => {
+test("confine takes the paths a prefix test lets through", () => {
   const program = Kyoot.gen(function* () {
-    const root = yield* FileSystem.readDir("/work");
+    const listing = yield* FileSystem.readDir("/work");
     const child = yield* FileSystem.readFile("/work/old.txt").pipe(code);
     const sibling = yield* FileSystem.readFile("/work-other/notes.txt").pipe(code);
     const traversal = yield* FileSystem.readFile("/work/../etc/passwd").pipe(code);
-    const backOut = yield* FileSystem.readFile("/work/sub/../../etc/passwd").pipe(code);
-    return { root, child, sibling, traversal, backOut };
+    const relative = yield* FileSystem.readFile("work/old.txt").pipe(code);
+    const backslash = yield* FileSystem.readFile("/work/sub\\..\\..\\etc\\passwd").pipe(code);
+    return { listing, child, sibling, traversal, relative, backslash };
   });
   const [result] = Kyoot.runSync(
     program.pipe(
@@ -94,21 +89,26 @@ test("confine rejects a sibling of the root, and a traversal out of it", () => {
     ),
   );
   assert.deepEqual(result, {
-    root: ["old.txt"],
+    listing: ["old.txt"],
     child: "kept",
     sibling: "PermissionDenied",
     traversal: "PermissionDenied",
-    backOut: "PermissionDenied",
+    relative: "PermissionDenied",
+    backslash: "PermissionDenied",
   });
 });
 
-test("confine checks the destination of a rename, not only the source", () => {
+test("confine checks the destination of a rename, and takes an absolute POSIX root", () => {
+  assert.throws(() => confine("work"), /absolute POSIX root/);
+  assert.throws(() => confine("/work\\sub"), /absolute POSIX root/);
+
   const program = Kyoot.gen(function* () {
     const out = yield* FileSystem.rename("/work/secret.txt", "/etc/passwd").pipe(code);
     const traversal = yield* FileSystem.rename("/work/secret.txt", "/work/../leak.txt").pipe(code);
     const relative = yield* FileSystem.rename("/work/secret.txt", "work/leak.txt").pipe(code);
+    const backslash = yield* FileSystem.rename("/work/secret.txt", "/work\\leak.txt").pipe(code);
     const within = yield* FileSystem.rename("/work/secret.txt", "/work/moved.txt").pipe(code);
-    return { out, traversal, relative, within };
+    return { out, traversal, relative, backslash, within };
   });
   const [result, files] = Kyoot.runSync(
     program.pipe(
@@ -121,55 +121,8 @@ test("confine checks the destination of a rename, not only the source", () => {
     out: "PermissionDenied",
     traversal: "PermissionDenied",
     relative: "PermissionDenied",
+    backslash: "PermissionDenied",
     within: undefined,
   });
   assert.deepEqual(files, { "/work/moved.txt": "shh", "/etc/passwd": "root" });
-});
-
-test("confine takes an absolute root and rejects relative paths, which the handlers disagree on", () => {
-  assert.throws(() => confine("work"), /absolute POSIX root/);
-
-  const write = FileSystem.writeFile("work/leak.txt", "x");
-
-  // Memory.fs resolves a relative path against "/", so unchecked it lands inside the root.
-  const [, memory] = Kyoot.runSync(write.pipe(Memory.fs({ "/work/old.txt": "" }), Fail.orThrow));
-  assert.deepEqual(memory, { "/work/old.txt": "", "/work/leak.txt": "x" });
-
-  // Node.fs resolves it against the process's cwd: two bases, two different files.
-  assert.equal(posix.resolve("/", "work/leak.txt"), "/work/leak.txt");
-  assert.equal(posix.resolve("/srv/app", "work/leak.txt"), "/srv/app/work/leak.txt");
-
-  // One base cannot stand for both, so confine refuses the path instead of picking one.
-  const [denied, files] = Kyoot.runSync(
-    write.pipe(code, confine("/work"), Memory.fs({ "/work/old.txt": "" }), Fail.orThrow),
-  );
-  assert.equal(denied, "PermissionDenied");
-  assert.deepEqual(files, { "/work/old.txt": "" });
-});
-
-test("confine rejects backslashes, which Node.fs on Windows reads as separators", () => {
-  // posix.resolve keeps a backslash as an ordinary character, so these paths look like one
-  // long name inside the root; Node.fs on Windows would read them as separators and leave it.
-  assert.throws(() => confine("/work\\sub"), /absolute POSIX root/);
-  assert.equal(posix.resolve("/work/sub\\..\\..\\etc\\passwd"), "/work/sub\\..\\..\\etc\\passwd");
-
-  const program = Kyoot.gen(function* () {
-    const mixed = yield* FileSystem.readFile("/work/sub\\..\\..\\etc\\passwd").pipe(code);
-    const drive = yield* FileSystem.readFile("C:\\work\\secret.txt").pipe(code);
-    const moved = yield* FileSystem.rename("/work/secret.txt", "/work/sub\\..\\..\\leak.txt").pipe(
-      code,
-    );
-    const within = yield* FileSystem.rename("/work/secret.txt", "/work/moved.txt").pipe(code);
-    return { mixed, drive, moved, within };
-  });
-  const [result, files] = Kyoot.runSync(
-    program.pipe(confine("/work"), Memory.fs({ "/work/secret.txt": "shh" }), Fail.orThrow),
-  );
-  assert.deepEqual(result, {
-    mixed: "PermissionDenied",
-    drive: "PermissionDenied",
-    moved: "PermissionDenied",
-    within: undefined,
-  });
-  assert.deepEqual(files, { "/work/moved.txt": "shh" });
 });

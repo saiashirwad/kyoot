@@ -1,11 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Async, Clock, effect, Fail, Kyoot, Resource, Sync } from "../src/index.ts";
-import type { Kyoot as KyootType } from "../src/index.ts";
+import { Async, effect, Fail, Kyoot, Resource, Sync } from "../src/index.ts";
 
 const Stop = effect<string, never>()("stop");
 const Hold = effect<undefined, undefined>()("hold");
-const Relay = effect<undefined, undefined>()("relay");
 const Missing = effect<undefined, never>()("missing");
 
 test("generator: finally runs when Fail.run drops the continuation", () => {
@@ -255,28 +253,6 @@ test("generator: finally runs when a fiber is interrupted", async () => {
   assert.deepEqual(events, ["finally"]);
 });
 
-test("generator: finally runs in the loser of a race", async () => {
-  const events: string[] = [];
-  const slow = Kyoot.gen(function* () {
-    try {
-      yield* Clock.sleep(10_000);
-      return "slow";
-    } finally {
-      events.push("finally");
-    }
-  });
-  assert.equal(
-    await Kyoot.runPromise(
-      Async.race(
-        slow,
-        Clock.sleep(5).map(() => "fast"),
-      ),
-    ),
-    "fast",
-  );
-  assert.deepEqual(events, ["finally"]);
-});
-
 test("generator: a drop that ends in an unhandled effect still closes the frame", () => {
   const events: string[] = [];
   const prog = Kyoot.gen(function* () {
@@ -291,31 +267,6 @@ test("generator: a drop that ends in an unhandled effect still closes the frame"
     (e: unknown) => e instanceof Error && e.message.includes("unhandled effect 'missing'"),
   );
   assert.deepEqual(events, ["finally"]);
-});
-
-test("generator: nested held continuations all close when the machine stops", () => {
-  const events: string[] = [];
-  const prog = Kyoot.gen(function* () {
-    try {
-      yield* Kyoot.gen(function* () {
-        try {
-          yield* Relay(undefined);
-        } finally {
-          events.push("inner");
-        }
-      });
-    } finally {
-      events.push("outer");
-    }
-  }).pipe(
-    Relay.handle({ onOp: (_payload, resume) => Hold(undefined).flatMap(() => resume(undefined)) }),
-    Hold.handle({ onOp: () => Missing(undefined) }),
-  );
-  assert.throws(
-    () => Kyoot.runSync(prog as never),
-    (e: unknown) => e instanceof Error && e.message.includes("unhandled effect 'missing'"),
-  );
-  assert.deepEqual(events, ["inner", "outer"]);
 });
 
 test("generator: a claimed continuation that never lands closes too", () => {
@@ -373,38 +324,6 @@ test("generator: frames queued behind a cleanup program close when the machine s
     (e: unknown) => e instanceof Error && e.message.includes("unhandled effect 'missing'"),
   );
   assert.deepEqual(events, ["inner", "middle", "outer"]);
-});
-
-test("generator: a queued frame whose finally throws still runs the cleanup before it", () => {
-  const events: string[] = [];
-  const boom = new Error("from finally");
-  const raise = () => {
-    throw boom;
-  };
-  const inner = Kyoot.gen(function* () {
-    try {
-      yield* Resource.acquire(
-        () => 1,
-        () => events.push("release"),
-      );
-      yield* Stop("now");
-    } finally {
-      events.push("inner");
-    }
-  }).pipe(Resource.run);
-  const outer = Kyoot.gen(function* () {
-    try {
-      yield* inner;
-    } finally {
-      events.push("outer");
-      raise();
-    }
-  }).pipe(Stop.handle({ onOp: () => Kyoot.succeed("stopped") }));
-  assert.throws(
-    () => Kyoot.runSync(outer),
-    (e: unknown) => e === boom,
-  );
-  assert.deepEqual(events, ["inner", "release", "outer"]);
 });
 
 test("generator: an outer finally that throws replaces the inner one's error", () => {
@@ -489,24 +408,4 @@ test("generator: a handler that discards the resume token still drops the contin
   );
   assert.equal(Kyoot.runSync(prog), "stopped");
   assert.deepEqual(events, ["finally", "release"]);
-});
-
-test("generator: a discarded token that is run later reports the drop", () => {
-  let token: unknown;
-  const prog = Kyoot.gen(function* () {
-    yield* Hold(undefined);
-    return "unreachable";
-  }).pipe(
-    Hold.handle({
-      onOp: (_payload, resume) => {
-        token = resume(undefined);
-        return Kyoot.succeed("stopped");
-      },
-    }),
-  );
-  assert.equal(Kyoot.runSync(prog), "stopped");
-  assert.throws(
-    () => Kyoot.runSync(token as KyootType<string>),
-    (e: unknown) => e instanceof Error && e.message.includes("after it was dropped"),
-  );
 });

@@ -118,7 +118,7 @@ Kyoot.succeed(1).flatMap((n) => Log.info(String(n)));
 
 Tags are keyed by id: `Env.tag<A>()("a")` and `Env.tag<B>()("b")` are separate keys. `Env` hands out a constant; `Var` threads state.
 
-`Resource.run` releases in reverse order on success, defect, interrupt, or when an outside handler finishes without resuming. `close` may return a program, so a finalizer can do async work. A finalizer that throws never hides a defect or an interrupt. After a success it is raised — and a typed failure that `Fail.run` inside has already turned into a `Result` counts as a success. A generator's own `try`/`finally` runs too, before the release of any `Resource` scope outside it, but it may not `yield` — see the rules below.
+`Resource.run` releases in reverse order on success, defect, interrupt, or when an outside handler finishes without resuming. `close` may return a program, so a finalizer can do async work. A finalizer that throws never hides a defect or an interrupt. After a success it is raised — and a typed failure that `Fail.run` inside has already turned into a `Result` counts as a success.
 
 `Clock.sleep` runs on real timers under `runPromise` unless a handler is closer. `Clock.virtual` makes every sleep instant and reports the elapsed time, so a program that waits can run under `runSync` in tests.
 
@@ -218,7 +218,7 @@ const declineAll = (reason: string) =>
 - `resume` works once; a second call throws.
 - A thrown exception is a defect: it skips `onOp` and goes to the nearest `onDefect`, or out of `runSync`. Use `Fail` for errors you expect.
 - A handler that does not resume drops the rest of the program, and so does one that calls `resume` and then throws the token away. Handler order does not affect resource cleanup, but it still affects meaning because the nearest matching handler handles an operation first.
-- A dropped generator is closed, so its `try`/`finally` runs — on a handler that does not resume, on a defect, and on interruption, innermost frame first, before the cleanup of any handler outside it. A `finally` may not `yield`: the handlers that gave its effects meaning are already gone, so the frame is left parked at the yield and the drop is reported as a defect. Use `Resource` for cleanup that performs effects. A `finally` that throws wins over the error in flight, and an outer one wins over an inner one, as they do in JavaScript; the frames and scopes around it still close.
+- A dropped generator is closed, so its `try`/`finally` runs — on a handler that does not resume, on a defect, and on interruption — innermost first, before the cleanup of any handler outside it. A `finally` may not `yield`, since the handlers that gave its effects meaning are gone: that is reported as a defect, and cleanup that performs effects belongs in `Resource`. One that throws behaves as in JavaScript, an outer error replacing an inner one, and the frames and scopes around it still close.
 - A handler that returns a value instead of resuming must be `fork: "none"`, since a fiber's value is its own. A copy that does so anyway is reported as a defect.
 - A handler's `onInterrupt` hook may return a program. Its effects join the handler's row.
 

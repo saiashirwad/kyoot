@@ -97,31 +97,58 @@ const rethrow = (error: unknown) => () => {
   throw error;
 };
 
-// A frame stands for closing it; a thunk for cleanup that may return a program.
-type UnwindStep = GeneratorFrame | (() => AnyKyoot | undefined);
+// A frame stands for closing it, a settle frame for dropping the continuation it holds,
+// a thunk for cleanup that may return a program.
+type UnwindStep = GeneratorFrame | SettleFrame | (() => AnyKyoot | undefined);
 
-// Closes the frames left in a walk, innermost first. An outer `finally` that throws
-// replaces an inner one's error, as nesting them in one generator would.
-const closeSteps = (steps: readonly UnwindStep[], from: number): void => {
-  let thrown: { error: unknown } | undefined;
-  for (let i = from; i < steps.length; i++) {
-    const step = steps[i]!;
-    if (!(step instanceof GeneratorFrame)) continue;
-    try {
-      step.close();
-    } catch (error) {
-      thrown = { error };
-    }
-  }
-  if (thrown !== undefined) throw thrown.error;
+// Closes generator frames nothing will run again: those it is given, and those parked in
+// a continuation nobody restored. Closing a continuation marks it dropped, so a saved
+// token cannot restore frames that are already closed. Cleanup that performs effects is
+// skipped — there is no machine left to run it. An outer `finally` that throws replaces
+// an inner one's error, as nesting them in one generator would.
+const closer = (saved: { error: unknown } | undefined) => {
+  let thrown = saved;
+  const drop = (frame: HandlerFrame): void => {
+    const captured = frame.captured;
+    if (captured === undefined) return;
+    frame.captured = undefined;
+    frame.status = "dropped";
+    for (let i = captured.length - 1; i >= 1; i--) close(captured[i]!);
+  };
+  const close = (entry: StackEntry | UnwindStep): void => {
+    if (entry instanceof GeneratorFrame) {
+      try {
+        entry.close();
+      } catch (error) {
+        thrown = { error };
+      }
+    } else if (entry instanceof SettleFrame) drop(entry.frame);
+    else if (entry instanceof HandlerFrame) drop(entry);
+  };
+  return {
+    close,
+    finish: (): void => {
+      if (thrown !== undefined) throw thrown.error;
+    },
+  };
+};
+
+// The steps a walk did not reach, innermost first, carrying any error it already has.
+const closeSteps = (
+  steps: readonly UnwindStep[],
+  from: number,
+  saved: { error: unknown } | undefined,
+): void => {
+  const { close, finish } = closer(saved);
+  for (let i = from; i < steps.length; i++) close(steps[i]!);
+  finish();
 };
 
 const unwinding = (entries: readonly StackEntry[], from = 0): AnyKyoot | undefined => {
   let steps: UnwindStep[] | undefined;
   let raised: { error: unknown } | undefined;
-  let deferred = false;
-  // Last wins, as in `closeSteps`.
-  const closing = (frame: GeneratorFrame) => {
+  // Last wins, as in `closer`.
+  const closeFrame = (frame: GeneratorFrame) => {
     try {
       frame.close();
     } catch (error) {
@@ -133,14 +160,12 @@ const unwinding = (entries: readonly StackEntry[], from = 0): AnyKyoot | undefin
     if (entry instanceof GeneratorFrame) {
       // Innermost first. Closing is synchronous, so a frame only needs a step of its
       // own once cleanup programs are queued ahead of it.
-      if (steps === undefined) closing(entry);
-      else {
-        deferred = true;
-        steps.push(entry);
-      }
+      if (steps === undefined) closeFrame(entry);
+      else steps.push(entry);
     } else if (entry instanceof SettleFrame) {
-      const inner = dropHeld(entry.frame);
-      if (inner !== undefined) (steps ??= []).push(() => inner);
+      // Dropped when the step runs, not now: until then the continuation stays reachable
+      // for whatever closes this walk if it is abandoned.
+      if (entry.frame.captured !== undefined) (steps ??= []).push(entry);
     } else if (entry instanceof HandlerFrame) {
       const { onInterrupt } = entry.handler.c;
       if (onInterrupt === undefined) continue;
@@ -151,69 +176,49 @@ const unwinding = (entries: readonly StackEntry[], from = 0): AnyKyoot | undefin
     }
   }
   // A throwing `finally` costs the rest of the walk nothing: it surfaces once the
-  // other steps have run.
-  if (raised !== undefined || deferred) {
+  // other steps have run. Errors raised while they run are the plan's own to report.
+  if (raised !== undefined) {
     (steps ??= []).push(() => {
-      if (raised !== undefined) throw raised.error;
-      return undefined;
+      throw raised!.error;
     });
   }
   if (steps === undefined) return undefined;
   const run = steps;
   return genNode(function* () {
     let i = 0;
+    let failed = false;
     try {
       for (; i < run.length; i++) {
         const step = run[i]!;
         if (step instanceof GeneratorFrame) {
-          closing(step);
+          closeFrame(step);
+          continue;
+        }
+        if (step instanceof SettleFrame) {
+          const inner = dropHeld(step.frame);
+          if (inner !== undefined) yield* inner;
           continue;
         }
         const k = step();
         if (k !== undefined) yield* k;
       }
+    } catch (error) {
+      failed = true;
+      throw error;
     } finally {
       // This program is a generator frame itself, so whatever abandons it part-way
-      // closes it and lands here; the frames it never reached still close.
-      closeSteps(run, i);
+      // closes it and lands here: the frames it never reached still close, and an error
+      // a `finally` already raised still escapes unless a step has one in flight.
+      closeSteps(run, i, failed ? undefined : raised);
     }
   });
 };
 
-// Closes the generator frames a machine leaves behind when it stops with a stack:
-// those on it, and those parked in a continuation nobody restored. Effectful cleanup
-// is skipped — there is no machine left to run it. A holder sits at its own
-// `captured[0]`, so skipping that slot visits every frame once.
+// The stack a machine stops on.
 const closeAll = (entries: readonly StackEntry[]): void => {
-  let raised: { error: unknown } | undefined;
-  // A handler that has held more than once leaves stale settle frames behind.
-  let seen: Set<readonly StackEntry[]> | undefined;
-  const walk = (frames: readonly StackEntry[], from: number): void => {
-    for (let i = frames.length - 1; i >= from; i--) {
-      const entry = frames[i]!;
-      if (entry instanceof GeneratorFrame) {
-        try {
-          entry.close();
-        } catch (error) {
-          raised = { error };
-        }
-        continue;
-      }
-      const captured =
-        entry instanceof SettleFrame
-          ? entry.frame.captured
-          : entry instanceof HandlerFrame
-            ? entry.captured
-            : undefined;
-      if (captured === undefined) continue;
-      seen ??= new Set();
-      if (seen.has(captured)) continue;
-      seen.add(captured);
-      walk(captured, 1);
-    }
-  };
-  walk(entries, 0);
-  if (raised !== undefined) throw raised.error;
+  const { close, finish } = closer(undefined);
+  for (let i = entries.length - 1; i >= 0; i--) close(entries[i]!);
+  finish();
 };
 
 // A settle frame still holding its continuation means nobody restored it — the handler

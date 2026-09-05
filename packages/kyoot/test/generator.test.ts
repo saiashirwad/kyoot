@@ -5,6 +5,7 @@ import { Async, effect, Fail, Kyoot, Resource, Sync } from "../src/index.ts";
 const Stop = effect<string, never>()("stop");
 const Hold = effect<undefined, undefined>()("hold");
 const Missing = effect<undefined, never>()("missing");
+const Cleanup = effect<undefined, undefined>()("cleanup");
 
 test("generator: finally runs when Fail.run drops the continuation", () => {
   const events: string[] = [];
@@ -408,4 +409,104 @@ test("generator: a handler that discards the resume token still drops the contin
   );
   assert.equal(Kyoot.runSync(prog), "stopped");
   assert.deepEqual(events, ["finally", "release"]);
+});
+
+test("generator: a token saved past a closed continuation cannot restore it", () => {
+  const events: string[] = [];
+  let token: unknown;
+  const prog = Kyoot.gen(function* () {
+    try {
+      yield* Hold(undefined);
+      events.push("resumed");
+    } finally {
+      events.push("finally");
+    }
+  }).pipe(
+    Hold.handle({
+      onOp: (_payload, resume) => {
+        token = resume(undefined);
+        return Missing(undefined);
+      },
+    }),
+  );
+  assert.throws(
+    () => Kyoot.runSync(prog as never),
+    (e: unknown) => e instanceof Error && e.message.includes("unhandled effect 'missing'"),
+  );
+  assert.deepEqual(events, ["finally"]);
+  assert.throws(
+    () => Kyoot.runSync(token as never),
+    (e: unknown) => e instanceof Error && e.message.includes("continuation resumed"),
+  );
+  assert.deepEqual(events, ["finally"]);
+});
+
+test("generator: a frame queued inside a dropped continuation closes too", () => {
+  const events: string[] = [];
+  const held = Kyoot.gen(function* () {
+    try {
+      yield* Kyoot.gen(function* () {
+        yield* Resource.acquire(
+          () => 1,
+          () => events.push("release"),
+        );
+        yield* Hold(undefined);
+      }).pipe(Resource.run);
+    } finally {
+      events.push("outer");
+    }
+  });
+  // The replacement stops the machine before the cleanup of the held continuation starts.
+  const answer = Kyoot.gen(function* () {
+    yield* Resource.acquire(
+      () => 2,
+      () => Missing(undefined),
+    );
+    yield* Stop("now");
+  }).pipe(Resource.run);
+  const prog = held.pipe(
+    Hold.handle({ onOp: () => answer }),
+    Stop.handle({ onOp: () => Kyoot.succeed(undefined) }),
+  );
+  assert.throws(
+    () => Kyoot.runSync(prog as never),
+    (e: unknown) => e instanceof Error && e.message.includes("unhandled effect 'missing'"),
+  );
+  assert.deepEqual(events, ["outer"]);
+});
+
+test("generator: a dropped cleanup plan still reports the error its finally raised", () => {
+  const events: string[] = [];
+  const boom = new Error("boom");
+  const raise = () => {
+    throw boom;
+  };
+  const prog = Kyoot.gen(function* () {
+    yield* Resource.acquire(
+      () => "outer",
+      () => Cleanup(undefined),
+    );
+    try {
+      yield* Kyoot.gen(function* () {
+        yield* Resource.acquire(
+          () => "inner",
+          () => events.push("inner release"),
+        );
+        yield* Stop("now");
+      }).pipe(Resource.run);
+    } finally {
+      events.push("finally");
+      raise();
+    }
+  }).pipe(
+    Resource.run,
+    Stop.handle({ onOp: () => Kyoot.succeed(undefined) }),
+    // Drops the cleanup plan part-way, while it is releasing the outer scope.
+    Cleanup.handle({ onOp: () => Kyoot.succeed(undefined) }),
+  );
+  assert.throws(
+    () => Kyoot.runSync(prog),
+    (e: unknown) => e === boom,
+  );
+  assert.deepEqual(events, ["inner release", "finally"]);
 });

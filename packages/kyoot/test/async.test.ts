@@ -647,3 +647,140 @@ test("scheduler: yields keep handler state and continuations", async () => {
   assert.equal(entries.length, 20_000);
   assert.equal(entries[19_999]!.message, "19999");
 });
+
+test("mapPromise keeps input order and hands each callback its index", async () => {
+  const seen: Array<[string, number]> = [];
+  const prog = Kyoot.gen(function* () {
+    return yield* Async.mapPromise(["a", "b", "c"], async (value, index) => {
+      await new Promise((r) => setTimeout(r, value === "a" ? 6 : 1));
+      seen.push([value, index]);
+      return `${value}${index}`;
+    });
+  });
+  assert.deepEqual(await Kyoot.runPromise(prog), ["a0", "b1", "c2"]);
+  assert.deepEqual(seen, [
+    ["a", 0],
+    ["b", 1],
+    ["c", 2],
+  ]);
+});
+
+test("forEachPromise runs one item at a time and returns void", async () => {
+  const events: string[] = [];
+  const prog = Async.forEachPromise([1, 2, 3], async (value, index) => {
+    events.push(`start ${value}@${index}`);
+    await new Promise((r) => setTimeout(r, 1));
+    events.push(`end ${value}`);
+    return value;
+  });
+  assert.equal(await Kyoot.runPromise(prog), undefined);
+  assert.deepEqual(events, ["start 1@0", "end 1", "start 2@1", "end 2", "start 3@2", "end 3"]);
+});
+
+test("reducePromise threads the accumulator in order", async () => {
+  const prog = Async.reducePromise(["a", "b", "c"], "", (accumulator, value, index) =>
+    Promise.resolve(`${accumulator}${value}${index}`),
+  );
+  assert.equal(await Kyoot.runPromise(prog), "a0b1c2");
+});
+
+test("a rejected batch callback is a defect, like fromPromise", async () => {
+  const boom = new Error("boom");
+  const started: number[] = [];
+  const r = await Kyoot.runPromise(
+    Async.mapPromise([1, 2, 3], (value) => {
+      started.push(value);
+      return value === 2 ? Promise.reject(boom) : Promise.resolve(value);
+    }).pipe(Fail.run),
+  );
+  assert.ok(!r.ok && r.cause._tag === "Defect" && r.cause.defect === boom);
+  assert.deepEqual(started, [1, 2]);
+});
+
+test("Async.intercept sees one operation for a whole batch", async () => {
+  let ops = 0;
+  const count = Async.intercept((op, next) => (ops++, next(op)));
+  await Kyoot.runPromise(
+    Async.forEachPromise([1, 2, 3, 4, 5], () => Promise.resolve()).pipe(count),
+  );
+  assert.equal(ops, 1);
+
+  ops = 0;
+  const separate = Kyoot.gen(function* () {
+    for (const value of [1, 2, 3, 4, 5]) yield* Async.fromPromise(() => Promise.resolve(value));
+  });
+  await Kyoot.runPromise(separate.pipe(count));
+  assert.equal(ops, 5);
+});
+
+test("interruption stops a batch before the next item starts", async () => {
+  const started: number[] = [];
+  const first = deferred<void>();
+  const prog = Kyoot.gen(function* () {
+    const fiber = yield* Async.fork(
+      Async.forEachPromise([1, 2, 3], async (value) => {
+        started.push(value);
+        if (value === 1) {
+          first.resolve();
+          await new Promise((r) => setTimeout(r, 5));
+        }
+      }),
+    );
+    yield* Async.fromPromise(() => first.promise);
+    yield* fiber.interrupt;
+    return yield* fiber.await;
+  });
+  const r = await Kyoot.runPromise(prog);
+  assert.ok(!r.ok && r.cause._tag === "Interrupted");
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(started, [1]);
+});
+
+test("a pending batch callback sees the operation's abort signal", async () => {
+  let sawAbort = false;
+  const prog = Kyoot.gen(function* () {
+    const fiber = yield* Async.fork(
+      Async.mapPromise(
+        [1],
+        (_value, _index, signal) =>
+          new Promise<number>(() => {
+            signal.addEventListener("abort", () => {
+              sawAbort = true;
+            });
+          }),
+      ),
+    );
+    yield* fiber.interrupt;
+    yield* fiber.await;
+    return sawAbort;
+  });
+  assert.equal(await Kyoot.runPromise(prog), true);
+});
+
+test("a batch takes the source's length once, so a callback cannot extend it", async () => {
+  const mapValues = [1, 2];
+  const forEachValues = [1, 2];
+  const reduceValues = [1, 2];
+  const forEached: number[] = [];
+  const prog = Kyoot.gen(function* () {
+    const mapped = yield* Async.mapPromise(mapValues, (value) => {
+      mapValues.push(value + 10);
+      return Promise.resolve(value * 2);
+    });
+    yield* Async.forEachPromise(forEachValues, (value) => {
+      forEachValues.push(value + 10);
+      forEached.push(value);
+      return Promise.resolve();
+    });
+    const reduced = yield* Async.reducePromise(reduceValues, 0, (sum, value) => {
+      reduceValues.push(value + 10);
+      return Promise.resolve(sum + value);
+    });
+    return { mapped, reduced };
+  });
+  assert.deepEqual(await Kyoot.runPromise(prog), { mapped: [2, 4], reduced: 3 });
+  assert.deepEqual(forEached, [1, 2]);
+  assert.deepEqual(mapValues, [1, 2, 11, 12]);
+  assert.deepEqual(forEachValues, [1, 2, 11, 12]);
+  assert.deepEqual(reduceValues, [1, 2, 11, 12]);
+});

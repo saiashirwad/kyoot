@@ -34,6 +34,47 @@ export const fromPromise = <A>(f: (signal: AbortSignal) => Promise<A>) =>
 
 export const never = fromPromise<never>(() => new Promise(() => {}));
 
+export const mapPromise = <A, B>(
+  values: ReadonlyArray<A>,
+  f: (value: A, index: number, signal: AbortSignal) => Promise<B>,
+): Kyoot<B[], AsyncRow> =>
+  fromPromise(async (signal) => {
+    const count = values.length;
+    const results: B[] = new Array(count);
+    for (let index = 0; index < count; index++) {
+      if (signal.aborted) throw new InterruptedError();
+      results[index] = await f(values[index]!, index, signal);
+    }
+    return results;
+  });
+
+export const forEachPromise = <A>(
+  values: ReadonlyArray<A>,
+  f: (value: A, index: number, signal: AbortSignal) => Promise<unknown>,
+): Kyoot<void, AsyncRow> =>
+  fromPromise(async (signal) => {
+    const count = values.length;
+    for (let index = 0; index < count; index++) {
+      if (signal.aborted) throw new InterruptedError();
+      await f(values[index]!, index, signal);
+    }
+  });
+
+export const reducePromise = <A, B>(
+  values: ReadonlyArray<A>,
+  initial: B,
+  f: (accumulator: B, value: A, index: number, signal: AbortSignal) => Promise<B>,
+): Kyoot<B, AsyncRow> =>
+  fromPromise(async (signal) => {
+    const count = values.length;
+    let accumulator = initial;
+    for (let index = 0; index < count; index++) {
+      if (signal.aborted) throw new InterruptedError();
+      accumulator = await f(accumulator, values[index]!, index, signal);
+    }
+    return accumulator;
+  });
+
 type FailOf<S> = Payload<S, "fail">;
 
 type Leftover<S extends Row> = Omit<S, Served | "fail">;

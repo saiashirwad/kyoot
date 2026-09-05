@@ -14,8 +14,3 @@ pnpm install
 pnpm typecheck
 pnpm test
 ```
-
-Benchmarks live in `packages/bench`: `pnpm bench` compares kyoot against Effect,
-and `pnpm -F @kyoot/bench bench:async-batch` reports time, sampled bytes per run,
-and sampled bytes per item for 100 separate `Async.fromPromise` waits against the
-`Async` Promise batches on Node 24.

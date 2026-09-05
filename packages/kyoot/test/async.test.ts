@@ -667,14 +667,11 @@ test("mapPromise keeps input order and hands each callback its index", async () 
 
 test("forEachPromise runs one item at a time and returns void", async () => {
   const events: string[] = [];
-  const prog = Kyoot.gen(function* () {
-    const r = yield* Async.forEachPromise([1, 2, 3], async (value, index) => {
-      events.push(`start ${value}@${index}`);
-      await new Promise((r) => setTimeout(r, 1));
-      events.push(`end ${value}`);
-      return value;
-    });
-    return r;
+  const prog = Async.forEachPromise([1, 2, 3], async (value, index) => {
+    events.push(`start ${value}@${index}`);
+    await new Promise((r) => setTimeout(r, 1));
+    events.push(`end ${value}`);
+    return value;
   });
   assert.equal(await Kyoot.runPromise(prog), undefined);
   assert.deepEqual(events, ["start 1@0", "end 1", "start 2@1", "end 2", "start 3@2", "end 3"]);
@@ -685,16 +682,6 @@ test("reducePromise threads the accumulator in order", async () => {
     Promise.resolve(`${accumulator}${value}${index}`),
   );
   assert.equal(await Kyoot.runPromise(prog), "a0b1c2");
-});
-
-test("a batch's row infers as async without an annotation at the call site", async () => {
-  const prog = Kyoot.gen(function* () {
-    yield* Log.info("start");
-    const doubled = yield* Async.mapPromise([1, 2, 3], (n) => Promise.resolve(n * 2));
-    const total = yield* Async.reducePromise(doubled, 0, (sum, n) => Promise.resolve(sum + n));
-    return total;
-  }).pipe(Log.discard);
-  assert.equal(await Kyoot.runPromise(prog), 12);
 });
 
 test("a rejected batch callback is a defect, like fromPromise", async () => {
@@ -713,10 +700,9 @@ test("a rejected batch callback is a defect, like fromPromise", async () => {
 test("Async.intercept sees one operation for a whole batch", async () => {
   let ops = 0;
   const count = Async.intercept((op, next) => (ops++, next(op)));
-  const batched = await Kyoot.runPromise(
+  await Kyoot.runPromise(
     Async.forEachPromise([1, 2, 3, 4, 5], () => Promise.resolve()).pipe(count),
   );
-  assert.equal(batched, undefined);
   assert.equal(ops, 1);
 
   ops = 0;

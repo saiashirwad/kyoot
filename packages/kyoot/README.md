@@ -189,29 +189,15 @@ A handler says what it does at a fork with `fork`:
 
 Interrupting a fiber interrupts its children and runs their finalizers; once an interrupt is delivered, the ops that follow are cleanup and run to completion. `fromPromise` passes an `AbortSignal`; give it to `fetch` and an interrupt cancels the request. A fiber yields to the event loop every few thousand steps, so a hot loop neither starves other fibers nor blocks its own interrupt (a loop inside one `Sync.defer` is one step). `runSync` never yields.
 
-### Promise batches
-
-`mapPromise`, `forEachPromise`, and `reducePromise` run a whole sequence of native Promise waits as **one** async operation:
+`mapPromise`, `forEachPromise`, and `reducePromise` run a sequence of Promise waits as one async op: one node, one suspension, and one resumption for the whole loop instead of one per item.
 
 ```ts
 const load = Kyoot.gen(function* () {
-  const users = yield* Async.mapPromise(ids, (id, _index, signal) => fetchUser(id, signal));
-  yield* Log.info(`loaded ${users.length} users`);
-  return users;
+  return yield* Async.mapPromise(ids, (id, _index, signal) => fetchUser(id, signal));
 });
 ```
 
-A hundred separate `yield* Async.fromPromise` waits build a hundred nodes, generator yields, and pump suspensions; a batch builds one of each, so the loop costs about half the time and half the allocation (`pnpm -F @kyoot/bench bench:async-batch`). The Promise waits themselves are unchanged, and the row is still `async`, so a batch composes in a generator like any other op.
-
-The batch is deliberately one observable effect:
-
-- `Async.intercept` sees one operation, not one per item.
-- Work is sequential and keeps input order; each callback gets its index.
-- Every callback gets the operation's `AbortSignal`.
-- An interrupt stops the batch before the next item starts; the item in flight must watch the signal to stop promptly.
-- A callback rejection is a defect, like `fromPromise`. For a typed failure, return an attempt value from the callback and `Fail.fail` after the batch.
-
-Reach for separate `yield* Async.fromPromise` operations when a handler needs to intercept, trace, retry, or otherwise interpret each item on its own.
+A batch is one observable effect, so `Async.intercept` sees it once, not once per item. The work is sequential and keeps input order, each callback gets its index and the op's `AbortSignal`, an interrupt stops the loop before the next item starts (the item in flight has to watch the signal), and a rejected callback is a defect, like `fromPromise` — for a typed failure, return an attempt value and `Fail.fail` after the batch. Use separate `Async.fromPromise` ops when a handler has to intercept, trace, or retry each item on its own.
 
 ## Your own effect
 

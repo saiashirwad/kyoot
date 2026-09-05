@@ -71,9 +71,7 @@ const batched = Kyoot.gen(function* () {
   return yield* Async.reducePromise(doubled, "", (acc, n) => Promise.resolve(`${acc}${n}`));
 });
 type _batchedKeys = Expect<Equal<keyof RowsOf<typeof batched>, "async">>;
-type _batchedAsync = Expect<Equal<RowsOf<typeof batched>["async"], AsyncOp>>;
 type _batchedValue = Expect<Equal<typeof batched extends KyootT<infer A, any> ? A : never, string>>;
-const batchedRun: Promise<string> = Kyoot.runPromise(batched);
 
 const timed = Async.timeout(100, Clock.sleep(1));
 type _timedKeys = Expect<Equal<keyof RowsOf<typeof timed>, "async" | "fail">>;

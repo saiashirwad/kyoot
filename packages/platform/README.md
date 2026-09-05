@@ -40,12 +40,16 @@ const audit = FileSystem.intercept((op, next) =>
   Log.info(`${op.kind} ${op.path}`).flatMap(() => next(op)),
 );
 
+// A path posix.resolve and the handler will read the same way: not relative, no backslash
+// separators, no leading "//", which Windows reads as a UNC share.
+const plainPosix = (path: string) =>
+  posix.isAbsolute(path) && !path.startsWith("//") && !path.includes("\\");
+
 const confine = (dir: string) => {
-  if (!posix.isAbsolute(dir) || dir.includes("\\"))
-    throw new Error(`confine needs an absolute POSIX root, got ${dir}`);
+  if (!plainPosix(dir)) throw new Error(`confine needs an absolute POSIX root, got ${dir}`);
   const root = posix.resolve(dir);
   const inside = (path: string) => {
-    if (path.includes("\\") || !posix.isAbsolute(path)) return false;
+    if (!plainPosix(path)) return false;
     const resolved = posix.resolve(path);
     return resolved === root || resolved.startsWith(root === "/" ? "/" : `${root}/`);
   };
@@ -68,7 +72,7 @@ const dryRun = FileSystem.intercept((op, next) =>
 program.pipe(audit, confine("/work"), dryRun, Node.fs);
 ```
 
-`confine` resolves before it compares, because `op.path.startsWith(root)` is not a path test: with `root = "/work"` it accepts `/work-other/x`, a sibling directory, and `/work/../outside`, which the handler resolves out of the root. It checks `op.to` as well, or `FileSystem.rename("/work/secret.txt", "/etc/passwd")` gets in on its source. It takes absolute POSIX paths and denies the rest, because a path the check and the handler read differently is worse than no path: `Memory.fs` resolves a relative path against `/` and `Node.fs` against the process's cwd, and a backslash is an ordinary character to `posix.resolve` but a separator to `Node.fs` on Windows. Resolve paths against your own base before they reach the intercept.
+`confine` resolves before it compares, because `op.path.startsWith(root)` is not a path test: with `root = "/work"` it accepts `/work-other/x`, a sibling directory, and `/work/../outside`, which the handler resolves out of the root. It checks `op.to` as well, or `FileSystem.rename("/work/secret.txt", "/etc/passwd")` gets in on its source. It takes absolute POSIX paths and denies the rest, because a path the check and the handler read differently is worse than no path: `Memory.fs` resolves a relative path against `/` and `Node.fs` against the process's cwd, a backslash is an ordinary character to `posix.resolve` but a separator to `Node.fs` on Windows, and a leading `//` is a share there — `posix.resolve("//work/share/file")` is `/work/share/file`, inside the root, while Windows opens `\\work\share\file` on a host called `work`. Resolve paths against your own base before they reach the intercept.
 
 That is a policy, not a jail. The check is lexical, so a symlink under the root still opens whatever it points at, and nothing here stops a path from changing between the check and the op. The boundary is the operating system's — a container, a `chroot`, a user with no rights outside the tree — and this intercept is how you state the policy above it.
 

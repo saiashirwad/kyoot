@@ -6,15 +6,19 @@ const audit = FileSystem.intercept((op, next) =>
   Log.info(`${op.kind} ${op.path}`).flatMap(() => next(op)),
 );
 
-// Absolute POSIX paths only, resolved before they are compared, and every path the op
-// carries — a prefix test on `op.path` alone lets through "/work-other/x", a sibling of the
-// root, "/work/../etc/passwd", which resolves out of it, and any rename destination.
+// A path posix.resolve and the handler read the same way: absolute, no backslash separators,
+// no leading "//", which Windows reads as a UNC share.
+const plainPosix = (path: string) =>
+  posix.isAbsolute(path) && !path.startsWith("//") && !path.includes("\\");
+
+// Resolve before comparing, and check every path the op carries — a prefix test on op.path
+// alone lets through "/work-other/x", a sibling of the root, "/work/../etc/passwd", which
+// resolves out of it, and any rename destination.
 const confine = (dir: string) => {
-  if (!posix.isAbsolute(dir) || dir.includes("\\"))
-    throw new Error(`confine needs an absolute POSIX root, got ${dir}`);
+  if (!plainPosix(dir)) throw new Error(`confine needs an absolute POSIX root, got ${dir}`);
   const root = posix.resolve(dir);
   const inside = (path: string) => {
-    if (path.includes("\\") || !posix.isAbsolute(path)) return false;
+    if (!plainPosix(path)) return false;
     const resolved = posix.resolve(path);
     return resolved === root || resolved.startsWith(root === "/" ? "/" : `${root}/`);
   };

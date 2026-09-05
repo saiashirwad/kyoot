@@ -5,12 +5,16 @@ import { Fail, Kyoot, Log } from "kyoot";
 import { FileSystem, Memory } from "@kyoot/platform";
 import * as Node from "@kyoot/platform/node";
 
+// A path posix.resolve and the handler will read the same way: not relative, no backslash
+// separators, no leading "//", which Windows reads as a UNC share.
+const plainPosix = (path: string) =>
+  posix.isAbsolute(path) && !path.startsWith("//") && !path.includes("\\");
+
 const confine = (dir: string) => {
-  if (!posix.isAbsolute(dir) || dir.includes("\\"))
-    throw new Error(`confine needs an absolute POSIX root, got ${dir}`);
+  if (!plainPosix(dir)) throw new Error(`confine needs an absolute POSIX root, got ${dir}`);
   const root = posix.resolve(dir);
   const inside = (path: string) => {
-    if (path.includes("\\") || !posix.isAbsolute(path)) return false;
+    if (!plainPosix(path)) return false;
     const resolved = posix.resolve(path);
     return resolved === root || resolved.startsWith(root === "/" ? "/" : `${root}/`);
   };
@@ -75,7 +79,8 @@ test("confine takes the paths a prefix test lets through", () => {
     const traversal = yield* FileSystem.readFile("/work/../etc/passwd").pipe(code);
     const relative = yield* FileSystem.readFile("work/old.txt").pipe(code);
     const backslash = yield* FileSystem.readFile("/work/sub\\..\\..\\etc\\passwd").pipe(code);
-    return { listing, child, sibling, traversal, relative, backslash };
+    const unc = yield* FileSystem.readFile("//work/share/file").pipe(code);
+    return { listing, child, sibling, traversal, relative, backslash, unc };
   });
   const [result] = Kyoot.runSync(
     program.pipe(
@@ -95,20 +100,23 @@ test("confine takes the paths a prefix test lets through", () => {
     traversal: "PermissionDenied",
     relative: "PermissionDenied",
     backslash: "PermissionDenied",
+    unc: "PermissionDenied",
   });
 });
 
 test("confine checks the destination of a rename, and takes an absolute POSIX root", () => {
   assert.throws(() => confine("work"), /absolute POSIX root/);
   assert.throws(() => confine("/work\\sub"), /absolute POSIX root/);
+  assert.throws(() => confine("//work"), /absolute POSIX root/);
 
   const program = Kyoot.gen(function* () {
     const out = yield* FileSystem.rename("/work/secret.txt", "/etc/passwd").pipe(code);
     const traversal = yield* FileSystem.rename("/work/secret.txt", "/work/../leak.txt").pipe(code);
     const relative = yield* FileSystem.rename("/work/secret.txt", "work/leak.txt").pipe(code);
     const backslash = yield* FileSystem.rename("/work/secret.txt", "/work\\leak.txt").pipe(code);
+    const unc = yield* FileSystem.rename("/work/secret.txt", "//work/share/file").pipe(code);
     const within = yield* FileSystem.rename("/work/secret.txt", "/work/moved.txt").pipe(code);
-    return { out, traversal, relative, backslash, within };
+    return { out, traversal, relative, backslash, unc, within };
   });
   const [result, files] = Kyoot.runSync(
     program.pipe(
@@ -122,6 +130,7 @@ test("confine checks the destination of a rename, and takes an absolute POSIX ro
     traversal: "PermissionDenied",
     relative: "PermissionDenied",
     backslash: "PermissionDenied",
+    unc: "PermissionDenied",
     within: undefined,
   });
   assert.deepEqual(files, { "/work/moved.txt": "shh", "/etc/passwd": "root" });

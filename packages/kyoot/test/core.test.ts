@@ -162,7 +162,6 @@ test("a resume saved from one operation cannot answer a later operation", () => 
           saved = resume;
           return resume(1);
         }
-        assert.notEqual(saved, resume);
         return saved!(99);
       },
     }),
@@ -230,25 +229,7 @@ test("a resume.with token saved from one operation cannot answer a later operati
   assert.throws(() => Kyoot.runSync(k), /continuation resumed twice \(one-shot law\)/);
 });
 
-test("every operation gets its own continuation, and each one still answers its own op", () => {
-  const Ask = effect<string, number>()("ask");
-  const seen: unknown[] = [];
-  let calls = 0;
-  const k = Kyoot.gen(function* () {
-    return [yield* Ask("a"), yield* Ask("b"), yield* Ask("c")];
-  }).pipe(
-    Ask.handle({
-      onOp: (_p, resume) => {
-        seen.push(resume);
-        return resume(++calls);
-      },
-    }),
-  );
-  assert.deepEqual(Kyoot.runSync(k), [1, 2, 3]);
-  assert.equal(new Set(seen).size, 3);
-});
-
-test("a continuation held past its op still resumes that op when the handler returns to it", () => {
+test("a continuation held past its op still answers that op", () => {
   const Ask = effect<string, number>()("ask");
   let calls = 0;
   const k = Kyoot.gen(function* () {

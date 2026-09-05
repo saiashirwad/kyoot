@@ -300,12 +300,8 @@ export class Machine {
     frame.status = "armed";
     let output: AnyKyoot;
     try {
-      output = frame.handler.c.onOp(
-        node.b,
-        makeResume(frame, ++frame.epoch),
-        frame.state,
-        inherited,
-      );
+      const resume = makeResume(frame, ++frame.epoch);
+      output = frame.handler.c.onOp(node.b, resume, frame.state, inherited);
     } catch (error) {
       frame.status = "idle";
       const crossed = this.stack.splice(index + 1);

@@ -34,6 +34,7 @@ class SettleFrame {
 type Status = "idle" | "armed" | "held" | "resumed" | "dropped";
 
 const ONE_SHOT = "continuation resumed twice (one-shot law)";
+const DROPPED = "continuation resumed after it was dropped";
 
 class HandlerFrame {
   readonly handler: HandlerNode;
@@ -54,9 +55,7 @@ class HandlerFrame {
 
   claim(kind: "value" | "program", value: unknown, state: unknown): AnyKyoot {
     if (this.status !== "armed" && this.status !== "held") {
-      throw new Error(
-        this.status === "dropped" ? "continuation resumed after it was dropped" : ONE_SHOT,
-      );
+      throw new Error(this.status === "dropped" ? DROPPED : ONE_SHOT);
     }
     this.status = "resumed";
     this.resumeKind = kind;
@@ -113,9 +112,12 @@ const unwinding = (entries: readonly StackEntry[], from = 0): AnyKyoot | undefin
   });
 };
 
+// Reaching a settle frame whose continuation is still captured means nobody restored it: the
+// handler never resumed, or it claimed a token and threw the token away. A restored continuation
+// has cleared `captured`, so its settle frame is inert.
 const dropHeld = (frame: HandlerFrame): AnyKyoot | undefined => {
-  if (frame.status !== "held") return undefined;
-  const held = frame.captured!;
+  const held = frame.captured;
+  if (held === undefined) return undefined;
   frame.captured = undefined;
   frame.status = "dropped";
   return unwinding(held, 1);
@@ -323,10 +325,8 @@ export class Machine {
     }
 
     frame.captured = this.stack.splice(index);
-    if ((frame.status as Status) !== "resumed") {
-      frame.status = "held";
-      this.stack.push(new SettleFrame(frame));
-    }
+    if ((frame.status as Status) !== "resumed") frame.status = "held";
+    this.stack.push(new SettleFrame(frame));
     this.current = output;
     this.phase = "node";
     return undefined;
@@ -334,7 +334,7 @@ export class Machine {
 
   private restore(frame: HandlerFrame): void {
     const captured = frame.captured;
-    if (captured === undefined) throw new Error(ONE_SHOT);
+    if (captured === undefined) throw new Error(frame.status === "dropped" ? DROPPED : ONE_SHOT);
     frame.captured = undefined;
     for (let i = 0; i < captured.length; i++) this.stack.push(captured[i]!);
     this.continueFrom(frame);

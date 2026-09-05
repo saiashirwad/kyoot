@@ -132,6 +132,23 @@ test("a continuation dropped by its handler cannot be resumed later", () => {
   assert.throws(() => Kyoot.runSync(saved!(1) as never), /resumed after it was dropped/);
 });
 
+test("a resume token discarded by its handler cannot be run later", () => {
+  const Ask = effect<string, number>()("ask");
+  let token: Kyoot<never> | undefined;
+  const k = Kyoot.gen(function* () {
+    return yield* Ask("n");
+  }).pipe(
+    Ask.handle({
+      onOp: (_p, resume) => {
+        token = resume(1) as Kyoot<never>;
+        return Kyoot.succeed("discarded");
+      },
+    }),
+  );
+  assert.equal(Kyoot.runSync(k), "discarded");
+  assert.throws(() => Kyoot.runSync(token!), /resumed after it was dropped/);
+});
+
 test("a continuation may only be resumed once", () => {
   const k = makeHandler(
     "myfx",

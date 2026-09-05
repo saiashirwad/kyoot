@@ -50,7 +50,7 @@ export type RuntimeNode =
   | {
       readonly _tag: "resume";
       readonly a: unknown;
-      readonly b: undefined;
+      readonly b: number;
       readonly c: undefined;
     }
   | {

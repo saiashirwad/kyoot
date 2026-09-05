@@ -65,6 +65,14 @@ const fp = Async.fromPromise((signal) => fetch("https://example.com", { signal }
 type _fpKeys = Expect<Equal<keyof RowsOf<typeof fp>, "async">>;
 type _fpValue = Expect<Equal<typeof fp extends KyootT<infer A, any> ? A : never, Response>>;
 
+const batched = Kyoot.gen(function* () {
+  const doubled = yield* Async.mapPromise([1, 2, 3], (n) => Promise.resolve(n * 2));
+  yield* Async.forEachPromise(doubled, (n) => Promise.resolve(n));
+  return yield* Async.reducePromise(doubled, "", (acc, n) => Promise.resolve(`${acc}${n}`));
+});
+type _batchedKeys = Expect<Equal<keyof RowsOf<typeof batched>, "async">>;
+type _batchedValue = Expect<Equal<typeof batched extends KyootT<infer A, any> ? A : never, string>>;
+
 const timed = Async.timeout(100, Clock.sleep(1));
 type _timedKeys = Expect<Equal<keyof RowsOf<typeof timed>, "async" | "fail">>;
 type _timedFail = Expect<Equal<RowsOf<typeof timed>["fail"], Async.Timeout>>;

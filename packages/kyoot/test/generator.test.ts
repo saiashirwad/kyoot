@@ -434,10 +434,7 @@ test("generator: a token saved past a closed continuation cannot restore it", ()
     (e: unknown) => e instanceof Error && e.message.includes("unhandled effect 'missing'"),
   );
   assert.deepEqual(events, ["finally"]);
-  assert.throws(
-    () => Kyoot.runSync(token as never),
-    (e: unknown) => e instanceof Error && e.message.includes("continuation resumed"),
-  );
+  assert.throws(() => Kyoot.runSync(token as never), /resumed after it was dropped/);
   assert.deepEqual(events, ["finally"]);
 });
 

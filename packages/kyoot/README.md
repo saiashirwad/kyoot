@@ -227,7 +227,8 @@ const declineAll = (reason: string) =>
 
 - `resume` works once; a second call throws.
 - A thrown exception is a defect: it skips `onOp` and goes to the nearest `onDefect`, or out of `runSync`. Use `Fail` for errors you expect.
-- A handler that does not resume drops the rest of the program. Handler order does not affect resource cleanup, but it still affects meaning because the nearest matching handler handles an operation first.
+- A handler that does not resume drops the rest of the program, and so does one that calls `resume` and then throws the token away. Handler order does not affect resource cleanup, but it still affects meaning because the nearest matching handler handles an operation first.
+- A dropped generator is closed, so its `try`/`finally` runs — on a handler that does not resume, on a defect, and on interruption — innermost first, before the cleanup of any handler outside it. A `finally` may not `yield`, since the handlers that gave its effects meaning are gone: that is reported as a defect, and cleanup that performs effects belongs in `Resource`. One that throws behaves as in JavaScript, an outer error replacing an inner one, and the frames and scopes around it still close.
 - A handler that returns a value instead of resuming must be `fork: "none"`, since a fiber's value is its own. A copy that does so anyway is reported as a defect.
 - A handler's `onInterrupt` hook may return a program. Its effects join the handler's row.
 

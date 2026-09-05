@@ -112,9 +112,9 @@ const unwinding = (entries: readonly StackEntry[], from = 0): AnyKyoot | undefin
   });
 };
 
-// A SettleFrame guards a captured continuation until something claims it back. Reaching one
-// with `captured` still set means nobody ever restored it -- whether the handler never resumed
-// ("held") or claimed a token and then threw it away ("resumed") -- so its finalizers run here.
+// Reaching a settle frame whose continuation is still captured means nobody restored it: the
+// handler never resumed, or it claimed a token and threw the token away. A restored continuation
+// has cleared `captured`, so its settle frame is inert.
 const dropHeld = (frame: HandlerFrame): AnyKyoot | undefined => {
   const held = frame.captured;
   if (held === undefined) return undefined;
@@ -159,18 +159,6 @@ export class Machine {
       throw new Error("machine cannot be raised here");
     }
     return this.advance(budget, true, error);
-  }
-
-  // Called when a run stops at an effect nothing can serve: the stack still holds handler frames
-  // and captured continuations whose finalizers nobody else will run. `unserved` builds the error
-  // for that effect, which is raised at the op that performed it -- a defect, so a scope releasing
-  // itself can absorb it and finish the rest of its finalizers. Whatever finally escapes is thrown
-  // on to the caller to report: a failure already in flight outranks a finalizer's. Returning is
-  // how this says nothing escaped -- something recovered, or there was nothing left to release.
-  discard(unserved: (key: PropertyKey) => unknown): void {
-    while (this.stack.length > 0) {
-      if (this.advance(Infinity, true, unserved(this.key)) !== "suspended") return;
-    }
   }
 
   reset(): void {
@@ -346,9 +334,7 @@ export class Machine {
 
   private restore(frame: HandlerFrame): void {
     const captured = frame.captured;
-    if (captured === undefined) {
-      throw new Error(frame.status === "dropped" ? DROPPED : ONE_SHOT);
-    }
+    if (captured === undefined) throw new Error(frame.status === "dropped" ? DROPPED : ONE_SHOT);
     frame.captured = undefined;
     for (let i = 0; i < captured.length; i++) this.stack.push(captured[i]!);
     this.continueFrom(frame);

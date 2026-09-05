@@ -18,10 +18,7 @@ export function runSync<A, S extends Row>(k: Kyoot<A, S> & Only<S>): A {
   spare = undefined;
   try {
     if (machine.start(k as AnyKyoot) === "done") return machine.value as A;
-    const unserved = (key: PropertyKey) => unhandledEffect("runSync", key);
-    const error = unserved(machine.key);
-    machine.discard(unserved);
-    throw error;
+    throw unhandledEffect("runSync", machine.key);
   } finally {
     machine.reset();
     spare = machine;
@@ -93,7 +90,6 @@ class Fiber<A> implements FiberHandle<A> {
   private generation = 0;
   private waiting = false;
   private interrupted = false;
-  private failure: unknown;
 
   constructor(k: Kyoot<A, any>, parent: Fiber<any> | undefined) {
     const { controller } = this;
@@ -170,10 +166,7 @@ class Fiber<A> implements FiberHandle<A> {
     let outcome = initial;
     while (true) {
       if (outcome === "done") {
-        // A recorded failure means something recovered from an unserved op and the program carried
-        // on. It ran to the end, but it did not succeed: the op nothing could answer is the result.
-        if (this.failure !== undefined) this.reject(this.failure);
-        else this.resolve(machine.value as A);
+        this.resolve(machine.value as A);
         return;
       }
 
@@ -185,15 +178,8 @@ class Fiber<A> implements FiberHandle<A> {
 
       const { key, payload, handlers } = machine;
       if (!served(key)) {
-        // Nothing can answer this op, so fail at it and keep driving: the finalizers still on the
-        // stack -- including async ones, which is why this cannot be a plain reject -- get to run,
-        // and a scope releasing itself can absorb the defect and finish the rest of its own. An
-        // interrupt would be blunter than it needs to be here: it tears through those loops.
-        const error = unhandledEffect("fiber", key);
-        this.failure ??= error;
-        this.interrupted = true;
-        outcome = machine.raise(error, STEP_BUDGET);
-        continue;
+        this.reject(unhandledEffect("fiber", key));
+        return;
       }
 
       if (controller.signal.aborted && !this.interrupted) {

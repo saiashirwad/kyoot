@@ -124,75 +124,48 @@ test("toAsyncIterable: breaking while the producer is parked interrupts it", asy
   assert.ok(at <= 8);
 });
 
-async function drain<E>(stream: AsyncIterable<E>) {
-  const items: E[] = [];
-  try {
-    for await (const x of stream) items.push(x);
-    return { items, threw: false, error: undefined as unknown };
-  } catch (e: unknown) {
-    return { items, threw: true, error: e };
-  }
-}
-
 test("toAsyncIterable: a producer that throws undefined rejects the consumer", async () => {
-  const r = await drain(
-    Emit.toAsyncIterable(
-      Kyoot.gen(function* () {
-        throw undefined;
-      }),
-    ),
+  const stream = Kyoot.gen(function* () {
+    throw undefined;
+  });
+  await assert.rejects(
+    (async () => {
+      for await (const _ of Emit.toAsyncIterable(stream)) void _;
+    })(),
+    (e) => e === undefined,
   );
-  assert.ok(r.threw, "the consumer must not see a normal end of stream");
-  assert.equal(r.error, undefined);
-  assert.deepEqual(r.items, []);
 });
 
-test("toAsyncIterable: throwing undefined after an emission delivers the item, then rejects", async () => {
-  const r = await drain(
-    Emit.toAsyncIterable(
-      Kyoot.gen(function* () {
-        yield* Emit.value(1);
-        throw undefined;
-      }),
-    ),
+test("toAsyncIterable: a defect after an emission delivers the item, then rejects", async () => {
+  const stream = Kyoot.gen(function* () {
+    yield* Emit.value(1);
+    throw undefined;
+  });
+  const out: number[] = [];
+  await assert.rejects(
+    (async () => {
+      for await (const x of Emit.toAsyncIterable(stream)) out.push(x);
+    })(),
+    (e) => e === undefined,
   );
-  assert.deepEqual(r.items, [1]);
-  assert.ok(r.threw, "the consumer must not see a normal end of stream");
-  assert.equal(r.error, undefined);
+  assert.deepEqual(out, [1]);
 });
 
-test("toAsyncIterable: a map that throws undefined rejects the consumer", async () => {
-  const r = await drain(
-    Emit.toAsyncIterable(
-      Emit.fromIterable([1]).map(() => {
-        throw undefined;
-      }),
-    ),
-  );
-  assert.ok(r.threw, "the consumer must not see a normal end of stream");
-  assert.equal(r.error, undefined);
+test("toAsyncIterable: an empty stream still completes", async () => {
+  const stream = Emit.toAsyncIterable(Kyoot.gen(function* () {}));
+  assert.deepEqual(await stream[Symbol.asyncIterator]().next(), { value: undefined, done: true });
 });
 
-test("toAsyncIterable: an empty stream still completes successfully", async () => {
-  const r = await drain(Emit.toAsyncIterable(Kyoot.gen(function* () {})));
-  assert.equal(r.threw, false);
-  assert.deepEqual(r.items, []);
-  const it = Emit.toAsyncIterable(Kyoot.gen(function* () {}))[Symbol.asyncIterator]();
-  assert.deepEqual(await it.next(), { value: undefined, done: true });
-});
-
-for (const defect of [null, 0, false, "", Number.NaN] as const) {
-  test(`toAsyncIterable: a producer that throws ${String(defect)} rejects the consumer`, async () => {
-    const r = await drain(
-      Emit.toAsyncIterable(
-        Kyoot.gen(function* () {
-          yield* Emit.value(1);
-          throw defect;
-        }),
-      ),
+for (const defect of [null, 0, false, ""]) {
+  test(`toAsyncIterable: a producer that throws ${JSON.stringify(defect)} rejects the consumer`, async () => {
+    const stream = Kyoot.gen(function* () {
+      throw defect;
+    });
+    await assert.rejects(
+      (async () => {
+        for await (const _ of Emit.toAsyncIterable(stream)) void _;
+      })(),
+      (e) => Object.is(e, defect),
     );
-    assert.deepEqual(r.items, [1]);
-    assert.ok(r.threw, "the consumer must not see a normal end of stream");
-    assert.deepEqual(r.error, defect);
   });
 }

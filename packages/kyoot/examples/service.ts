@@ -1,3 +1,4 @@
+// Model and Search effects with Retry, Log and Emit handlers composed via .pipe().
 import { Async, Clock, effect, Emit, Fail, Kyoot, Log, Retry } from "../src/index.ts";
 
 interface Prompt {

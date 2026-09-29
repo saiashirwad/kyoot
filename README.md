@@ -1,10 +1,14 @@
 # kyoot
 
-Experimental effects for TypeScript, inspired by [Kyo](https://github.com/getkyo/kyo). No stability promise.
+An experimental effects system for TypeScript, inspired by [Kyo](https://github.com/getkyo/kyo). The API may change.
 
-A program's type carries a typed effect row: the effects it still needs. Each handler you `.pipe()` in removes the effects it covers (and may add its own), and `runSync` / `runPromise` only type-check once the row is empty.
+A program's type tracks its unhandled effects. You supply handlers with `.pipe()`. Each handler removes the effects it handles and may introduce effects of its own. `runSync` requires all effects to be handled; `runPromise` also accepts `Async` and `Clock`, which its runtime handles for you. TypeScript checks these requirements when you call either runner.
+
+Here, the program needs a config and a greeting. Providing just the config leaves the greeting unhandled:
 
 ```ts
+import { Env, Kyoot } from "kyoot";
+
 const Config = Env.tag<{ id: string; name: string }>()("Config");
 const Greeting = Env.tag<string>()("greeting");
 
@@ -21,19 +25,25 @@ Kyoot.runSync(program.pipe(Config.provide({ id: "hi", name: "what" }), Greeting.
 // { config: { id: 'hi', name: 'what' }, greeting: 'hi' }
 ```
 
-| Package                                | What                                                  |
-| -------------------------------------- | ----------------------------------------------------- |
-| [`kyoot`](packages/kyoot)              | Core: effects, handlers, fibers, built-in effects     |
-| [`@kyoot/ai`](packages/ai)             | Language models, tools, and providers as effects      |
-| [`@kyoot/platform`](packages/platform) | File system and processes as effects                  |
-| [`@kyoot/registry`](packages/registry) | Components that load, unload, and hot swap at runtime |
+## Packages
 
-Not published; clone the repo. Requires Node 22.18+ (runs `.ts` directly).
+| Package                                | Contents                                        |
+| -------------------------------------- | ----------------------------------------------- |
+| [`kyoot`](packages/kyoot)              | Effects, handlers, fibers, and built-in effects |
+| [`@kyoot/ai`](packages/ai)             | Language models, tools, and providers           |
+| [`@kyoot/platform`](packages/platform) | File system and process effects                 |
+| [`@kyoot/registry`](packages/registry) | Loading and hot swapping components at runtime  |
 
-```
+## Try it
+
+The packages aren't published yet. Clone the repo and use Node 22.18+ to run the TypeScript examples directly:
+
+```sh
 pnpm install
 node packages/kyoot/examples/checkout.ts
 pnpm check
 ```
 
-License: MIT (see [LICENSE](LICENSE)).
+The [checkout example](packages/kyoot/examples/checkout.ts) shows how to define your own effects and supply different handlers. There are more examples in [packages/kyoot/examples](packages/kyoot/examples).
+
+MIT licensed. See [LICENSE](LICENSE).

@@ -1,0 +1,59 @@
+✖ chatCompletions cancels an open body after malformed calls (11.298417ms)
+✖ chatCompletions interruption cancels a pending stream read (0.57625ms)
+✔ chatCompletions streams text, a split tool call, and usage (1.649917ms)
+✔ chatCompletions retries 429 with virtual backoff (0.728792ms)
+✔ chatCompletions does not retry 401 (0.191084ms)
+✔ chatCompletions rejects oversized call index (0.243542ms)
+✔ chatCompletions rejects missing preceding call index (0.161375ms)
+✔ chatCompletions rejects non-string name fragment (0.122625ms)
+✔ chatCompletions rejects non-string argument fragment (0.142083ms)
+✔ chatCompletions rejects conflicting call ids (0.152916ms)
+✔ chatCompletions rejects duplicate assembled call ids (0.1815ms)
+✔ chatCompletions rejects truncated stream (0.262417ms)
+✔ chatCompletions rejects missing call id (0.111125ms)
+✔ chatCompletions rejects missing call name (0.100417ms)
+✔ chatCompletions rejects invalid call index (0.076042ms)
+ℹ tests 15
+ℹ suites 0
+ℹ pass 13
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 128.733209
+
+✖ failing tests:
+
+test at packages/ai/test/providers.test.ts:23:1
+✖ chatCompletions cancels an open body after malformed calls (11.298417ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  0 !== 1
+
+      at TestContext.<anonymous> (file:///Users/texoport/code/kyoot-protocol-cleanup/packages/ai/test/providers.test.ts:38:12)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at packages/ai/test/providers.test.ts:43:1
+✖ chatCompletions interruption cancels a pending stream read (0.57625ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  0 !== 1
+
+      at TestContext.<anonymous> (file:///Users/texoport/code/kyoot-protocol-cleanup/packages/ai/test/providers.test.ts:63:12)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

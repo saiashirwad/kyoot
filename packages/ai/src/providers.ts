@@ -1,5 +1,5 @@
-import { Async, Fail, Kyoot, Retry } from "kyoot";
-import { Model, type Message, type Request, type ToolCall } from "./model.ts";
+import { Async, Fail, Kyoot, Resource, Retry } from "kyoot";
+import { Model, type Message, type Request } from "./model.ts";
 import { events } from "./sse.ts";
 import * as Events from "./events.ts";
 
@@ -24,15 +24,60 @@ interface Chunk {
   readonly choices?: readonly {
     readonly delta: {
       readonly content?: string | null;
-      readonly tool_calls?: readonly {
-        readonly index: number;
-        readonly id?: string;
-        readonly function?: { readonly name?: string; readonly arguments?: string };
-      }[];
+      readonly tool_calls?:
+        | readonly {
+            readonly index: number;
+            readonly id?: string;
+            readonly function?: { readonly name?: string; readonly arguments?: string };
+          }[]
+        | null;
     };
   }[];
   readonly usage?: { readonly prompt_tokens: number; readonly completion_tokens: number } | null;
 }
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const isChunk = (value: unknown): value is Chunk => {
+  if (!isRecord(value)) return false;
+  if (value.choices !== undefined) {
+    if (!Array.isArray(value.choices)) return false;
+    for (const choice of value.choices) {
+      if (!isRecord(choice) || !isRecord(choice.delta)) return false;
+      const { content, tool_calls } = choice.delta;
+      if (content !== undefined && content !== null && typeof content !== "string") return false;
+      if (tool_calls === undefined || tool_calls === null) continue;
+      if (!Array.isArray(tool_calls)) return false;
+      for (const call of tool_calls) {
+        if (
+          !isRecord(call) ||
+          typeof call.index !== "number" ||
+          !Number.isSafeInteger(call.index) ||
+          call.index < 0 ||
+          (call.id !== undefined && typeof call.id !== "string")
+        )
+          return false;
+        if (call.function !== undefined) {
+          if (!isRecord(call.function)) return false;
+          const { name, arguments: args } = call.function;
+          if (
+            (name !== undefined && typeof name !== "string") ||
+            (args !== undefined && typeof args !== "string")
+          )
+            return false;
+        }
+      }
+    }
+  }
+  if (value.usage !== undefined && value.usage !== null) {
+    if (!isRecord(value.usage)) return false;
+    for (const count of [value.usage.prompt_tokens, value.usage.completion_tokens]) {
+      if (typeof count !== "number" || !Number.isSafeInteger(count) || count < 0) return false;
+    }
+  }
+  return true;
+};
 
 const toApi = (m: Message) =>
   m.role === "tool"
@@ -51,8 +96,8 @@ const toApi = (m: Message) =>
 
 const complete = ({ url, model, apiKey }: Options, req: Request) =>
   Kyoot.gen(function* () {
-    const res = yield* Async.fromPromise((signal) =>
-      fetch(url, {
+    const { res, signal } = yield* Async.fromPromise(async (signal) => ({
+      res: await fetch(url, {
         method: "POST",
         signal,
         headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
@@ -67,34 +112,61 @@ const complete = ({ url, model, apiKey }: Options, req: Request) =>
           max_tokens: req.maxTokens,
         }),
       }),
-    );
+      signal,
+    }));
     if (!res.ok) {
       const message = yield* Async.fromPromise(() => res.text());
       yield* Fail.fail(new ProviderError(res.status, message));
     }
-    const it = events<Chunk>(res.body!)[Symbol.asyncIterator]();
+    const body = res.body;
+    if (!body) return yield* Fail.fail(new ProviderError(502, "Missing response body"));
+    const it = yield* Resource.acquire(
+      () => events(body, signal)[Symbol.asyncIterator](),
+      (iterator) => Async.fromPromise(() => iterator.return(false).then(() => undefined)),
+    );
     let text = "";
     let usage = { input: 0, output: 0 };
-    const calls: { id: string; name: string; arguments: string }[] = [];
+    const calls = new Map<number, { id: string; name: string; arguments: string }>();
     while (true) {
       const r = yield* Async.fromPromise(() => it.next());
-      if (r.done) break;
-      const { content, tool_calls = [] } = r.value.choices?.[0]?.delta ?? {};
+      if (r.done) {
+        if (!r.value) return yield* Fail.fail(new ProviderError(422, "Incomplete provider stream"));
+        break;
+      }
+      if (!isChunk(r.value))
+        return yield* Fail.fail(new ProviderError(422, "Invalid provider chunk"));
+      const { content, tool_calls } = r.value.choices?.[0]?.delta ?? {};
       if (content) {
         text += content;
         yield* Events.emit({ type: "text", text: content });
       }
-      for (const tc of tool_calls) {
-        const call = (calls[tc.index] ??= { id: "", name: "", arguments: "" });
+      for (const tc of tool_calls ?? []) {
+        const call = calls.get(tc.index) ?? { id: "", name: "", arguments: "" };
+        if (tc.id !== undefined && call.id !== "" && tc.id !== call.id)
+          return yield* Fail.fail(new ProviderError(422, "Conflicting tool call id"));
         call.id ||= tc.id ?? "";
         call.name += tc.function?.name ?? "";
         call.arguments += tc.function?.arguments ?? "";
+        calls.set(tc.index, call);
       }
       if (r.value.usage)
         usage = { input: r.value.usage.prompt_tokens, output: r.value.usage.completion_tokens };
     }
-    return { text, toolCalls: calls.filter(Boolean) as ToolCall[], usage };
-  });
+    const toolCalls = [];
+    const ids = new Set<string>();
+    for (const [index, call] of [...calls].sort(([a], [b]) => a - b)) {
+      if (
+        index !== toolCalls.length ||
+        !call.id.trim() ||
+        !/^[a-zA-Z0-9_-]+$/.test(call.name) ||
+        ids.has(call.id)
+      )
+        return yield* Fail.fail(new ProviderError(422, "Invalid assembled tool call"));
+      ids.add(call.id);
+      toolCalls.push(call);
+    }
+    return { text, toolCalls, usage };
+  }).pipe(Resource.run);
 
 export const chatCompletions = (options: Options) =>
   Model.handle({

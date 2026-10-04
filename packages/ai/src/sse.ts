@@ -1,9 +1,12 @@
-export async function* events<T = unknown>(body: ReadableStream): AsyncGenerator<T> {
+export async function* events<T = unknown>(
+  body: ReadableStream,
+  signal?: AbortSignal,
+): AsyncGenerator<T, boolean> {
   let buffer = "";
   let data = "";
   // A CR ends a line on its own, and eats the LF of a CRLF that the next chunk may carry.
   let skipLf = false;
-  for await (const chunk of body.pipeThrough(new TextDecoderStream())) {
+  for await (const chunk of body.pipeThrough(new TextDecoderStream(), { signal })) {
     buffer += chunk;
     let from = 0;
     while (from < buffer.length) {
@@ -21,7 +24,7 @@ export async function* events<T = unknown>(body: ReadableStream): AsyncGenerator
       if (line === "") {
         const payload = data.slice(0, -1);
         data = "";
-        if (payload === "[DONE]") return;
+        if (payload === "[DONE]") return true;
         if (payload !== "") yield JSON.parse(payload) as T;
       } else if (!line.startsWith(":")) {
         const colon = line.indexOf(":");
@@ -33,4 +36,5 @@ export async function* events<T = unknown>(body: ReadableStream): AsyncGenerator
     }
     buffer = buffer.slice(from);
   }
+  return false;
 }

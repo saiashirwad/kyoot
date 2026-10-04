@@ -36,12 +36,12 @@ test at packages/kyoot/test/resource.test.ts:23:3
 ✖ Resource: sync releases on an unhandled effect (0.753791ms)
   AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
   + actual - expected
-  
+
     [
       'open',
   -   'close'
     ]
-  
+
       at TestContext.<anonymous> (file:///Users/texoport/code/kyoot-cleanup/packages/kyoot/test/resource.test.ts:39:12)
       at Test.runInAsyncScope (node:async_hooks:226:14)
       at Test.run (node:internal/test_runner/test:1402:25)
@@ -61,12 +61,12 @@ test at packages/kyoot/test/resource.test.ts:23:3
 ✖ Resource: fiber releases on an unhandled effect (0.262417ms)
   AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
   + actual - expected
-  
+
     [
       'open',
   -   'close'
     ]
-  
+
       at TestContext.<anonymous> (file:///Users/texoport/code/kyoot-cleanup/packages/kyoot/test/resource.test.ts:39:12)
       at async Test.run (node:internal/test_runner/test:1409:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
@@ -82,12 +82,12 @@ test at packages/kyoot/test/resource.test.ts:43:1
 ✖ Resource: a typed release failure does not skip older finalizers (0.206708ms)
   AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
   + actual - expected
-  
+
     [
       'new',
   -   'old'
     ]
-  
+
       at TestContext.<anonymous> (file:///Users/texoport/code/kyoot-cleanup/packages/kyoot/test/resource.test.ts:63:10)
       at Test.runInAsyncScope (node:async_hooks:226:14)
       at Test.run (node:internal/test_runner/test:1402:25)
@@ -107,7 +107,7 @@ test at packages/kyoot/test/resource.test.ts:66:1
 ✖ Resource: the body defect wins over typed release failures (0.244042ms)
   AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
   + actual - expected
-  
+
     {
       cause: {
   +     _tag: 'Fail',
@@ -124,7 +124,7 @@ test at packages/kyoot/test/resource.test.ts:66:1
       },
       ok: false
     }
-  
+
       at TestContext.<anonymous> (file:///Users/texoport/code/kyoot-cleanup/packages/kyoot/test/resource.test.ts:83:10)
       at Test.runInAsyncScope (node:async_hooks:226:14)
       at Test.run (node:internal/test_runner/test:1402:25)

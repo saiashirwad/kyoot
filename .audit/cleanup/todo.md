@@ -19,10 +19,10 @@
 
 ## Designed units
 
-- [ ] A3/A4. Reproduce runner unwind and typed-finalizer abort. Fix and independently verify resource cleanup.
-- [ ] A2/A9/A10. Reproduce command cancellation, output policy, and invalid rename. Fix and independently verify platform behavior.
-- [ ] A8. Reproduce interrupted registry setup. Fix and independently verify ownership and removal.
-- [ ] A5/A6/A7. Reproduce truncated streams, void results, and reserved name collision. Fix and independently verify protocol boundaries.
+- [x] A3/A4. Reproduce runner unwind and typed-finalizer abort. Fix and independently verify resource cleanup.
+- [x] A2/A9/A10. Reproduce command cancellation, output policy, and invalid rename. Fix and independently verify platform behavior.
+- [x] A8. Reproduce interrupted registry setup. Fix and independently verify ownership and removal.
+- [x] A5/A6/A7. Reproduce truncated streams, void results, and reserved name collision. Fix and independently verify protocol boundaries.
 - [ ] A11/A12/A13. Compare effect and fork contracts. Reproduce unsafety, implement selected model, independently verify compiler and runtime.
 - [ ] A1. Compare turn ownership designs. Reproduce repeated external action and concurrent history corruption. Implement and independently verify in-memory outcomes.
 - [ ] Deslop and no-comments review.

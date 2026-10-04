@@ -1,0 +1,39 @@
+Scope: all 6 workspace projects
+✓ Lockfile passes supply-chain policies (verified 25m ago)
+Lockfile is up to date, resolution step is skipped
+Already up to date
+
+Done in 161ms using pnpm v11.13.0
+$ node --test test/*.test.ts
+✔ interrupted use releases setup before its caller settles and cannot reactivate (1.77775ms)
+✔ each evaluation of one use program has its own registration (0.458459ms)
+✔ rapid provider churn keeps activations balanced (2.419166ms)
+✔ synchronous root finalizers do not lose notify transitions (3.157875ms)
+✔ a component activates when its dependencies appear (2.627791ms)
+✔ withdrawing a provider tears down dependents first (0.806375ms)
+✔ hot swap: a replacement provider reactivates dependents on the new value (1.077167ms)
+✔ a root binding counts as a provider (0.481208ms)
+✔ a component whose setup throws is inactive with the error, and others keep working (0.450417ms)
+✔ dispose unloads in reverse order (0.242833ms)
+✔ a dependency chain stops and starts in dependency order (0.697334ms)
+✔ a diamond dependent changes state once for each missing edge (0.370709ms)
+✔ a component waits until all injected tags are present (0.236166ms)
+✔ a target flip during setup releases partial resources (0.223583ms)
+✔ failed setup releases resources, preserves peers, and retries after a target flip (0.3645ms)
+✔ use waits for setup to land (0.290666ms)
+✔ a root binding is withdrawn when its resource scope ends (0.121084ms)
+✔ dispose waits for an in-flight setup and leaves no resources (0.164042ms)
+✔ remove is idempotent and does not orphan another component (0.121791ms)
+✔ interrupting a registry program releases components in reverse order (0.224458ms)
+✔ two registries do not share bindings (0.172375ms)
+✔ a duplicate provider fails its setup and leaves the first binding alone (0.551917ms)
+✔ a binding becomes visible only when its provider lands (0.269417ms)
+ℹ tests 23
+ℹ suites 0
+ℹ pass 23
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 141.690541
+$ tsc -p tsconfig.json

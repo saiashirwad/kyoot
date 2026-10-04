@@ -1,0 +1,54 @@
+✖ interrupted use releases setup before its caller settles and cannot reactivate (1.745291ms)
+✖ each evaluation of one use program has its own registration (0.317083ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 0
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 115.469875
+
+✖ failing tests:
+
+test at packages/registry/test/cancellation.test.ts:7:1
+✖ interrupted use releases setup before its caller settles and cannot reactivate (1.745291ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+      'partial up',
+  -   'partial down'
+    ]
+  
+      at TestContext.<anonymous> (file:///Users/texoport/code/kyoot-cleanup/packages/registry/test/cancellation.test.ts:30:12)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'partial up', 'partial down' ],
+    expected: [ 'partial up', 'partial down' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at packages/registry/test/cancellation.test.ts:48:1
+✖ each evaluation of one use program has its own registration (0.317083ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+      'instance up',
+  -   'instance up'
+    ]
+  
+      at TestContext.<anonymous> (file:///Users/texoport/code/kyoot-cleanup/packages/registry/test/cancellation.test.ts:55:12)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'instance up', 'instance down' ],
+    expected: [ 'instance up', 'instance up' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }

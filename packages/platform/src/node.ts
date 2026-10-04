@@ -5,9 +5,9 @@ import type { Kyoot as K, Row } from "kyoot";
 import * as Command from "./command.ts";
 import * as FileSystem from "./fs.ts";
 
-const attempt = <A, E>(f: () => Promise<A>, onError: (e: unknown) => E) =>
-  Async.fromPromise(() =>
-    f().then(
+const attempt = <A, E>(f: (signal: AbortSignal) => Promise<A>, onError: (e: unknown) => E) =>
+  Async.fromPromise((signal) =>
+    f(signal).then(
       (value) => ({ ok: true as const, value }),
       (e: unknown) => ({ ok: false as const, error: onError(e) }),
     ),
@@ -74,12 +74,16 @@ export const fs = FileSystem.handle({
     ).flatMap((r) => (r.ok ? resume(r.value) : resume.with(Fail.fail(r.error)))),
 });
 
-const exec = (op: Command.Op) =>
+const exec = (op: Command.Op, signal: AbortSignal) =>
   new Promise<Command.Output>((resolve, reject) => {
+    const maxBuffer = op.maxBuffer ?? 1024 * 1024;
+    if (!Number.isSafeInteger(maxBuffer) || maxBuffer < 0) {
+      throw new RangeError("maxBuffer must be a nonnegative safe integer number of bytes");
+    }
     const child = execFile(
       op.command,
       op.args,
-      { cwd: op.cwd, env: op.env && { ...process.env, ...op.env } },
+      { cwd: op.cwd, env: op.env && { ...process.env, ...op.env }, maxBuffer, signal },
       (err, stdout, stderr) => {
         const code = err === null ? 0 : err.code;
         if (typeof code === "number") resolve({ code, stdout, stderr });
@@ -92,8 +96,8 @@ const exec = (op: Command.Op) =>
 export const command = Command.handle({
   onOp: (op, resume) =>
     attempt(
-      () => exec(op),
-      (e) => new Command.CommandError(op.command, (e as Error).message),
+      (signal) => exec(op, signal),
+      (e) => new Command.CommandError(op.command, e instanceof Error ? e.message : String(e)),
     ).flatMap((r) => (r.ok ? resume(r.value) : resume.with(Fail.fail(r.error)))),
 });
 

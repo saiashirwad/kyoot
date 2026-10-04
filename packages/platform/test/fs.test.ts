@@ -172,3 +172,36 @@ for (const [sourceType, destinationType] of [
     }
   });
 }
+
+test("memory: directory rename replaces an empty destination and preserves the moved subtree", () => {
+  const program = Kyoot.gen(function* () {
+    yield* FileSystem.mkdir("/destination");
+    yield* FileSystem.rename("/source", "/destination");
+    const oldSource = yield* FileSystem.exists("/source");
+    const children = yield* FileSystem.readDir("/destination/sub");
+    return { oldSource, children };
+  });
+  const [result, files] = Kyoot.runSync(
+    program.pipe(Memory.fs({ "/source/sub/x": "moved" }), Fail.orThrow),
+  );
+  assert.deepEqual(result, { oldSource: false, children: ["x"] });
+  assert.deepEqual(files, { "/destination/sub/x": "moved" });
+});
+
+test("memory: sibling names with a shared prefix are not descendants", () => {
+  const [result, files] = Kyoot.runSync(
+    FileSystem.rename("/d", "/d2").pipe(Memory.fs({ "/d/x": "moved" }), Fail.orThrow),
+  );
+  assert.equal(result, undefined);
+  assert.deepEqual(files, { "/d2/x": "moved" });
+});
+
+test("memory: file rename replaces an existing file", () => {
+  const [, files] = Kyoot.runSync(
+    FileSystem.rename("/source", "/destination").pipe(
+      Memory.fs({ "/source": "new", "/destination": "old" }),
+      Fail.orThrow,
+    ),
+  );
+  assert.deepEqual(files, { "/destination": "new" });
+});

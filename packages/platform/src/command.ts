@@ -4,6 +4,7 @@ export interface Options {
   readonly cwd?: string;
   readonly env?: Record<string, string>;
   readonly stdin?: string;
+  readonly maxBuffer?: number;
 }
 
 export interface Op extends Options {

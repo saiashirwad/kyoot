@@ -61,7 +61,7 @@ for (const stream of ["stdout", "stderr"] as const) {
   });
 
   test(`command: ${stream} respects a smaller byte bound`, async () => {
-    const options = { env: {}, maxBuffer: 64 };
+    const options = { maxBuffer: 64 };
     const result = await Kyoot.runPromise(
       node(`process.${stream}.write('é'.repeat(33))`, options).pipe(Fail.run),
     );
@@ -71,7 +71,7 @@ for (const stream of ["stdout", "stderr"] as const) {
   });
 
   test(`command: ${stream} accepts larger output with a larger bounded allowance`, async () => {
-    const options = { env: {}, maxBuffer: 2 * 1024 * 1024 };
+    const options = { maxBuffer: 2 * 1024 * 1024 };
     const output = await Kyoot.runPromise(
       node(`process.${stream}.write('x'.repeat(1024 * 1024 + 1))`, options).pipe(Fail.orThrow),
     );
@@ -79,6 +79,46 @@ for (const stream of ["stdout", "stderr"] as const) {
     assert.equal(output[stream], "x".repeat(1024 * 1024 + 1));
   });
 }
+
+test("command: each stream can fill its default allowance independently", async () => {
+  const output = await Kyoot.runPromise(
+    node(`
+      process.stdout.write('x'.repeat(1024 * 1024));
+      process.stderr.write('y'.repeat(1024 * 1024));
+    `).pipe(Fail.orThrow),
+  );
+  assert.deepEqual(output, {
+    code: 0,
+    stdout: "x".repeat(1024 * 1024),
+    stderr: "y".repeat(1024 * 1024),
+  });
+});
+
+test("command: an exact custom UTF-8 byte allowance succeeds", async () => {
+  const output = await Kyoot.runPromise(
+    node("process.stdout.write('é'.repeat(32))", { maxBuffer: 64 }).pipe(Fail.orThrow),
+  );
+  assert.equal(output.stdout, "é".repeat(32));
+});
+
+test("command: zero allowance accepts only empty output", async () => {
+  const empty = await Kyoot.runPromise(node("", { maxBuffer: 0 }).pipe(Fail.orThrow));
+  assert.deepEqual(empty, { code: 0, stdout: "", stderr: "" });
+  const nonempty = await Kyoot.runPromise(
+    node("process.stdout.write('x')", { maxBuffer: 0 }).pipe(Fail.run),
+  );
+  assert.ok(!nonempty.ok && nonempty.cause._tag === "Fail");
+  assert.match(nonempty.cause.error.message, /stdout maxBuffer/);
+});
+
+test("command: output allowances must be bounded integer byte counts", async () => {
+  for (const maxBuffer of [Infinity, NaN, -1, 0.5, Number.MAX_SAFE_INTEGER + 1]) {
+    const result = await Kyoot.runPromise(node("", { maxBuffer }).pipe(Fail.run));
+    assert.ok(!result.ok && result.cause._tag === "Fail");
+    assert.ok(result.cause.error instanceof Command.CommandError);
+    assert.match(result.cause.error.message, /maxBuffer must be a nonnegative safe integer/);
+  }
+});
 
 test("command: exit code and output", async () => {
   const out = await Kyoot.runPromise(

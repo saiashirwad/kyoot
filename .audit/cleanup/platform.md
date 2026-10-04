@@ -10,10 +10,11 @@ throughput checkpoint: three findings, one platform owner, retained real-process
 - [x] Reproduce each defect before changing implementation.
 - [x] Sketch two output-policy alternatives before changing the API.
 - [x] Agree on a signature. The coordinator accepted a 1 MiB per-stream default.
-- [ ] Implement the selected contracts.
-- [ ] Verify the retained regressions, package checks, formatting, and diff.
-- [ ] Apply deslop and commit only owned files.
-- [ ] Scrap the design if evidence contradicts it. No contradiction observed yet.
+- [x] Implement the selected contracts.
+- [x] Verify the retained regressions and package typecheck.
+- [x] Verify formatting, lint, and diff.
+- [x] Apply deslop and commit only owned files.
+- [x] Scrap the design if evidence contradicts it. Skip because implementation matched the selected contract.
 
 ## Grounding
 
@@ -62,7 +63,7 @@ Consumers drain both streams, impose their own retention policies, and own cance
 
 ### Selection
 
-Select Candidate A. It hides process buffering and cancellation behind the existing operation, adds one ordinary caller option, and avoids two public ways to execute a process. The explicit default is 1,048,576 bytes for each stream. This preserves the existing default behavior while making larger bounded output supported and documented. Maintainers can review the policy without consulting Node's undocumented inherited default in this adapter. Streaming remains a separate future API decision.
+Select Candidate A. It hides process buffering and cancellation behind the existing operation, adds one ordinary caller option, and avoids two public ways to execute a process. The explicit default is 1,048,576 bytes for each stream. This preserves the existing default behavior while making larger bounded output supported and documented. Maintainers can review the policy directly in the adapter. Streaming remains a separate future API decision.
 
 The organizing data shape remains `Command.Op extends Command.Options` with a single allowance. Cancellation remains the runtime's `AbortSignal`, rather than a new option or mutable cancellation flag. These choices follow Model the Domain and Type System Discipline. The retained tests follow Test Behavior, Not Implementation by observing a real child's delayed write and comparing rename refusals to a real directory.
 
@@ -117,4 +118,29 @@ An initial test draft incorrectly called `Kyoot.runFiber`; the repository export
 
 ## Green evidence
 
-Pending implementation and package validation.
+The original 27-test regression suite passed after the fixes. Additional contract checks cover exact default allowances on both streams at once, an exact UTF-8 custom allowance, zero allowance, invalid unbounded allowances, and successful rename neighbors.
+
+Run `pnpm -F @kyoot/platform test` on the completed implementation.
+
+```text
+command: interrupt stops a ready child before its delayed side effect
+command: stdout respects a smaller byte bound
+command: stdout accepts larger output with a larger bounded allowance
+command: stderr respects a smaller byte bound
+command: stderr accepts larger output with a larger bounded allowance
+rename refuses a directory descendant /d/sub/moved without changing the tree
+rename refuses a directory descendant /d/sub/../sub/moved without changing the tree
+tests 34
+pass 34
+fail 0
+```
+
+Run `pnpm -F @kyoot/platform typecheck`. It exited zero with `$ tsc -p tsconfig.json`.
+
+The descendant-refusal tests compare Node and memory error codes and then verify the original file snapshot and directory listings. The narrow rename tests also compare Node refusals for destination type conflicts. Successful neighbor cases cover directory replacement of an empty destination, file replacement, a shared sibling prefix, and normalized self-renames.
+
+The implementation forwards the runtime signal through `attempt` and `exec` into `execFile`. It supplies the explicit default or caller allowance and validates the numeric boundary before starting the child. Memory rename completes all refusal checks before mutation. No persistence or process-restart behavior was added.
+
+`pnpm exec oxfmt --check packages/platform .audit/cleanup/platform.md` exited zero and reported `All matched files use the correct format`. `pnpm exec oxlint packages/platform` exited zero. `git diff --check` exited zero. Package tests and typecheck passed before this formatting pass, which changed no TypeScript behavior.
+
+Deslop review kept the existing handler structure and removed the temporary empty environment objects used to compile the regression before the new option existed. No application comments, casts, or new abstraction layers were added. Independent review belongs to the coordinator's integrated pass. The coordinator's no-children instruction prevents a local no-comments subagent, and the scoped diff adds no comments or suppression directives.

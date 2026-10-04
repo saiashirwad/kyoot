@@ -1,0 +1,24 @@
+$ pnpm -r typecheck
+Scope: 5 of 6 workspace projects
+packages/kyoot typecheck$ tsc -p tsconfig.json
+packages/kyoot typecheck: Done
+packages/ai typecheck$ tsc -p tsconfig.json
+packages/platform typecheck$ tsc -p tsconfig.json
+packages/bench typecheck$ tsc -p tsconfig.json
+packages/registry typecheck$ tsc -p tsconfig.json
+packages/registry typecheck: Done
+packages/ai typecheck: Done
+packages/platform typecheck: examples/loc.ts(16,40): error TS2345: Argument of type '<A, S extends Row & Partial<FileSystem.FileSystemRow> & { command?: Requirement<Command.Op, Command.Output>; }>(k: K<A, S>) => Kyoot<A, MergeAll<Omit<MergeAll<Omit<S, "fs"> | { ...; } | {}>, "command"> | { ...; } | {}>>' is not assignable to parameter of type '(a: Kyoot<Record<string, number>, { command: Requirement<Op, Output, Op, { fail: Requirement<CommandError, never, CommandError, {}>; }>; fail: Requirement<...> | Requirement<...>; fs: DependentRequirement<...>; }>) => Kyoot<...>'.
+packages/platform typecheck:   Types of parameters 'k' and 'a' are incompatible.
+packages/platform typecheck:     Type 'Kyoot<Record<string, number>, { command: Requirement<Op, Output, Op, { fail: Requirement<CommandError, never, CommandError, {}>; }>; fail: Requirement<...> | Requirement<...>; fs: DependentRequirement<...>; }>' is not assignable to type 'Kyoot<Record<string, number>, Row & Partial<FileSystemRow> & { command?: Requirement<Op, Output, Op, {}> | undefined; }>'.
+packages/platform typecheck:       Types of property '_' are incompatible.
+packages/platform typecheck:         Type '((s: { command: (value: Requirement<Op, Output, Op, { fail: Requirement<CommandError, never, CommandError, {}>; }>) => Requirement<...>; fail: (value: Requirement<...> | Requirement<...>) => Requirement<...> | Requirement<...>; fs: (value: DependentRequirement<...>) => DependentRequirement<...>; }) => void) | undefi...' is not assignable to type '((s: { [x: string]: (value: unknown) => unknown; fs?: ((value: DependentRequirement<Op, unknown, unique symbol> | undefined) => DependentRequirement<Op, unknown, unique symbol> | undefined) | undefined; command?: ((value: Requirement<...> | undefined) => Requirement<...> | undefined) | undefined; }) => void) | undef...'.
+packages/platform typecheck:           Type '(s: { command: (value: Requirement<Op, Output, Op, { fail: Requirement<CommandError, never, CommandError, {}>; }>) => Requirement<...>; fail: (value: Requirement<...> | Requirement<...>) => Requirement<...> | Requirement<...>; fs: (value: DependentRequirement<...>) => DependentRequirement<...>; }) => void' is not assignable to type '(s: { [x: string]: (value: unknown) => unknown; fs?: ((value: DependentRequirement<Op, unknown, unique symbol> | undefined) => DependentRequirement<Op, unknown, unique symbol> | undefined) | undefined; command?: ((value: Requirement<...> | undefined) => Requirement<...> | undefined) | undefined; }) => void'.
+packages/platform typecheck:             Types of parameters 's' and 's' are incompatible.
+packages/platform typecheck:               Property 'fail' is missing in type '{ [x: string]: (value: unknown) => unknown; fs?: ((value: DependentRequirement<Op, unknown, unique symbol> | undefined) => DependentRequirement<Op, unknown, unique symbol> | undefined) | undefined; command?: ((value: Requirement<...> | undefined) => Requirement<...> | undefined) | undefined; }' but required in type '{ command: (value: Requirement<Op, Output, Op, { fail: Requirement<CommandError, never, CommandError, {}>; }>) => Requirement<...>; fail: (value: Requirement<...> | Requirement<...>) => Requirement<...> | Requirement<...>; fs: (value: DependentRequirement<...>) => DependentRequirement<...>; }'.
+packages/platform typecheck: Failed
+/Users/texoport/code/kyoot-continuation-contract/packages/platform:
+[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] @kyoot/platform@0.1.0 typecheck: `tsc -p tsconfig.json`
+Exit status 1
+packages/bench typecheck: Done
+[ELIFECYCLE] Command failed with exit code 1.

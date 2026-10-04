@@ -87,7 +87,8 @@ export const op =
   <const K extends string, P>(key: K, payload: P): Kyoot<A, { [k in K]: P }> =>
     makeOp(key, payload) as Kyoot<A, { [k in K]: P }>;
 
-export const fail = <E>(e: E) => op<never>()("fail", e);
+export const fail = <E>(e: E): Kyoot<never, { fail: Requirement<E, never> }> =>
+  new KyootImpl("op", "fail", e);
 
 export interface Resume<A, St, C extends Row = Row> {
   (value: A, state?: St): Kyoot<never, {}>;
@@ -97,11 +98,55 @@ export interface Resume<A, St, C extends Row = Row> {
   ): Kyoot<never, {}>;
 }
 
-type Performed<K extends string, V, A, C extends Row> = Kyoot<A, Simplify<{ [k in K]: V } & C>>;
+declare const requirement: unique symbol;
+
+interface RequirementShape<P, A, V, C extends Row, Keys extends PropertyKey> {
+  readonly [requirement]: {
+    readonly kind: "fixed";
+    readonly payload: (value: P) => P;
+    readonly value: (value: V) => V;
+    readonly answer: (value: A) => A;
+    readonly continuation: (row: C) => C;
+    readonly continuationKeys: (key: Keys) => Keys;
+  };
+}
+
+export type Requirement<P, A, V = P, C extends Row = {}> = RequirementShape<P, A, V, C, keyof C>;
+
+export interface DependentRequirement<P, V, Family extends symbol> {
+  readonly [requirement]: {
+    readonly kind: "dependent";
+    readonly family: Family;
+    readonly payload: (value: P) => P;
+    readonly value: (value: V) => V;
+  };
+}
+
+type IsUnion<T, Whole = T> = T extends Whole ? ([Whole] extends [T] ? false : true) : never;
+export type SingletonKey<K extends PropertyKey> = [K] extends [never]
+  ? never
+  : true extends IsUnion<K>
+    ? never
+    : {} extends Record<K, unknown>
+      ? never
+      : K;
+
+export type KeyArgument<K extends PropertyKey> = [K] extends [never]
+  ? never
+  : [key: K & SingletonKey<K>];
+
+export type EffectRow<K extends string, P, A, C extends Row = {}, V = P> = {
+  [Q in K]: Requirement<P, A, V, C>;
+};
+
+type Performed<K extends string, V, A, C extends Row> = Kyoot<
+  A,
+  Simplify<{ [k in K]: V } & MergeAll<Required<C>>>
+>;
 
 export interface Cell<St> {
   readonly create: () => St;
-  readonly fork?: ForkMode;
+  readonly fork?: ForkMode<St>;
 }
 
 type Interceptor<K extends string, P, V, A, C extends Row, St, Ret> = (
@@ -132,7 +177,7 @@ export const makeIntercept = <K extends string, P, A, C extends Row = {}, V = P>
     key === "fail"
       ? (k: AnyKyoot) => k
       : (k: AnyKyoot, resume: RuntimeResume): AnyKyoot =>
-          makeHandler("fail", k, {
+          unsafeMakeHandler("fail", k, {
             onOp: (e) => resume.with(fail(e)),
             onSuccess: (a) => resume(a),
           });
@@ -145,7 +190,7 @@ export const makeIntercept = <K extends string, P, A, C extends Row = {}, V = P>
         resume,
       );
     return (k: AnyKyoot) =>
-      makeHandler(key, k, { create: cell?.create, fork: cell?.fork, onOp: onOp as never });
+      unsafeMakeHandler(key, k, { create: cell?.create, fork: cell?.fork, onOp: onOp as never });
   };
 };
 
@@ -160,7 +205,7 @@ export interface Hooks<
 > {
   initial?: St;
   create?: () => St;
-  fork?: ForkMode;
+  fork?: ForkMode<St>;
   onOp: (payload: P, resume: Resume<A, St, C>, state: St) => ROp;
   onDefect?: (d: unknown, state: St) => RDefect;
   onInterrupt?: (state: St) => RInterrupt;
@@ -170,8 +215,12 @@ type Nothing = Kyoot<never, {}>;
 
 export const effect =
   <P, A, C extends Row = {}, V = P>() =>
-  <const K extends string>(key: K) => {
-    const perform = (payload: P) => makeOp(key, payload) as Performed<K, V, A, C>;
+  <const K extends string>(
+    ...[checkedKey]: KeyArgument<K> & [key: K extends keyof MergeAll<C> ? never : K]
+  ) => {
+    const key: K = checkedKey;
+    const perform = (payload: P) =>
+      makeOp(key, payload) as Performed<K, Requirement<P, A, V, C>, A, C>;
     const handle =
       <
         St = undefined,
@@ -181,21 +230,63 @@ export const effect =
       >(
         hooks: Hooks<P, A, St, C, ROp, RDefect, RInterrupt>,
       ) =>
-      <B, S extends Row & { [k in K]?: V }>(k: Kyoot<B, S>) =>
-        makeHandler(key, k, hooks);
-    return Object.assign(perform, { key, handle, intercept: makeIntercept<K, P, A, C, V>(key) });
+      <B, S extends Row & { [k in K]?: Requirement<P, A, V, C> }>(k: Kyoot<B, S>) =>
+        unsafeMakeHandler(key, k, hooks);
+    const handler = <
+      B,
+      S extends Row & { [Q in K]?: Requirement<P, A, V, C> },
+      St = undefined,
+      ROp extends AnyKyoot = Nothing,
+      RSuccess extends AnyKyoot = Kyoot<B, {}>,
+      RDefect extends AnyKyoot = Nothing,
+      RInterrupt extends void | AnyKyoot = void,
+    >(
+      k: Kyoot<B, S>,
+      hooks: Hooks<P, A, St, C, ROp, RDefect, RInterrupt> & {
+        onSuccess?: (a: B, state: St) => RSuccess;
+      },
+    ) => unsafeMakeHandler(key, k, hooks);
+    return Object.assign(perform, {
+      key,
+      handle,
+      handler,
+      intercept: makeIntercept<K, P, A, C, Requirement<P, A, V, C>>(key),
+    });
   };
 
-export type Payload<S, K extends PropertyKey> = K extends keyof S
-  ? Exclude<S[K], undefined>
-  : never;
+type PayloadOf<T> = T extends {
+  readonly [requirement]: { readonly payload: (value: infer P) => unknown };
+}
+  ? P
+  : T;
+type FixedRequirement = { readonly [requirement]: { readonly kind: "fixed" } };
 
-export function makeHandler<
+type AnswerOf<T> = [T] extends [never]
+  ? never
+  : [T] extends [FixedRequirement]
+    ? (
+        T extends {
+          readonly [requirement]: {
+            readonly kind: "fixed";
+            readonly answer: (value: infer A) => unknown;
+          };
+        }
+          ? (answer: A) => void
+          : never
+      ) extends (answer: infer A) => void
+      ? A
+      : never
+    : never;
+
+export type Payload<S, K extends PropertyKey> = K extends keyof S ? PayloadOf<S[K]> : never;
+export type Answer<S, K extends PropertyKey> = K extends keyof S ? AnswerOf<S[K]> : never;
+
+export function unsafeMakeHandler<
   K extends PropertyKey,
   A,
   S extends Row,
   St = undefined,
-  P = Payload<S, K>,
+  P = K extends keyof S ? Exclude<S[K], undefined> : never,
   C extends Row = Row,
   ROp extends AnyKyoot = Nothing,
   RSuccess extends AnyKyoot = Kyoot<A, {}>,
@@ -214,6 +305,41 @@ export function makeHandler<
   return new KyootImpl("handler", self, effectKey, hooks as unknown as HandlerHooks) as never;
 }
 
+export function makeHandler<
+  K extends PropertyKey,
+  A,
+  S extends Row,
+  St = undefined,
+  ROp extends AnyKyoot = Nothing,
+  RSuccess extends AnyKyoot = Kyoot<A, {}>,
+  RDefect extends AnyKyoot = Nothing,
+  RInterrupt extends void | AnyKyoot = void,
+>(
+  effectKey: K & SingletonKey<K>,
+  self: Kyoot<A, S> &
+    (K extends keyof S ? ([S[K]] extends [FixedRequirement] ? unknown : never) : never),
+  hooks: Hooks<
+    Payload<NoInfer<S>, NoInfer<K>>,
+    Answer<NoInfer<S>, NoInfer<K>>,
+    St,
+    {},
+    ROp,
+    RDefect,
+    RInterrupt
+  > & {
+    onSuccess?: (a: A, state: St) => RSuccess;
+  },
+): Kyoot<
+  ValueOf<RSuccess> | ValueOf<ROp> | ValueOf<RDefect>,
+  MergeAll<Omit<S, K> | RowOf<ROp> | RowOf<RSuccess> | RowOf<RDefect> | RowOf<RInterrupt>>
+> {
+  return unsafeMakeHandler<K, A, S, St, Payload<S, K>, {}, ROp, RSuccess, RDefect, RInterrupt>(
+    effectKey,
+    self,
+    hooks,
+  );
+}
+
 export class InterruptedError extends Error {
   readonly _tag = "InterruptedError";
   constructor(message = "fiber interrupted") {
@@ -225,8 +351,12 @@ export class InterruptedError extends Error {
 export const inherit = (k: AnyKyoot, snapshots: readonly Snapshot[] = []): AnyKyoot => {
   for (const { node, state } of snapshots) {
     const hooks = node.c;
-    const copied: HandlerHooks = { initial: state, fork: hooks.fork, onOp: hooks.onOp };
-    k = makeHandler(node.b, k, (hooks.fork === "scope" ? hooks : copied) as never);
+    const copied: HandlerHooks = {
+      initial: typeof hooks.fork === "function" ? hooks.fork(state) : state,
+      fork: hooks.fork,
+      onOp: hooks.onOp,
+    };
+    k = unsafeMakeHandler(node.b, k, (hooks.fork === "scope" ? hooks : copied) as never);
   }
   return k;
 };

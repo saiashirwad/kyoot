@@ -29,6 +29,34 @@ const expected = {
   removed: true,
 };
 
+test("unsafeHandler preserves operation state and completion mapping", () => {
+  const program = Kyoot.gen(function* () {
+    const first = yield* FileSystem.readFile("/first");
+    const second = yield* FileSystem.readFile("/second");
+    return `${first} ${second}`;
+  });
+  const result = FileSystem.unsafeHandler(program, {
+    initial: 0,
+    onOp: (op, resume, count) => resume(op.path.slice(1), count + 1),
+    onSuccess: (text, count) => Kyoot.succeed({ text, count }),
+  });
+  assert.deepEqual(Kyoot.runSync(result.pipe(Fail.orThrow)), {
+    text: "first second",
+    count: 2,
+  });
+});
+
+test("unsafeHandle delivers filesystem failures to the program's catch", () => {
+  const program = FileSystem.readFile("/missing").pipe(
+    Fail.catchTag("FsError", (error: FileSystem.FsError) => Kyoot.succeed(error.code)),
+  );
+  const fail = FileSystem.unsafeHandle({
+    onOp: (op, resume) =>
+      resume.with(Fail.fail(new FileSystem.FsError(op.kind, op.path, "NotFound", "missing"))),
+  });
+  assert.equal(Kyoot.runSync(program.pipe(fail)), "NotFound");
+});
+
 test("the same program runs against the in-memory file system", () => {
   const [result, files] = Kyoot.runSync(scenario("/tmp").pipe(Memory.fs(), Fail.orThrow));
   assert.deepEqual(result, expected);
@@ -48,7 +76,14 @@ test("and against the real one", async () => {
 
 const seed = { "/d/inner.txt": "1", "/f.txt": "x" };
 
-const code = (k: Kyoot<unknown, { fs: FileSystem.Op; fail: FileSystem.FsError }>) => {
+const code = (
+  k: Kyoot<
+    unknown,
+    FileSystem.FileSystemRow & {
+      fail: import("kyoot").Requirement<FileSystem.FsError, never>;
+    }
+  >,
+) => {
   const r = Kyoot.runSync(k.pipe(Memory.fs(seed), Fail.run));
   return r.ok ? "ok" : r.cause._tag === "Fail" ? r.cause.error.code : "defect";
 };

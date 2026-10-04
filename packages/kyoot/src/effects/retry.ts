@@ -1,4 +1,4 @@
-import { gen } from "../core.ts";
+import { type Requirement, gen } from "../core.ts";
 import type { Kyoot } from "../model.ts";
 import type { Row } from "../types.ts";
 import * as Clock from "./clock.ts";
@@ -15,7 +15,7 @@ const delayOf = ({ delay = 0 }: Policy, attempt: number) =>
 
 export const run =
   (policy: Policy) =>
-  <A, S extends Row & { fail?: unknown }>(k: Kyoot<A, S>) => {
+  <A, S extends Row & { fail?: Requirement<any, never> }>(k: Kyoot<A, S>) => {
     const attempt = Fail.run(k);
     return gen(function* () {
       for (let tries = 0; ; tries++) {

@@ -1,12 +1,23 @@
-import { gen, isKyoot, makeHandler, makeIntercept, op, succeed } from "../core.ts";
+import {
+  gen,
+  isKyoot,
+  unsafeMakeHandler,
+  makeIntercept,
+  makeOp,
+  type Requirement,
+  type Payload,
+  succeed,
+} from "../core.ts";
 import type { Kyoot, RowOf } from "../model.ts";
-import { runFiber, type Served } from "../runtime.ts";
+import { runFiber, type Served, type ServedRow } from "../runtime.ts";
 import type { MergeAll, Only, Row } from "../types.ts";
 import * as Async from "./async.ts";
 
-export const value = <E>(e: E) => op<void>()("emit", e);
+export const value = <E>(e: E): Kyoot<void, { emit: Requirement<E, void> }> =>
+  makeOp("emit", e) as Kyoot<void, { emit: Requirement<E, void> }>;
 
-export const intercept = <E = unknown>() => makeIntercept<"emit", E, void>("emit");
+export const intercept = <E = unknown>() =>
+  makeIntercept<"emit", E, void, {}, Requirement<E, void>>("emit");
 
 export const fromIterable = <E>(items: Iterable<E>) =>
   gen(function* () {
@@ -31,10 +42,10 @@ export const fromAsyncIterable = <E>(items: AsyncIterable<E>) =>
     }
   });
 
-export const collect = <A, S extends Row & { emit?: unknown }>(k: Kyoot<A, S>) =>
-  makeHandler("emit", k, {
-    create: () => [] as Array<S["emit"]>,
-    onOp: (e, resume, acc) => {
+export const collect = <A, S extends Row & { emit?: Requirement<any, void> }>(k: Kyoot<A, S>) =>
+  unsafeMakeHandler("emit", k, {
+    create: () => [] as Array<Payload<S, "emit">>,
+    onOp: (e: Payload<S, "emit">, resume, acc) => {
       acc.push(e);
       return resume(undefined);
     },
@@ -43,12 +54,12 @@ export const collect = <A, S extends Row & { emit?: unknown }>(k: Kyoot<A, S>) =
 
 export const forEach =
   <E, R>(f: (e: E) => R) =>
-  <A, S extends Row & { emit?: E }>(
-    k: Kyoot<A, S>,
+  <A, S extends Row & { emit?: Requirement<any, void> }>(
+    k: Kyoot<A, S> & ([Payload<S, "emit">] extends [E] ? unknown : never),
   ): Kyoot<A, MergeAll<Omit<S, "emit"> | RowOf<R>>> =>
-    makeHandler("emit", k, {
-      onOp: (e, resume) => {
-        const r = f(e as E);
+    unsafeMakeHandler("emit", k, {
+      onOp: (e: E, resume) => {
+        const r = f(e);
         return isKyoot(r) ? r.flatMap(() => resume(undefined)) : resume(undefined);
       },
     }) as never;
@@ -57,13 +68,15 @@ export const map = <E, E2>(f: (e: E) => E2) => forEach((e: E) => value(f(e)));
 
 export const discard = forEach(() => {});
 
-export const toAsyncIterable = <S extends Row & { emit?: unknown }>(
+export const toAsyncIterable = <
+  S extends Row & Partial<ServedRow> & { emit?: Requirement<any, void> },
+>(
   k: Kyoot<unknown, S> & Only<S, "emit" | Served>,
   options: { readonly buffer?: number } = {},
-): AsyncIterable<S["emit"]> => ({
+): AsyncIterable<Payload<S, "emit">> => ({
   [Symbol.asyncIterator]() {
     const capacity = Math.max(1, options.buffer ?? 16);
-    const buffer: S["emit"][] = [];
+    const buffer: Payload<S, "emit">[] = [];
     let finished = false;
     let failed = false;
     let failure: unknown;
@@ -71,7 +84,7 @@ export const toAsyncIterable = <S extends Row & { emit?: unknown }>(
     let drain = () => {};
     const fiber = runFiber(
       k.pipe(
-        forEach((e) => {
+        forEach((e: Payload<S, "emit">) => {
           buffer.push(e);
           if (buffer.length < capacity) {
             wake();

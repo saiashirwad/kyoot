@@ -3,9 +3,27 @@ import type { Kyoot as KyootType } from "./model.ts";
 import { runPromise, runSync } from "./runtime.ts";
 import type { Row } from "./types.ts";
 
-export { effect, inherit, InterruptedError, makeHandler, makeIntercept, op } from "./core.ts";
+export {
+  effect,
+  inherit,
+  InterruptedError,
+  makeHandler,
+  unsafeMakeHandler,
+  makeIntercept as unsafeMakeIntercept,
+  op as unsafeOp,
+} from "./core.ts";
 export { runFiber } from "./runtime.ts";
-export type { Cell, Intercept, Resume } from "./core.ts";
+export type {
+  Answer,
+  Cell,
+  DependentRequirement,
+  EffectRow,
+  Hooks,
+  Intercept,
+  Payload,
+  Requirement,
+  Resume,
+} from "./core.ts";
 export type { AsyncOp, AsyncRuntime, FiberHandle } from "./runtime.ts";
 export type { Pipeable } from "./pipe.ts";
 export { Result } from "./result.ts";

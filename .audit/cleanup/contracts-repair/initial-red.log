@@ -1,0 +1,28 @@
+Scope: all 6 workspace projects
+✓ Lockfile passes supply-chain policies (verified 40m ago)
+Lockfile is up to date, resolution step is skipped
+Already up to date
+
+Done in 159ms using pnpm v11.13.0
+$ tsc -p tsconfig.json
+test/contract-repair.test-d.ts(4,1): error TS2578: Unused '@ts-expect-error' directive.
+test/contract-repair.test-d.ts(9,1): error TS2578: Unused '@ts-expect-error' directive.
+test/contract-repair.test-d.ts(14,1): error TS2578: Unused '@ts-expect-error' directive.
+test/contract-repair.test-d.ts(16,1): error TS2578: Unused '@ts-expect-error' directive.
+test/contract-repair.test-d.ts(18,1): error TS2578: Unused '@ts-expect-error' directive.
+test/contract-repair.test-d.ts(20,1): error TS2578: Unused '@ts-expect-error' directive.
+test/contract-repair.test-d.ts(22,1): error TS2578: Unused '@ts-expect-error' directive.
+test/contract-repair.test-d.ts(24,1): error TS2578: Unused '@ts-expect-error' directive.
+test/contract-repair.test-d.ts(28,1): error TS2578: Unused '@ts-expect-error' directive.
+test/contract-repair.test-d.ts(30,1): error TS2578: Unused '@ts-expect-error' directive.
+test/contract-repair.test-d.ts(32,1): error TS2578: Unused '@ts-expect-error' directive.
+test/contract-repair.test-d.ts(34,1): error TS2578: Unused '@ts-expect-error' directive.
+test/contract-repair.test-d.ts(36,1): error TS2578: Unused '@ts-expect-error' directive.
+test/contract-repair.test-d.ts(38,1): error TS2578: Unused '@ts-expect-error' directive.
+test/contract-repair.test-d.ts(40,1): error TS2578: Unused '@ts-expect-error' directive.
+test/contract-repair.test-d.ts(42,1): error TS2578: Unused '@ts-expect-error' directive.
+test/contract-repair.test-d.ts(44,1): error TS2578: Unused '@ts-expect-error' directive.
+test/contract-repair.test-d.ts(46,1): error TS2578: Unused '@ts-expect-error' directive.
+/Users/texoport/code/kyoot-contracts-repair/packages/kyoot:
+[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] kyoot@0.1.0 typecheck: `tsc -p tsconfig.json`
+Exit status 1

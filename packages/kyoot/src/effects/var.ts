@@ -1,9 +1,19 @@
-import { effect, makeHandler, succeed, type Intercept } from "../core.ts";
+import {
+  makeOp,
+  makeIntercept,
+  unsafeMakeHandler,
+  succeed,
+  type DependentRequirement,
+  type KeyArgument,
+  type Intercept,
+} from "../core.ts";
 import type { Kyoot } from "../model.ts";
 import type { MergeAll, Row } from "../types.ts";
 
-type VarRow<Id extends string, V> = {
-  [K in `var/${Id}`]: V;
+declare const family: unique symbol;
+
+export type VarRow<Id extends string, V> = {
+  [K in `var/${Id}`]: DependentRequirement<VarOp<V>, V, typeof family>;
 };
 
 export type VarOp<V> =
@@ -15,7 +25,13 @@ export interface Tag<Id extends string, V> {
   get(): Kyoot<V, VarRow<Id, V>>;
   set(value: V): Kyoot<void, VarRow<Id, V>>;
   update(f: (value: V) => V): Kyoot<void, VarRow<Id, V>>;
-  readonly intercept: Intercept<`var/${Id}`, VarOp<V>, any, {}, V>;
+  readonly unsafeIntercept: Intercept<
+    `var/${Id}`,
+    VarOp<V>,
+    any,
+    {},
+    DependentRequirement<VarOp<V>, V, typeof family>
+  >;
   run(
     initial: V,
   ): <A, S extends Row & Partial<VarRow<Id, V>>>(
@@ -25,16 +41,19 @@ export interface Tag<Id extends string, V> {
 
 export const tag =
   <V>() =>
-  <const Id extends string>(id: Id): Tag<Id, V> => {
-    const v = effect<VarOp<V>, any, {}, V>()(`var/${id}` as const);
+  <const Id extends string>(...[id]: KeyArgument<Id>): Tag<Id, V> => {
+    const key: `var/${Id}` = `var/${id}`;
+    const v = (payload: VarOp<V>) => makeOp(key, payload) as Kyoot<any, VarRow<Id, V>>;
     const get = v({ kind: "get" });
     return {
       get: () => get,
       set: (value) => v({ kind: "set", value }),
       update: (f) => v({ kind: "update", f }),
-      intercept: v.intercept,
+      unsafeIntercept: makeIntercept<`var/${Id}`, VarOp<V>, any, {}, VarRow<Id, V>[`var/${Id}`]>(
+        key,
+      ),
       run: (initial) => (k) =>
-        makeHandler(v.key, k, {
+        unsafeMakeHandler(key, k, {
           initial,
           onOp: (op: VarOp<V>, resume, value) => {
             switch (op.kind) {

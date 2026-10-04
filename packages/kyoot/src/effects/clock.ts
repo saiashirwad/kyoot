@@ -1,4 +1,4 @@
-import { effect, makeHandler, succeed } from "../core.ts";
+import { effect, type Requirement, unsafeMakeHandler, succeed } from "../core.ts";
 import type { Kyoot } from "../model.ts";
 import type { Row } from "../types.ts";
 
@@ -10,9 +10,9 @@ export const handle = clock.handle;
 
 export const intercept = clock.intercept;
 
-export const virtual = <A, S extends Row & { clock?: number }>(k: Kyoot<A, S>) =>
-  makeHandler("clock", k, {
+export const virtual = <A, S extends Row & { clock?: Requirement<number, void> }>(k: Kyoot<A, S>) =>
+  unsafeMakeHandler("clock", k, {
     initial: 0,
-    onOp: (ms, resume, now) => resume(undefined, now + ms),
+    onOp: (ms: number, resume, now) => resume(undefined, now + ms),
     onSuccess: (a, now) => succeed([a, now] as const),
   });

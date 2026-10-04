@@ -1,23 +1,23 @@
 import {
-  effect,
+  makeIntercept,
   fail,
   inherit,
   InterruptedError,
-  makeHandler,
+  unsafeMakeHandler,
   makeOp,
   succeed,
   type Payload,
+  type DependentRequirement,
 } from "../core.ts";
 import { fromResult } from "./fail.ts";
 import { sleep } from "./clock.ts";
 import { Result } from "../result.ts";
-import type { AnyKyoot, Kyoot, Snapshot } from "../model.ts";
-import type { AsyncOp, AsyncRuntime, FiberHandle, Served } from "../runtime.ts";
+import type { AnyKyoot, Kyoot, Snapshot, ValueOf, RowOf } from "../model.ts";
+import type { AsyncOp, AsyncRuntime, FiberHandle, ServedKeys } from "../runtime.ts";
 import type { FailRow, MergeAll, Row } from "../types.ts";
 
-type AsyncRow = { async: AsyncOp };
-
-const asyncEffect = effect<AsyncOp, unknown>()("async");
+declare const family: unique symbol;
+export type AsyncRow = { async: DependentRequirement<AsyncOp, unknown, typeof family> };
 
 const asyncOp = <A>(execute: (rt: AsyncRuntime) => Promise<A>) =>
   makeOp("async", { execute } as AsyncOp) as Kyoot<A, AsyncRow>;
@@ -27,7 +27,9 @@ const NO_FRAMES: readonly Snapshot[] = [];
 const spawning = <A>(execute: (rt: AsyncRuntime) => Promise<A>) =>
   makeOp("async", { execute } as AsyncOp, NO_FRAMES) as Kyoot<A, AsyncRow>;
 
-export const intercept = asyncEffect.intercept;
+export const unsafeIntercept = makeIntercept<"async", AsyncOp, unknown, {}, AsyncRow["async"]>(
+  "async",
+);
 
 export const fromPromise = <A>(f: (signal: AbortSignal) => Promise<A>) =>
   asyncOp((rt) => f(rt.signal));
@@ -77,7 +79,7 @@ export const reducePromise = <A, B>(
 
 type FailOf<S> = Payload<S, "fail">;
 
-type Leftover<S extends Row> = Omit<S, Served | "fail">;
+type Leftover<S extends Row> = Omit<S, ServedKeys<S> | "fail">;
 
 export interface Fiber<A, E = never> {
   readonly join: Kyoot<A, MergeAll<AsyncRow | FailRow<E>>>;
@@ -94,13 +96,13 @@ const spawn = <A, E>(rt: AsyncRuntime, k: AnyKyoot): Spawned<A, E> => {
   let exit: Result<E, A> | undefined;
   const record = (r: Result<E, A>) => ((exit = r), succeed(undefined));
   const failed = (e: E) => record(Result.fail(e));
-  const inner = makeHandler("fail", k, {
+  const inner = unsafeMakeHandler("fail", k, {
     fork: "none",
     onOp: failed,
     onSuccess: (a: A) => record(Result.ok(a)),
   });
   const handlers = rt.handlers?.filter((h) => h.node.b !== "fail");
-  const outer = makeHandler("fail", inherit(inner, handlers), { fork: "none", onOp: failed });
+  const outer = unsafeMakeHandler("fail", inherit(inner, handlers), { fork: "none", onOp: failed });
   const h: FiberHandle = rt.spawn(outer);
   return {
     promise: h.promise.then(
@@ -146,24 +148,27 @@ export const race = <A, B, S1 extends Row, S2 extends Row>(
     return Promise.race(fibers.map((f) => f.promise)).finally(() => settle(fibers));
   }).flatMap(fromResult) as never;
 
-export const all = <A, S extends Row = {}>(
-  ks: ReadonlyArray<Kyoot<A, S>>,
+export const all = <K extends AnyKyoot>(
+  ks: ReadonlyArray<K>,
   options: { readonly concurrency?: number } = {},
-): Kyoot<A[], MergeAll<AsyncRow | Leftover<S> | FailRow<FailOf<S>>>> =>
-  spawning(async (rt): Promise<Result<unknown, A[]>> => {
+): Kyoot<
+  ValueOf<K>[],
+  MergeAll<AsyncRow | Leftover<MergeAll<RowOf<K>>> | FailRow<FailOf<MergeAll<RowOf<K>>>>>
+> =>
+  spawning(async (rt): Promise<Result<unknown, ValueOf<K>[]>> => {
     const concurrency = options.concurrency ?? ks.length;
     const workers = Math.min(
       ks.length,
       Math.max(1, Number.isNaN(concurrency) ? ks.length : Math.floor(concurrency)),
     );
-    const results: A[] = new Array(ks.length);
-    const fibers: Spawned<A, unknown>[] = [];
+    const results: ValueOf<K>[] = new Array(ks.length);
+    const fibers: Spawned<ValueOf<K>, unknown>[] = [];
     let next = 0;
-    let stopped: Result<unknown, A[]> | undefined;
+    let stopped: Result<unknown, ValueOf<K>[]> | undefined;
     const worker = async () => {
       while (stopped === undefined && next < ks.length) {
         const i = next++;
-        const f = spawn<A, unknown>(rt, ks[i]!);
+        const f = spawn<ValueOf<K>, unknown>(rt, ks[i]!);
         fibers.push(f);
         const r = await f.promise;
         if (r.ok) {

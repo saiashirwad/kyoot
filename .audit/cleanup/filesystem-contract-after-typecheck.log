@@ -1,0 +1,35 @@
+Scope: all 6 workspace projects
+✓ Lockfile passes supply-chain policies (verified 1h ago)
+Lockfile is up to date, resolution step is skipped
+Already up to date
+
+Done in 171ms using pnpm v11.13.0
+.audit/cleanup/filesystem-contract-repro.ts(8,3): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'Kyoot<string, Row> & Unhandled<string>'.
+  Type 'unknown' is not assignable to type 'Kyoot<string, Row>'.
+.audit/cleanup/filesystem-contract-repro.ts(8,13): error TS2345: Argument of type '<B, S extends Row & { [k in "fs"]?: Requirement<Op, unknown, Op>; }>(k: Kyoot<B, S>) => Kyoot<B, MergeAll<Omit<S, "fs"> | {}>>' is not assignable to parameter of type '(a: Kyoot<string, FileSystemRow & FailRow>) => Kyoot<string, { [x: string]: unknown; }>'.
+  Types of parameters 'k' and 'a' are incompatible.
+    Type 'Kyoot<string, FileSystemRow & FailRow>' is not assignable to type 'Kyoot<string, Row & { fs?: Requirement<Op, unknown, Op> | undefined; }>'.
+      Types of property '_' are incompatible.
+        Type '((s: { fs: (value: DependentRequirement<Op, unknown, unique symbol>) => DependentRequirement<Op, unknown, unique symbol>; fail: (value: Requirement<...>) => Requirement<...>; }) => void) | undefined' is not assignable to type '((s: { [x: string]: (value: unknown) => unknown; fs?: ((value: Requirement<Op, unknown, Op> | undefined) => Requirement<Op, unknown, Op> | undefined) | undefined; }) => void) | undefined'.
+          Type '(s: { fs: (value: DependentRequirement<Op, unknown, unique symbol>) => DependentRequirement<Op, unknown, unique symbol>; fail: (value: Requirement<FsError, never, FsError>) => Requirement<...>; }) => void' is not assignable to type '(s: { [x: string]: (value: unknown) => unknown; fs?: ((value: Requirement<Op, unknown, Op> | undefined) => Requirement<Op, unknown, Op> | undefined) | undefined; }) => void'.
+            Types of parameters 's' and 's' are incompatible.
+              Property 'fail' is missing in type '{ [x: string]: (value: unknown) => unknown; fs?: ((value: Requirement<Op, unknown, Op> | undefined) => Requirement<Op, unknown, Op> | undefined) | undefined; }' but required in type '{ fs: (value: DependentRequirement<Op, unknown, unique symbol>) => DependentRequirement<Op, unknown, unique symbol>; fail: (value: Requirement<FsError, never, FsError>) => Requirement<...>; }'.
+.audit/cleanup/filesystem-contract-repro.ts(11,3): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'Kyoot<string, Row> & Unhandled<string>'.
+  Type 'unknown' is not assignable to type 'Kyoot<string, Row>'.
+.audit/cleanup/filesystem-contract-repro.ts(11,24): error TS2339: Property 'handle' does not exist on type 'typeof import("/Users/texoport/code/kyoot-filesystem-contract/packages/platform/src/fs")'.
+.audit/cleanup/filesystem-contract-repro.ts(11,40): error TS7006: Parameter '_' implicitly has an 'any' type.
+.audit/cleanup/filesystem-contract-repro.ts(11,43): error TS7006: Parameter 'resume' implicitly has an 'any' type.
+.audit/cleanup/filesystem-contract-repro.ts(11,70): error TS2345: Argument of type '<A, S extends Row & { fail?: Requirement<any, never>; }>(k: Kyoot<A, S>) => Kyoot<A, MergeAll<Omit<S, "fail"> | {}>>' is not assignable to parameter of type '(b: unknown) => Kyoot<unknown, { [x: string]: unknown; }>'.
+  Types of parameters 'k' and 'b' are incompatible.
+    Type 'unknown' is not assignable to type 'Kyoot<unknown, Row & { fail?: Requirement<any, never, any> | undefined; }>'.
+.audit/cleanup/filesystem-contract-repro.ts(14,14): error TS2339: Property 'handler' does not exist on type 'typeof import("/Users/texoport/code/kyoot-filesystem-contract/packages/platform/src/fs")'.
+.audit/cleanup/filesystem-contract-repro.ts(14,37): error TS7006: Parameter '_' implicitly has an 'any' type.
+.audit/cleanup/filesystem-contract-repro.ts(14,40): error TS7006: Parameter 'resume' implicitly has an 'any' type.
+.audit/cleanup/filesystem-contract-repro.ts(17,3): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'Kyoot<string, Row> & Unhandled<string>'.
+  Type 'unknown' is not assignable to type 'Kyoot<string, Row>'.
+.audit/cleanup/filesystem-contract-repro.ts(18,16): error TS2339: Property 'intercept' does not exist on type 'typeof import("/Users/texoport/code/kyoot-filesystem-contract/packages/platform/src/fs")'.
+.audit/cleanup/filesystem-contract-repro.ts(19,5): error TS2345: Argument of type '<A, S extends Row & { fail?: Requirement<any, never>; }>(k: Kyoot<A, S>) => Kyoot<A, MergeAll<Omit<S, "fail"> | {}>>' is not assignable to parameter of type '(b: unknown) => Kyoot<unknown, { [x: string]: unknown; }>'.
+  Types of parameters 'k' and 'b' are incompatible.
+    Type 'unknown' is not assignable to type 'Kyoot<unknown, Row & { fail?: Requirement<any, never, any> | undefined; }>'.
+.audit/cleanup/filesystem-contract-repro.ts(23,21): error TS2345: Argument of type 'Kyoot<string, FileSystemRow & FailRow>' is not assignable to parameter of type 'never'.
+.audit/cleanup/filesystem-contract-repro.ts(23,57): error TS2345: Argument of type 'null' is not assignable to parameter of type 'never'.

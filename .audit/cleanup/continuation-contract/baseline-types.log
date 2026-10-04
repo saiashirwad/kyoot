@@ -1,0 +1,23 @@
+$ tsc -p tsconfig.json
+test/continuation-contract.test-d.ts(17,1): error TS2578: Unused '@ts-expect-error' directive.
+test/continuation-contract.test-d.ts(19,1): error TS2578: Unused '@ts-expect-error' directive.
+test/continuation-contract.test-d.ts(21,1): error TS2578: Unused '@ts-expect-error' directive.
+test/continuation-contract.test-d.ts(23,1): error TS2578: Unused '@ts-expect-error' directive.
+test/continuation-contract.test-d.ts(25,1): error TS2578: Unused '@ts-expect-error' directive.
+test/continuation-contract.test-d.ts(27,1): error TS2578: Unused '@ts-expect-error' directive.
+test/continuation-contract.test-d.ts(29,1): error TS2578: Unused '@ts-expect-error' directive.
+test/continuation-contract.test-d.ts(31,1): error TS2578: Unused '@ts-expect-error' directive.
+test/continuation-contract.test-d.ts(38,1): error TS2578: Unused '@ts-expect-error' directive.
+test/continuation-contract.test-d.ts(40,1): error TS2578: Unused '@ts-expect-error' directive.
+test/continuation-contract.test-d.ts(42,1): error TS2578: Unused '@ts-expect-error' directive.
+test/continuation-contract.test-d.ts(45,1): error TS2578: Unused '@ts-expect-error' directive.
+test/continuation-contract.test-d.ts(47,1): error TS2578: Unused '@ts-expect-error' directive.
+test/continuation-contract.test-d.ts(54,1): error TS2578: Unused '@ts-expect-error' directive.
+test/continuation-contract.test-d.ts(56,1): error TS2578: Unused '@ts-expect-error' directive.
+test/continuation-contract.test-d.ts(61,3): error TS2578: Unused '@ts-expect-error' directive.
+test/continuation-contract.test-d.ts(74,1): error TS2578: Unused '@ts-expect-error' directive.
+test/continuation-contract.test-d.ts(76,1): error TS2578: Unused '@ts-expect-error' directive.
+test/continuation-contract.test-d.ts(78,1): error TS2578: Unused '@ts-expect-error' directive.
+/Users/texoport/code/kyoot-continuation-contract/packages/kyoot:
+[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] kyoot@0.1.0 typecheck: `tsc -p tsconfig.json`
+Exit status 1

@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { makeHandler, makeOp, succeed } from "../src/core.ts";
+import { unsafeMakeHandler as makeHandler, makeOp, succeed } from "../src/core.ts";
 import {
   Async,
   Clock,
   effect,
+  type Requirement,
   Emit,
   Env,
   Fail,
@@ -293,7 +294,7 @@ test("a throw inside onOp goes to the same handler's onDefect", () => {
 });
 
 test("resume.with continues the program at the op, where its own handlers see it", () => {
-  const Fetch = effect<string, string, { fail: string }>()("fetch");
+  const Fetch = effect<string, string, { fail: Requirement<string, never> }>()("fetch");
   const program = Fetch("a").pipe(Fail.catchAll((e: string) => Kyoot.succeed(`caught ${e}`)));
   const failing = Fetch.handle({ onOp: (url, resume) => resume.with(Fail.fail(`no ${url}`)) });
   assert.equal(Kyoot.runSync(program.pipe(failing)), "caught no a");
@@ -361,7 +362,7 @@ test("Clock.intercept caps real sleeps under runPromise", async () => {
 test("Emit and Sync intercept: rewrite values, wrap thunks", () => {
   const double = Emit.intercept<number>()((e, next) => next(e * 2));
   let thunks = 0;
-  const counted = Sync.intercept((f, next) => (thunks++, next(f)));
+  const counted = Sync.unsafeIntercept((f, next) => (thunks++, next(f)));
   const program = Kyoot.gen(function* () {
     yield* Emit.value(1);
     yield* Emit.value(2);
@@ -395,7 +396,7 @@ test("Var intercept validates a set; the failure lands at the set", () => {
   class Negative {
     readonly _tag = "Negative";
   }
-  const guard = Balance.intercept((op, next) =>
+  const guard = Balance.unsafeIntercept((op, next) =>
     op.kind === "set" && op.value < 0 ? Fail.fail(new Negative()) : next(op),
   );
   const program = Kyoot.gen(function* () {
@@ -411,7 +412,7 @@ test("Var intercept validates a set; the failure lands at the set", () => {
 
 test("Resource intercept sees each acquire", () => {
   const opened: unknown[] = [];
-  const audit = Resource.intercept()((op, next) =>
+  const audit = Resource.unsafeIntercept()((op, next) =>
     next({
       ...op,
       acquire: () => {
@@ -431,7 +432,7 @@ test("Resource intercept sees each acquire", () => {
 
 test("Async intercept sees every async op; a fiber forked through it keeps the frames inside", async () => {
   let ops = 0;
-  const count = Async.intercept((op, next) => (ops++, next(op)));
+  const count = Async.unsafeIntercept((op, next) => (ops++, next(op)));
   const program = Kyoot.gen(function* () {
     const fiber = yield* Async.fork(Log.info("from fiber").map(() => 1));
     const v = yield* fiber.join;

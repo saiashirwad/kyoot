@@ -2,7 +2,7 @@ import { posix } from "node:path";
 import { Fail, Kyoot, Log } from "kyoot";
 import { FileSystem, Memory } from "@kyoot/platform";
 
-const audit = FileSystem.intercept((op, next) =>
+const audit = FileSystem.unsafeIntercept((op, next) =>
   Log.info(`${op.kind} ${op.path}`).flatMap(() => next(op)),
 );
 
@@ -22,7 +22,7 @@ const confine = (dir: string) => {
     const resolved = posix.resolve(path);
     return resolved === root || resolved.startsWith(root === "/" ? "/" : `${root}/`);
   };
-  return FileSystem.intercept((op, next) => {
+  return FileSystem.unsafeIntercept((op, next) => {
     const denied = !inside(op.path)
       ? op.path
       : op.kind === "rename" && !inside(op.to)
@@ -36,7 +36,7 @@ const confine = (dir: string) => {
 
 const writes = new Set(["writeFile", "appendFile", "mkdir", "remove", "rename"]);
 
-const dryRun = FileSystem.intercept((op, next) =>
+const dryRun = FileSystem.unsafeIntercept((op, next) =>
   writes.has(op.kind) ? Log.warn(`skipped ${op.kind} ${op.path}`) : next(op),
 );
 

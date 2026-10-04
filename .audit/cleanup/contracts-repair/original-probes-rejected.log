@@ -1,0 +1,41 @@
+../../../../tmp/kyoot-contract-fixed-probes/intersection.ts(4,7): error TS2322: Type 'Performed<"same", Requirement<void, number, void>, number, {}>' is not assignable to type 'Kyoot<number, EffectRow<"same", void, number> & EffectRow<"same", void, string>>'.
+  Types of property '_' are incompatible.
+    Type '((s: { same: (value: Requirement<void, number, void>) => Requirement<void, number, void>; }) => void) | undefined' is not assignable to type '((s: { same: (value: Requirement<void, number, void> & Requirement<void, string, void>) => Requirement<void, number, void> & Requirement<...>; }) => void) | undefined'.
+      Type '(s: { same: (value: Requirement<void, number, void>) => Requirement<void, number, void>; }) => void' is not assignable to type '(s: { same: (value: Requirement<void, number, void> & Requirement<void, string, void>) => Requirement<void, number, void> & Requirement<void, string, void>; }) => void'.
+        Types of parameters 's' and 's' are incompatible.
+          Type '{ same: (value: Requirement<void, number, void> & Requirement<void, string, void>) => Requirement<void, number, void> & Requirement<void, string, void>; }' is not assignable to type '{ same: (value: Requirement<void, number, void>) => Requirement<void, number, void>; }'.
+            Types of property 'same' are incompatible.
+              Type '(value: Requirement<void, number, void> & Requirement<void, string, void>) => Requirement<void, number, void> & Requirement<void, string, void>' is not assignable to type '(value: Requirement<void, number, void>) => Requirement<void, number, void>'.
+                Types of parameters 'value' and 'value' are incompatible.
+                  Type 'Requirement<void, number, void>' is not assignable to type 'Requirement<void, number, void> & Requirement<void, string, void>'.
+                    Type 'Requirement<void, number, void>' is not assignable to type 'Requirement<void, string, void>'.
+                      The types of '[requirement].answer' are incompatible between these types.
+                        Type '(value: number) => number' is not assignable to type '(value: string) => string'.
+                          Types of parameters 'value' and 'value' are incompatible.
+                            Type 'string' is not assignable to type 'number'.
+../../../../tmp/kyoot-contract-fixed-probes/served-intersection.ts(3,7): error TS2322: Type 'Performed<"clock", Requirement<void, string, void>, string, {}>' is not assignable to type 'Kyoot<string, EffectRow<"clock", void, string> & { clock: number; }>'.
+  Types of property '_' are incompatible.
+    Type '((s: { clock: (value: Requirement<void, string, void>) => Requirement<void, string, void>; }) => void) | undefined' is not assignable to type '((s: { clock: (value: Requirement<void, string, void> & number) => Requirement<void, string, void> & number; }) => void) | undefined'.
+      Type '(s: { clock: (value: Requirement<void, string, void>) => Requirement<void, string, void>; }) => void' is not assignable to type '(s: { clock: (value: Requirement<void, string, void> & number) => Requirement<void, string, void> & number; }) => void'.
+        Types of parameters 's' and 's' are incompatible.
+          Type '{ clock: (value: Requirement<void, string, void> & number) => Requirement<void, string, void> & number; }' is not assignable to type '{ clock: (value: Requirement<void, string, void>) => Requirement<void, string, void>; }'.
+            Types of property 'clock' are incompatible.
+              Type '(value: Requirement<void, string, void> & number) => Requirement<void, string, void> & number' is not assignable to type '(value: Requirement<void, string, void>) => Requirement<void, string, void>'.
+                Types of parameters 'value' and 'value' are incompatible.
+                  Type 'Requirement<void, string, void>' is not assignable to type 'Requirement<void, string, void> & number'.
+                    Type 'Requirement<void, string, void>' is not assignable to type 'number'.
+../../../../tmp/kyoot-contract-fixed-probes/union.ts(9,22): error TS2345: Argument of type '"n" | "s"' is not assignable to parameter of type 'never'.
+  Type '"n"' is not assignable to type 'never'.
+../../../../tmp/kyoot-contract-fixed-probes/var.ts(4,38): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'Kyoot<number, Row> & Unhandled<string>'.
+  Type 'unknown' is not assignable to type 'Kyoot<number, Row>'.
+../../../../tmp/kyoot-contract-fixed-probes/var.ts(4,51): error TS2345: Argument of type '<B, S extends Row & { [k in "var/n"]?: Requirement<VarOp<number>, string, number>; }>(k: Kyoot<B, S>) => Kyoot<B, MergeAll<Omit<S, "var/n"> | {}>>' is not assignable to parameter of type '(a: Kyoot<number, VarRow<"n", number>>) => Kyoot<number, { [x: string]: unknown; }>'.
+  Types of parameters 'k' and 'a' are incompatible.
+    Type 'Kyoot<number, VarRow<"n", number>>' is not assignable to type 'Kyoot<number, Row & { "var/n"?: Requirement<VarOp<number>, string, number> | undefined; }>'.
+      Types of property '_' are incompatible.
+        Type '((s: { "var/n": (value: DependentRequirement<VarOp<number>, number, unique symbol>) => DependentRequirement<VarOp<number>, number, unique symbol>; }) => void) | undefined' is not assignable to type '((s: { [x: string]: (value: unknown) => unknown; "var/n"?: ((value: Requirement<VarOp<number>, string, number> | undefined) => Requirement<VarOp<number>, string, number> | undefined) | undefined; }) => void) | undefined'.
+          Type '(s: { "var/n": (value: DependentRequirement<VarOp<number>, number, unique symbol>) => DependentRequirement<VarOp<number>, number, unique symbol>; }) => void' is not assignable to type '(s: { [x: string]: (value: unknown) => unknown; "var/n"?: ((value: Requirement<VarOp<number>, string, number> | undefined) => Requirement<VarOp<number>, string, number> | undefined) | undefined; }) => void'.
+            Types of parameters 's' and 's' are incompatible.
+              Type '{ [x: string]: (value: unknown) => unknown; "var/n"?: ((value: Requirement<VarOp<number>, string, number> | undefined) => Requirement<VarOp<number>, string, number> | undefined) | undefined; }' is not assignable to type '{ "var/n": (value: DependentRequirement<VarOp<number>, number, unique symbol>) => DependentRequirement<VarOp<number>, number, unique symbol>; }'.
+                Types of property '"var/n"' are incompatible.
+                  Type '((value: Requirement<VarOp<number>, string, number> | undefined) => Requirement<VarOp<number>, string, number> | undefined) | undefined' is not assignable to type '(value: DependentRequirement<VarOp<number>, number, unique symbol>) => DependentRequirement<VarOp<number>, number, unique symbol>'.
+                    Type 'undefined' is not assignable to type '(value: DependentRequirement<VarOp<number>, number, unique symbol>) => DependentRequirement<VarOp<number>, number, unique symbol>'.

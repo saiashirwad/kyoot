@@ -47,3 +47,5 @@ pnpm check
 The [checkout example](packages/kyoot/examples/checkout.ts) shows how to define your own effects and supply different handlers. There are more examples in [packages/kyoot/examples](packages/kyoot/examples).
 
 MIT licensed. See [LICENSE](LICENSE).
+
+Custom effects preserve payload and answer contracts in their requirement rows. Same-key declarations interoperate only when their contracts match. Child handlers share state references by default; supply a `fork` copier when children need isolated mutable state. See the [core contracts and inheritance documentation](packages/kyoot/README.md).

@@ -1,0 +1,22 @@
+Scope: all 6 workspace projects
+✓ Lockfile passes supply-chain policies (verified 1h ago)
+Lockfile is up to date, resolution step is skipped
+Already up to date
+
+Done in 196ms using pnpm v11.13.0
+$ tsc -p tsconfig.json
+test/continuation-contract.test-d.ts(131,1): error TS2578: Unused '@ts-expect-error' directive.
+test/continuation-contract.test-d.ts(133,3): error TS2345: Argument of type '<B, S extends Row & { [k in "optional/n"]?: Requirement<void, number, void, Partial<EffectRow<"optional/s", void, number>>>; }>(k: Kyoot<B, S>) => Kyoot<B, MergeAll<Omit<S, "optional/n"> | {}>>' is not assignable to parameter of type '(a: Performed<"optional/n", Requirement<void, number, void, {}>, number, {}>) => Kyoot<number, { [x: string]: unknown; }>'.
+  Types of parameters 'k' and 'a' are incompatible.
+    Type 'Performed<"optional/n", Requirement<void, number, void, {}>, number, {}>' is not assignable to type 'Kyoot<number, Row & { "optional/n"?: Requirement<void, number, void, Partial<EffectRow<"optional/s", void, number>>> | undefined; }>'.
+      Types of property '_' are incompatible.
+        Type '((s: { "optional/n": (value: Requirement<void, number, void, {}>) => Requirement<void, number, void, {}>; }) => void) | undefined' is not assignable to type '((s: { [x: string]: (value: unknown) => unknown; "optional/n"?: ((value: Requirement<void, number, void, Partial<EffectRow<"optional/s", void, number>>> | undefined) => Requirement<...> | undefined) | undefined; }) => void) | undefined'.
+          Type '(s: { "optional/n": (value: Requirement<void, number, void, {}>) => Requirement<void, number, void, {}>; }) => void' is not assignable to type '(s: { [x: string]: (value: unknown) => unknown; "optional/n"?: ((value: Requirement<void, number, void, Partial<EffectRow<"optional/s", void, number>>> | undefined) => Requirement<...> | undefined) | undefined; }) => void'.
+            Types of parameters 's' and 's' are incompatible.
+              Type '{ [x: string]: (value: unknown) => unknown; "optional/n"?: ((value: Requirement<void, number, void, Partial<EffectRow<"optional/s", void, number>>> | undefined) => Requirement<...> | undefined) | undefined; }' is not assignable to type '{ "optional/n": (value: Requirement<void, number, void, {}>) => Requirement<void, number, void, {}>; }'.
+                Types of property '"optional/n"' are incompatible.
+                  Type '((value: Requirement<void, number, void, Partial<EffectRow<"optional/s", void, number>>> | undefined) => Requirement<void, number, void, Partial<...>> | undefined) | undefined' is not assignable to type '(value: Requirement<void, number, void, {}>) => Requirement<void, number, void, {}>'.
+                    Type 'undefined' is not assignable to type '(value: Requirement<void, number, void, {}>) => Requirement<void, number, void, {}>'.
+/Users/texoport/code/kyoot-cleanup/packages/kyoot:
+[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] kyoot@0.1.0 typecheck: `tsc -p tsconfig.json`
+Exit status 1

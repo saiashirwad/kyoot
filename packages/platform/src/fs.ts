@@ -1,5 +1,5 @@
-import { effect } from "kyoot";
-import type { Kyoot } from "kyoot";
+import { unsafeMakeHandler, unsafeMakeIntercept, unsafeOp } from "kyoot";
+import type { AnyKyoot, DependentRequirement, Hooks, Kyoot, Requirement, Row } from "kyoot";
 
 export type Op =
   | { readonly kind: "readFile"; readonly path: string }
@@ -53,14 +53,47 @@ type Answer = {
   rename: void;
 };
 
-const fs = effect<Op, unknown, { fail: FsError }>()("fs");
+declare const family: unique symbol;
 
-export const handle = fs.handle;
+export type FileSystemRow = { fs: DependentRequirement<Op, unknown, typeof family> };
+type FailRow = { fail: Requirement<FsError, never> };
 
-export const intercept = fs.intercept;
+export const unsafeHandle =
+  <
+    St = undefined,
+    ROp extends AnyKyoot = Kyoot<never, {}>,
+    RDefect extends AnyKyoot = Kyoot<never, {}>,
+    RInterrupt extends void | AnyKyoot = void,
+  >(
+    hooks: Hooks<Op, unknown, St, FailRow, ROp, RDefect, RInterrupt>,
+  ) =>
+  <A, S extends Row & Partial<FileSystemRow>>(k: Kyoot<A, S>) =>
+    unsafeMakeHandler("fs", k, hooks);
+
+export const unsafeHandler = <
+  A,
+  S extends Row & Partial<FileSystemRow>,
+  St = undefined,
+  ROp extends AnyKyoot = Kyoot<never, {}>,
+  RSuccess extends AnyKyoot = Kyoot<A, {}>,
+  RDefect extends AnyKyoot = Kyoot<never, {}>,
+  RInterrupt extends void | AnyKyoot = void,
+>(
+  k: Kyoot<A, S>,
+  hooks: Hooks<Op, unknown, St, FailRow, ROp, RDefect, RInterrupt> & {
+    onSuccess?: (a: A, state: St) => RSuccess;
+  },
+) => unsafeMakeHandler("fs", k, hooks);
+
+export const unsafeIntercept = unsafeMakeIntercept<"fs", Op, unknown, FailRow, FileSystemRow["fs"]>(
+  "fs",
+);
 
 const perform = <O extends Op>(op: O) =>
-  fs(op) as Kyoot<Answer[O["kind"]], { fs: Op; fail: FsError }>;
+  unsafeOp<Answer[O["kind"]]>()("fs", op) as unknown as Kyoot<
+    Answer[O["kind"]],
+    FileSystemRow & FailRow
+  >;
 
 export const readFile = (path: string) => perform({ kind: "readFile", path });
 

@@ -1,0 +1,7 @@
+{
+  ordinary: 123,
+  direct: 456,
+  handler: 789,
+  intercepted: false,
+  checked: null
+}

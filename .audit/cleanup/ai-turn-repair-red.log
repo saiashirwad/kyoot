@@ -1,0 +1,246 @@
+✖ structured output records every call in answer, write (2.094375ms)
+✔ structured output records every call in write, answer (0.637375ms)
+✖ the first valid answer wins while later answers and tools receive receipts (0.326791ms)
+✖ a retained answer survives later approval and result notification failures (0.438041ms)
+✖ an answer does not bypass a later denied tool (0.185708ms)
+✖ an answer does not bypass a later failed tool (0.097417ms)
+✖ a later unknown tool outcome prevents publishing the retained answer (1.391459ms)
+✖ accepted completions are isolated from later provider mutation (0.595666ms)
+✖ event consumers cannot mutate accepted tool calls (0.426708ms)
+✖ AI.discard releases a failed ask convenience turn (0.26475ms)
+✖ AI.discard releases a failed gen convenience turn (0.156708ms)
+✖ AI.discard rejects an active convenience turn and leaves it running (0.085458ms)
+ℹ tests 12
+ℹ suites 0
+ℹ pass 1
+ℹ fail 11
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 141.410125
+
+✖ failing tests:
+
+test at packages/ai/test/turn-repair.test.ts:24:3
+✖ structured output records every call in answer, write (2.094375ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  0 !== 1
+
+      at TestContext.<anonymous> (file:///Users/texoport/code/kyoot-turn-repair/packages/ai/test/turn-repair.test.ts:43:12)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at packages/ai/test/turn-repair.test.ts:52:1
+✖ the first valid answer wins while later answers and tools receive receipts (0.326791ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  0 !== 1
+
+      at TestContext.<anonymous> (file:///Users/texoport/code/kyoot-turn-repair/packages/ai/test/turn-repair.test.ts:73:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at packages/ai/test/turn-repair.test.ts:84:1
+✖ a retained answer survives later approval and result notification failures (0.438041ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  true !== false
+
+      at TestContext.<anonymous> (file:///Users/texoport/code/kyoot-turn-repair/packages/ai/test/turn-repair.test.ts:111:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: true,
+    expected: false,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at packages/ai/test/turn-repair.test.ts:124:3
+✖ an answer does not bypass a later denied tool (0.185708ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  0 !== 1
+
+      at TestContext.<anonymous> (file:///Users/texoport/code/kyoot-turn-repair/packages/ai/test/turn-repair.test.ts:146:12)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at packages/ai/test/turn-repair.test.ts:124:3
+✖ an answer does not bypass a later failed tool (0.097417ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  0 !== 1
+
+      at TestContext.<anonymous> (file:///Users/texoport/code/kyoot-turn-repair/packages/ai/test/turn-repair.test.ts:145:12)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at packages/ai/test/turn-repair.test.ts:154:1
+✖ a later unknown tool outcome prevents publishing the retained answer (1.391459ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+
+    assert.ok(!result.ok && result.cause._tag === "Fail" && result.cause.error instanceof UnknownToolOutcome)
+
+      at TestContext.<anonymous> (file:///Users/texoport/code/kyoot-turn-repair/packages/ai/test/turn-repair.test.ts:169:12)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at packages/ai/test/turn-repair.test.ts:175:1
+✖ accepted completions are isolated from later provider mutation (0.595666ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  ... Skipped lines
+
+    {
+      messages: [
+        {
+          content: 'go',
+          role: 'user'
+  ...
+              arguments: '{}',
+  +           id: 'original',
+  -           id: 'changed',
+              name: 'write'
+            },
+  -         {
+  -           arguments: '{}',
+  -           id: 'injected',
+  -           name: 'write'
+  -         }
+          ]
+        },
+        {
+          content: '1',
+          role: 'tool',
+
+      at TestContext.<anonymous> (file:///Users/texoport/code/kyoot-turn-repair/packages/ai/test/turn-repair.test.ts:196:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: { messages: [ [Object], [Object], [Object] ], tools: [ [Object] ], toolChoice: 'auto' },
+    expected: { messages: [ [Object], [Object], [Object] ], tools: [ [Object] ], toolChoice: 'auto' },
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at packages/ai/test/turn-repair.test.ts:204:1
+✖ event consumers cannot mutate accepted tool calls (0.426708ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+
+    assert.ok(Object.isFrozen(event.call))
+
+      at file:///Users/texoport/code/kyoot-turn-repair/packages/ai/test/turn-repair.test.ts:213:18
+      at Object.onOp (file:///Users/texoport/code/kyoot-turn-repair/packages/kyoot/src/effects/emit.ts:51:19)
+      at Machine.handle (file:///Users/texoport/code/kyoot-turn-repair/packages/kyoot/src/machine.ts:416:32)
+      at Machine.drive (file:///Users/texoport/code/kyoot-turn-repair/packages/kyoot/src/machine.ts:333:34)
+      at Machine.advance (file:///Users/texoport/code/kyoot-turn-repair/packages/kyoot/src/machine.ts:300:35)
+      at Machine.start (file:///Users/texoport/code/kyoot-turn-repair/packages/kyoot/src/machine.ts:249:17)
+      at Object.runSync (file:///Users/texoport/code/kyoot-turn-repair/packages/kyoot/src/runtime.ts:20:17)
+      at TestContext.<anonymous> (file:///Users/texoport/code/kyoot-turn-repair/packages/ai/test/turn-repair.test.ts:208:9)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at packages/ai/test/turn-repair.test.ts:226:3
+✖ AI.discard releases a failed ask convenience turn (0.26475ms)
+  TypeError [Error]: ai.discard is not a function
+      at TestContext.<anonymous> (file:///Users/texoport/code/kyoot-turn-repair/packages/ai/test/turn-repair.test.ts:248:8)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
+
+test at packages/ai/test/turn-repair.test.ts:226:3
+✖ AI.discard releases a failed gen convenience turn (0.156708ms)
+  TypeError [Error]: ai.discard is not a function
+      at TestContext.<anonymous> (file:///Users/texoport/code/kyoot-turn-repair/packages/ai/test/turn-repair.test.ts:248:8)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
+
+test at packages/ai/test/turn-repair.test.ts:259:1
+✖ AI.discard rejects an active convenience turn and leaves it running (0.085458ms)
+  TypeError [Error]: ai.discard is not a function
+      at TestContext.<anonymous> (file:///Users/texoport/code/kyoot-turn-repair/packages/ai/test/turn-repair.test.ts:265:6)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7)

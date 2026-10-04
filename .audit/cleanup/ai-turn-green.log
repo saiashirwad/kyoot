@@ -1,0 +1,50 @@
+$ node --test test/*.test.ts
+✔ ask: runs tool calls as effects and feeds results back (1.911875ms)
+✔ gen: decodes the answer tool, sending bad arguments back (0.594834ms)
+✔ ask: gives up with TooManyRounds (0.298792ms)
+✔ generate: one shot, returns the new messages (0.070042ms)
+✔ instances keep history; agents compose as tools with their own model (0.361916ms)
+✔ modes: system prompts and config layer around the model (0.266417ms)
+✔ events: text from the provider, calls and results from the loop (0.227083ms)
+✔ approval is an effect the tool performs (0.271041ms)
+✔ a tool's typed failure goes back to the model, not up the stack (0.184916ms)
+✔ void tools produce string receipts (0.163583ms)
+✔ structured output rejects reserved tool names before execution (0.264916ms)
+✔ chatCompletions streams text, a split tool call, and usage (15.446209ms)
+✔ chatCompletions retries 429 with virtual backoff (0.912334ms)
+✔ chatCompletions does not retry 401 (0.241209ms)
+✔ chatCompletions rejects truncated stream (0.314667ms)
+✔ chatCompletions rejects missing call id (0.255042ms)
+✔ chatCompletions rejects missing call name (0.240792ms)
+✔ chatCompletions rejects invalid call index (0.139541ms)
+✔ sse: parses data events split across chunks and stops at [DONE] (5.540166ms)
+✔ sse: ends lines on CRLF, CR, and LF (1.550708ms)
+✔ sse: a CR at the end of a chunk ends one line, CRLF or not (0.409542ms)
+✔ sse: ignores comment lines (0.203083ms)
+✔ sse: keeps the data of an event that has other fields (2.195333ms)
+✔ sse: joins data lines with newlines, and a bare data line adds one (0.386917ms)
+✔ sse: yields nothing for an event with no data (0.311958ms)
+✔ sse: discards data the stream never terminates with a blank line (0.165208ms)
+✔ sse: stops at [DONE] with or without the leading space (0.139375ms)
+✔ sse: decodes a multi-byte character split across chunks (0.184167ms)
+✔ whole-turn Retry retains successful tool receipts and one prompt (2.433875ms)
+✔ failure of the first model request does not duplicate the prompt (0.176625ms)
+✔ direct generate retains completed model and receipts (0.296375ms)
+✔ failed notification preserves model completion and earlier tool receipts (0.259875ms)
+✔ a failing call notification does not lose the stored completion (0.212667ms)
+✔ tool defects retain an unknown outcome and never repeat the action (0.402125ms)
+✔ concurrent turns and concurrent runs fail before changing the conversation (0.446083ms)
+✔ failed turns retain ownership until explicit discard (0.13225ms)
+✔ history is a frozen snapshot (0.092584ms)
+✔ an interrupted action stays unknown and releases the running guard (0.347542ms)
+✔ approval is retained separately when a later notification fails (0.292417ms)
+✔ earlier receipts survive an unknown later tool in the same completion (0.244916ms)
+✔ turn construction snapshots the tool list for later execution (0.130083ms)
+ℹ tests 41
+ℹ suites 0
+ℹ pass 41
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 175.994416

@@ -1,0 +1,22 @@
+✔ structured output records every call in answer, write (2.363292ms)
+✔ structured output records every call in write, answer (0.224791ms)
+✔ the first valid answer wins while later answers and tools receive receipts (0.390875ms)
+✔ an undefined structured answer is retained until later tools finish (0.39475ms)
+✔ a retained answer survives later approval and result notification failures (0.500416ms)
+✔ an answer does not bypass a later denied tool (0.166291ms)
+✔ an answer does not bypass a later failed tool (0.139833ms)
+✔ a later unknown tool outcome prevents publishing the retained answer (0.224833ms)
+✔ accepted completions are isolated from later provider mutation (0.202625ms)
+✔ event consumers cannot mutate accepted tool calls (0.286667ms)
+✔ pending calls use the accepted completion after a notification failure (0.192542ms)
+✔ AI.discard releases a failed ask convenience turn (0.206708ms)
+✔ AI.discard releases a failed gen convenience turn (0.133792ms)
+✔ AI.discard rejects an active convenience turn and leaves it running (0.412833ms)
+ℹ tests 14
+ℹ suites 0
+ℹ pass 14
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 130.843084

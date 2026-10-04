@@ -1,0 +1,119 @@
+$ node --test test/*.test.ts
+✔ ask: runs tool calls as effects and feeds results back (1.598208ms)
+✔ gen: decodes the answer tool, sending bad arguments back (0.520292ms)
+✔ ask: gives up with TooManyRounds (0.21325ms)
+✔ generate: one shot, returns the new messages (0.063209ms)
+✔ instances keep history; agents compose as tools with their own model (0.305541ms)
+✔ modes: system prompts and config layer around the model (0.120583ms)
+✔ events: text from the provider, calls and results from the loop (0.124458ms)
+✔ approval is an effect the tool performs (0.173ms)
+✔ a tool's typed failure goes back to the model, not up the stack (0.142542ms)
+✔ void tools produce string receipts (0.13325ms)
+✔ structured output rejects reserved tool names before execution (0.2205ms)
+✔ chatCompletions streams text, a split tool call, and usage (16.34525ms)
+✔ chatCompletions retries 429 with virtual backoff (1.091833ms)
+✔ chatCompletions does not retry 401 (0.253208ms)
+✔ chatCompletions rejects truncated stream (0.32875ms)
+✔ chatCompletions rejects missing call id (0.268875ms)
+✔ chatCompletions rejects missing call name (0.235041ms)
+✔ chatCompletions rejects invalid call index (0.145083ms)
+✔ sse: parses data events split across chunks and stops at [DONE] (7.260792ms)
+✔ sse: ends lines on CRLF, CR, and LF (1.635167ms)
+✔ sse: a CR at the end of a chunk ends one line, CRLF or not (0.320125ms)
+✔ sse: ignores comment lines (0.22525ms)
+✔ sse: keeps the data of an event that has other fields (0.353625ms)
+✔ sse: joins data lines with newlines, and a bare data line adds one (0.161583ms)
+✔ sse: yields nothing for an event with no data (0.203791ms)
+✔ sse: discards data the stream never terminates with a blank line (0.168792ms)
+✔ sse: stops at [DONE] with or without the leading space (0.157333ms)
+✔ sse: decodes a multi-byte character split across chunks (0.178666ms)
+✖ whole-turn Retry retains successful tool receipts and one prompt (2.633917ms)
+✖ failure of the first model request does not duplicate the prompt (0.178166ms)
+✔ direct generate retains completed model and receipts (0.216542ms)
+ℹ tests 31
+ℹ suites 0
+ℹ pass 29
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 146.375542
+
+✖ failing tests:
+
+test at test/turn.test.ts:10:1
+✖ whole-turn Retry retains successful tool receipts and one prompt (2.633917ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+    {
+      messages: [
+        {
+          content: 'go',
+          role: 'user'
+        },
+        {
+  +       content: '',
+  +       role: 'assistant',
+  +       toolCalls: [
+  +         {
+  +           arguments: '{}',
+  +           id: 'one',
+  +           name: 'write'
+  +         }
+  +       ]
+  -       content: 'go',
+  -       role: 'user'
+        },
+  +     {
+  +       content: '1',
+  +       role: 'tool',
+  +       toolCallId: 'one'
+  +     }
+      ],
+      toolChoice: 'auto',
+      tools: [
+        {
+          description: 'write',
+
+      at TestContext.<anonymous> (file:///Users/texoport/code/kyoot-ai-cleanup/packages/ai/test/turn.test.ts:24:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: { messages: [ [Object], [Object], [Object] ], tools: [ [Object] ], toolChoice: 'auto' },
+    expected: { messages: [ [Object], [Object] ], tools: [ [Object] ], toolChoice: 'auto' },
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at test/turn.test.ts:30:1
+✖ failure of the first model request does not duplicate the prompt (0.178166ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+    [
+      'go',
+  +   'go',
+      'done'
+    ]
+
+      at TestContext.<anonymous> (file:///Users/texoport/code/kyoot-ai-cleanup/packages/ai/test/turn.test.ts:35:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'go', 'go', 'done' ],
+    expected: [ 'go', 'done' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+/Users/texoport/code/kyoot-ai-cleanup/packages/ai:
+[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] @kyoot/ai@0.1.0 test: `node --test test/*.test.ts`
+Exit status 1

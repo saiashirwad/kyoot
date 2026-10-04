@@ -27,9 +27,15 @@ export const Approve = effect<{ readonly tool: string; readonly args: unknown },
   "ai/approve",
 );
 
-export const needsApproval = <A, R, S extends Row>(tool: Tool<A, R, S>) =>
-  Tool(tool.name, tool.description, tool.args, (args) =>
+const approvals = new WeakMap<Tool, Tool>();
+export const approvalOf = (tool: Tool): Tool | undefined => approvals.get(tool);
+
+export const needsApproval = <A, R, S extends Row>(tool: Tool<A, R, S>) => {
+  const wrapped = Tool(tool.name, tool.description, tool.args, (args) =>
     Kyoot.gen(function* () {
       return (yield* Approve({ tool: tool.name, args })) ? yield* tool.run(args) : { denied: true };
     }),
   );
+  approvals.set(wrapped, tool);
+  return wrapped;
+};

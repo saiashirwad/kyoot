@@ -176,17 +176,18 @@ test("events: text from the provider, calls and results from the loop", () => {
 
 test("approval is an effect the tool performs", () => {
   const seen: Request[] = [];
-  const program = AI.ask("2+2?", { tools: [needsApproval(calc)] }).pipe(
-    scripted([call("calc", { expression: "2+2" }), say("done")], seen),
-    evaluate,
-    Emit.discard,
-    Fail.orThrow,
-  );
+  const program = () =>
+    AI.ask("2+2?", { tools: [needsApproval(calc)] }).pipe(
+      scripted([call("calc", { expression: "2+2" }), say("done")], seen),
+      evaluate,
+      Emit.discard,
+      Fail.orThrow,
+    );
   const result = (content: string) => ({ role: "tool", toolCallId: "1", content });
-  Kyoot.runSync(program.pipe(Approve.handle({ onOp: (_, resume) => resume(false) })));
+  Kyoot.runSync(program().pipe(Approve.handle({ onOp: (_, resume) => resume(false) })));
   assert.deepEqual(seen[1]!.messages.at(-1), result('{"denied":true}'));
   Kyoot.runSync(
-    program.pipe(Approve.handle({ onOp: ({ tool }, resume) => resume(tool === "calc") })),
+    program().pipe(Approve.handle({ onOp: ({ tool }, resume) => resume(tool === "calc") })),
   );
   assert.deepEqual(seen[3]!.messages.at(-1), result("4"));
 });

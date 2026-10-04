@@ -202,3 +202,33 @@ test("a tool's typed failure goes back to the model, not up the stack", () => {
   assert.equal(answer, "it failed");
   assert.equal((seen[1]!.messages.at(-1) as { content: string }).content, 'error: {"_tag":"Boom"}');
 });
+
+test("void tools produce string receipts", () => {
+  const seen: Request[] = [];
+  const noop = Tool("noop", "no result", z.object({}), () => Kyoot.succeed(undefined));
+  Kyoot.runSync(
+    AI.ask("go", { tools: [noop] }).pipe(
+      scripted([call("noop", {}), say("done")], seen),
+      Emit.discard,
+      Fail.orThrow,
+    ),
+  );
+  assert.deepEqual(seen[1]!.messages.at(-1), { role: "tool", toolCallId: "1", content: "null" });
+});
+
+test("structured output rejects reserved tool names before execution", () => {
+  let executions = 0;
+  const answer = Tool("answer", "collision", z.object({}), () => Kyoot.succeed(++executions));
+  assert.throws(
+    () =>
+      Kyoot.runSync(
+        AI.gen(z.object({}), "go", { tools: [answer] }).pipe(
+          scripted([call("answer", {})]),
+          Emit.discard,
+          Fail.orThrow,
+        ),
+      ),
+    /reserved/,
+  );
+  assert.equal(executions, 0);
+});

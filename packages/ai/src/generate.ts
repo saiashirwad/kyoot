@@ -35,7 +35,7 @@ const run = (tool: Tool, args: unknown) =>
     .run(args)
     .pipe(Fail.run)
     .map((r) => {
-      if (r.ok) return JSON.stringify(r.value);
+      if (r.ok) return JSON.stringify(r.value) ?? "null";
       if (r.cause._tag === "Fail") return `error: ${show(r.cause.error)}`;
       throw r.cause._tag === "Defect" ? r.cause.defect : new InterruptedError();
     });
@@ -53,6 +53,8 @@ export function generate<A = string, T extends Tool = never>(
   { tools = [], rounds = 8, schema }: Options<A, T> = {},
 ): K<readonly [A, Message[]], Requires<T>> {
   return Kyoot.gen(function* () {
+    if (schema && tools.some((tool) => tool.name === "answer"))
+      throw new Error("Tool name answer is reserved for structured output");
     const schemas = tools.map(schemaOf);
     if (schema)
       schemas.push({

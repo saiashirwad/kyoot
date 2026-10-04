@@ -11,3 +11,9 @@ Fork sharing gets the honest name share. A caller-supplied copier isolates state
 A logical turn is allocated outside its restartable generator. It owns model completion, next-tool position, receipts, and terminal result. Retry of the same constructed turn resumes that record. A new ask call creates a new turn regardless of input equality. A concurrent unfinished distinct turn fails clearly before mutation. Completed history is published once. An explicit turn can be discarded only when not running, releasing its conversation owner without replaying its actions. The discarded turn can never resume. Snapshot history prevents external mutation of the owned transcript.
 
 These contracts stop at in-memory execution. Process crashes can leave external outcomes unknown. Durable IDs, storage, recovery, and per-tool idempotency policies remain separate.
+
+## Effect proof revision
+
+The initial invariant Requirement witness was insufficient because the outer Kyoot row remained contravariant. Independent compiler and runtime probes returned wrong result types through same-key intersections, ambiguous keys, and dependent Var answers. The initial proof is superseded.
+
+The repair comparison chose per-entry invariant row witnesses while retaining extension by independent keys. Public factories and checked handlers require one finite literal key and reject continuation rows that overlap that key. Fixed-answer and dependent-answer operations have distinct requirement kinds. Built-in Emit and Fail rows carry explicit void and never answers. Replacement handlers for dependent operations use explicit unsafe names because their runtime-dependent answer relation has no checked proof here. contract-repair-judge.md records the compiled algebra and rejected nominal-symbol alternative.

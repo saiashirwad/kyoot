@@ -1,0 +1,37 @@
+$ node --test test/*.test.ts
+✔ ask: runs tool calls as effects and feeds results back (1.624125ms)
+✔ gen: decodes the answer tool, sending bad arguments back (0.521458ms)
+✔ ask: gives up with TooManyRounds (0.220875ms)
+✔ generate: one shot, returns the new messages (0.061208ms)
+✔ instances keep history; agents compose as tools with their own model (0.315083ms)
+✔ modes: system prompts and config layer around the model (0.130042ms)
+✔ events: text from the provider, calls and results from the loop (0.129083ms)
+✔ approval is an effect the tool performs (0.187417ms)
+✔ a tool's typed failure goes back to the model, not up the stack (0.140709ms)
+✔ void tools produce string receipts (0.140208ms)
+✔ structured output rejects reserved tool names before execution (0.228958ms)
+✔ chatCompletions streams text, a split tool call, and usage (15.811458ms)
+✔ chatCompletions retries 429 with virtual backoff (1.009042ms)
+✔ chatCompletions does not retry 401 (0.237333ms)
+✔ chatCompletions rejects truncated stream (0.324709ms)
+✔ chatCompletions rejects missing call id (0.262875ms)
+✔ chatCompletions rejects missing call name (0.233458ms)
+✔ chatCompletions rejects invalid call index (0.146542ms)
+✔ sse: parses data events split across chunks and stops at [DONE] (6.159375ms)
+✔ sse: ends lines on CRLF, CR, and LF (0.559ms)
+✔ sse: a CR at the end of a chunk ends one line, CRLF or not (0.332917ms)
+✔ sse: ignores comment lines (1.676083ms)
+✔ sse: keeps the data of an event that has other fields (2.144792ms)
+✔ sse: joins data lines with newlines, and a bare data line adds one (0.346083ms)
+✔ sse: yields nothing for an event with no data (0.385625ms)
+✔ sse: discards data the stream never terminates with a blank line (0.287167ms)
+✔ sse: stops at [DONE] with or without the leading space (0.246709ms)
+✔ sse: decodes a multi-byte character split across chunks (0.464375ms)
+ℹ tests 28
+ℹ suites 0
+ℹ pass 28
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 153.496166

@@ -1,0 +1,44 @@
+$ node --test test/*.test.ts
+✔ ask: runs tool calls as effects and feeds results back (1.580542ms)
+✔ gen: decodes the answer tool, sending bad arguments back (0.49425ms)
+✔ ask: gives up with TooManyRounds (0.212667ms)
+✔ generate: one shot, returns the new messages (0.057583ms)
+✔ instances keep history; agents compose as tools with their own model (0.30675ms)
+✔ modes: system prompts and config layer around the model (0.12425ms)
+✔ events: text from the provider, calls and results from the loop (0.123667ms)
+✔ approval is an effect the tool performs (0.181042ms)
+✔ a tool's typed failure goes back to the model, not up the stack (0.146042ms)
+✔ void tools produce string receipts (0.12975ms)
+✔ structured output rejects reserved tool names before execution (0.2205ms)
+✔ chatCompletions streams text, a split tool call, and usage (13.209917ms)
+✔ chatCompletions retries 429 with virtual backoff (0.92825ms)
+✔ chatCompletions does not retry 401 (0.256666ms)
+✔ chatCompletions rejects oversized call index (0.244542ms)
+✔ chatCompletions rejects missing preceding call index (0.256125ms)
+✔ chatCompletions rejects non-string name fragment (0.171541ms)
+✔ chatCompletions rejects non-string argument fragment (0.124292ms)
+✔ chatCompletions rejects conflicting call ids (0.123042ms)
+✔ chatCompletions rejects duplicate assembled call ids (0.213042ms)
+✔ chatCompletions rejects truncated stream (0.387541ms)
+✔ chatCompletions rejects missing call id (0.250583ms)
+✔ chatCompletions rejects missing call name (0.148459ms)
+✔ chatCompletions rejects invalid call index (0.079375ms)
+✔ sse: parses data events split across chunks and stops at [DONE] (8.086417ms)
+✔ sse: ends lines on CRLF, CR, and LF (0.651333ms)
+✔ sse: a CR at the end of a chunk ends one line, CRLF or not (0.373417ms)
+✔ sse: ignores comment lines (0.238042ms)
+✔ sse: keeps the data of an event that has other fields (0.341583ms)
+✔ sse: joins data lines with newlines, and a bare data line adds one (0.178542ms)
+✔ sse: yields nothing for an event with no data (0.213208ms)
+✔ sse: discards data the stream never terminates with a blank line (0.357792ms)
+✔ sse: stops at [DONE] with or without the leading space (0.69075ms)
+✔ sse: decodes a multi-byte character split across chunks (0.256084ms)
+ℹ tests 34
+ℹ suites 0
+ℹ pass 34
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 155.582292
+$ tsc -p tsconfig.json

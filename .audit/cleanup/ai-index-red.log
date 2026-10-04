@@ -1,0 +1,108 @@
+✔ chatCompletions streams text, a split tool call, and usage (16.410084ms)
+✔ chatCompletions retries 429 with virtual backoff (0.829334ms)
+✔ chatCompletions does not retry 401 (0.222833ms)
+✖ chatCompletions rejects oversized call index (1.531541ms)
+✖ chatCompletions rejects missing preceding call index (0.361958ms)
+✖ chatCompletions rejects non-string name fragment (0.236167ms)
+✖ chatCompletions rejects non-string argument fragment (0.196291ms)
+✖ chatCompletions rejects conflicting call ids (0.166667ms)
+✔ chatCompletions rejects duplicate assembled call ids (0.163583ms)
+✔ chatCompletions rejects truncated stream (0.2715ms)
+✔ chatCompletions rejects missing call id (0.186542ms)
+✔ chatCompletions rejects missing call name (0.389375ms)
+✔ chatCompletions rejects invalid call index (0.122542ms)
+ℹ tests 13
+ℹ suites 0
+ℹ pass 8
+ℹ fail 5
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 132.899875
+
+✖ failing tests:
+
+test at packages/ai/test/providers.test.ts:166:3
+✖ chatCompletions rejects oversized call index (1.531541ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+
+    assert.ok(
+
+      at TestContext.<anonymous> (file:///Users/texoport/code/kyoot-protocol-cleanup/packages/ai/test/providers.test.ts:173:14)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at packages/ai/test/providers.test.ts:166:3
+✖ chatCompletions rejects missing preceding call index (0.361958ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+
+    assert.ok(
+
+      at TestContext.<anonymous> (file:///Users/texoport/code/kyoot-protocol-cleanup/packages/ai/test/providers.test.ts:173:14)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at packages/ai/test/providers.test.ts:166:3
+✖ chatCompletions rejects non-string name fragment (0.236167ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+
+    assert.ok(
+
+      at TestContext.<anonymous> (file:///Users/texoport/code/kyoot-protocol-cleanup/packages/ai/test/providers.test.ts:173:14)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at packages/ai/test/providers.test.ts:166:3
+✖ chatCompletions rejects non-string argument fragment (0.196291ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+
+    assert.ok(
+
+      at TestContext.<anonymous> (file:///Users/texoport/code/kyoot-protocol-cleanup/packages/ai/test/providers.test.ts:173:14)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at packages/ai/test/providers.test.ts:166:3
+✖ chatCompletions rejects conflicting call ids (0.166667ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+
+    assert.ok(
+
+      at TestContext.<anonymous> (file:///Users/texoport/code/kyoot-protocol-cleanup/packages/ai/test/providers.test.ts:173:14)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

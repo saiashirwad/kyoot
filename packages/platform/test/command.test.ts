@@ -1,11 +1,124 @@
 import assert from "node:assert/strict";
+import * as fsp from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
-import { Fail, Kyoot } from "kyoot";
+import { setTimeout as delay } from "node:timers/promises";
+import { Fail, InterruptedError, Kyoot, runFiber } from "kyoot";
 import { Command } from "@kyoot/platform";
 import * as Node from "@kyoot/platform/node";
 
 const node = (script: string, options?: Command.Options) =>
-  Command.run("node", ["-e", script], options).pipe(Node.command);
+  Command.run(process.execPath, ["-e", script], options).pipe(Node.command);
+
+test("command: interrupt stops a ready child before its delayed side effect", async () => {
+  const root = await fsp.mkdtemp(join(tmpdir(), "kyoot-command-"));
+  const ready = join(root, "ready");
+  const sideEffect = join(root, "side-effect");
+  const script = `
+    const fs = require('node:fs');
+    fs.writeFileSync(${JSON.stringify(ready)}, 'ready');
+    setTimeout(() => fs.writeFileSync(${JSON.stringify(sideEffect)}, 'ran'), 500);
+  `;
+  const fiber = runFiber(node(script).pipe(Fail.orThrow));
+  const interrupted = assert.rejects(fiber.promise, InterruptedError);
+  try {
+    const deadline = Date.now() + 5000;
+    while (
+      !(await fsp.access(ready).then(
+        () => true,
+        () => false,
+      ))
+    ) {
+      assert.ok(Date.now() < deadline, "child did not become ready");
+      await delay(10);
+    }
+    fiber.interrupt();
+    await interrupted;
+    await delay(650);
+    assert.equal(
+      await fsp.access(sideEffect).then(
+        () => true,
+        () => false,
+      ),
+      false,
+      "interrupted child must not perform its delayed write",
+    );
+  } finally {
+    fiber.interrupt();
+    await fsp.rm(root, { recursive: true, force: true });
+  }
+});
+
+for (const stream of ["stdout", "stderr"] as const) {
+  test(`command: ${stream} has a default byte bound`, async () => {
+    const result = await Kyoot.runPromise(
+      node(`process.${stream}.write('x'.repeat(1024 * 1024 + 1))`).pipe(Fail.run),
+    );
+    assert.ok(!result.ok && result.cause._tag === "Fail");
+    assert.ok(result.cause.error instanceof Command.CommandError);
+    assert.match(result.cause.error.message, new RegExp(`${stream} maxBuffer`));
+  });
+
+  test(`command: ${stream} respects a smaller byte bound`, async () => {
+    const options = { maxBuffer: 64 };
+    const result = await Kyoot.runPromise(
+      node(`process.${stream}.write('é'.repeat(33))`, options).pipe(Fail.run),
+    );
+    assert.ok(!result.ok && result.cause._tag === "Fail");
+    assert.ok(result.cause.error instanceof Command.CommandError);
+    assert.match(result.cause.error.message, new RegExp(`${stream} maxBuffer`));
+  });
+
+  test(`command: ${stream} accepts larger output with a larger bounded allowance`, async () => {
+    const options = { maxBuffer: 2 * 1024 * 1024 };
+    const output = await Kyoot.runPromise(
+      node(`process.${stream}.write('x'.repeat(1024 * 1024 + 1))`, options).pipe(Fail.orThrow),
+    );
+    assert.equal(output.code, 0);
+    assert.equal(output[stream], "x".repeat(1024 * 1024 + 1));
+  });
+}
+
+test("command: each stream can fill its default allowance independently", async () => {
+  const output = await Kyoot.runPromise(
+    node(`
+      process.stdout.write('x'.repeat(1024 * 1024));
+      process.stderr.write('y'.repeat(1024 * 1024));
+    `).pipe(Fail.orThrow),
+  );
+  assert.deepEqual(output, {
+    code: 0,
+    stdout: "x".repeat(1024 * 1024),
+    stderr: "y".repeat(1024 * 1024),
+  });
+});
+
+test("command: an exact custom UTF-8 byte allowance succeeds", async () => {
+  const output = await Kyoot.runPromise(
+    node("process.stdout.write('é'.repeat(32))", { maxBuffer: 64 }).pipe(Fail.orThrow),
+  );
+  assert.equal(output.stdout, "é".repeat(32));
+});
+
+test("command: zero allowance accepts only empty output", async () => {
+  const empty = await Kyoot.runPromise(node("", { maxBuffer: 0 }).pipe(Fail.orThrow));
+  assert.deepEqual(empty, { code: 0, stdout: "", stderr: "" });
+  const nonempty = await Kyoot.runPromise(
+    node("process.stdout.write('x')", { maxBuffer: 0 }).pipe(Fail.run),
+  );
+  assert.ok(!nonempty.ok && nonempty.cause._tag === "Fail");
+  assert.match(nonempty.cause.error.message, /stdout maxBuffer/);
+});
+
+test("command: output allowances must be bounded integer byte counts", async () => {
+  for (const maxBuffer of [Infinity, NaN, -1, 0.5, Number.MAX_SAFE_INTEGER + 1]) {
+    const result = await Kyoot.runPromise(node("", { maxBuffer }).pipe(Fail.run));
+    assert.ok(!result.ok && result.cause._tag === "Fail");
+    assert.ok(result.cause.error instanceof Command.CommandError);
+    assert.match(result.cause.error.message, /maxBuffer must be a nonnegative safe integer/);
+  }
+});
 
 test("command: exit code and output", async () => {
   const out = await Kyoot.runPromise(

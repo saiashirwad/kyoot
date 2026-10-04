@@ -84,6 +84,14 @@ export const fs =
           const to = resolve("/", op.to);
           requireDir(dirname(to));
           if (!files.has(path) && !dirs.has(path)) fail("NotFound", `${path} does not exist`);
+          if (to === path) return;
+          if (dirs.has(path)) {
+            if (under(to, path)) fail("Other", `${to} is inside ${path}`);
+            if (files.has(to)) fail("NotADirectory", `${to} is a file`);
+            if (dirs.has(to) && children(to).length > 0) fail("NotEmpty", `${to} is not empty`);
+          } else if (dirs.has(to)) {
+            fail("IsADirectory", `${to} is a directory`);
+          }
           for (const p of subtree(path)) {
             const moved = to + p.slice(path.length);
             const file = files.get(p);

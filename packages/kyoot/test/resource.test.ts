@@ -42,6 +42,81 @@ for (const runner of ["sync", "fiber"] as const) {
   });
 }
 
+for (const runner of ["sync", "fiber"] as const) {
+  test(`Resource: ${runner} preserves a boundary error over an earlier release defect`, async () => {
+    const events: string[] = [];
+    const Missing = effect<undefined, void>()("missing");
+    const program = Kyoot.gen(function* () {
+      yield* Resource.acquire(
+        () => "old",
+        () => {
+          events.push("old");
+          return Missing(undefined);
+        },
+      );
+      yield* Resource.acquire(
+        () => "new",
+        () => {
+          events.push("new");
+          throw new Error("release defect");
+        },
+      );
+    }).pipe(Resource.run);
+    if (runner === "sync") {
+      assert.throws(
+        () => Reflect.apply(Kyoot.runSync, undefined, [program]),
+        /runSync encountered unhandled effect 'missing'/,
+      );
+    } else {
+      await assert.rejects(
+        runFiber(program).promise,
+        /fiber encountered unhandled effect 'missing'/,
+      );
+    }
+    assert.deepEqual(events, ["new", "old"]);
+  });
+}
+
+for (const exit of ["complete", "interrupt"] as const) {
+  test(`Resource: fiber preserves a boundary error when an async release exits by ${exit}`, async () => {
+    const events: string[] = [];
+    const Missing = effect<undefined, void>()("missing");
+    let started!: () => void;
+    const ready = new Promise<void>((resolve) => (started = resolve));
+    const program = Kyoot.gen(function* () {
+      yield* Resource.acquire(
+        () => "oldest",
+        () =>
+          Async.fromPromise(() => {
+            events.push("oldest");
+            started();
+            return exit === "complete" ? Promise.resolve() : new Promise<void>(() => {});
+          }),
+      );
+      yield* Resource.acquire(
+        () => "old",
+        () => {
+          events.push("old");
+          return Missing(undefined);
+        },
+      );
+      yield* Resource.acquire(
+        () => "new",
+        () => {
+          events.push("new");
+          throw new Error("release defect");
+        },
+      );
+    }).pipe(Resource.run);
+    const handle = runFiber(program);
+    const rejected = assert.rejects(handle.promise, /fiber encountered unhandled effect 'missing'/);
+    await ready;
+    if (exit === "interrupt") handle.interrupt();
+    await rejected;
+    assert.deepEqual(events, ["new", "old", "oldest"]);
+  });
+}
+
 test("Resource: a typed release failure does not skip older finalizers", () => {
   const events: string[] = [];
   const program = Kyoot.gen(function* () {

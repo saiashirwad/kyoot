@@ -22,7 +22,11 @@ export function runSync<A, S extends Row>(k: Kyoot<A, S> & Only<S>): A {
     while (outcome !== "done") {
       const error = unhandledEffect("runSync", machine.key);
       boundaryError ??= error;
-      outcome = machine.raise(error);
+      try {
+        outcome = machine.raise(error);
+      } catch {
+        throw boundaryError;
+      }
     }
     if (boundaryError !== undefined) throw boundaryError;
     return machine.value as A;
@@ -114,7 +118,7 @@ class Fiber<A> implements FiberHandle<A> {
     try {
       this.pump(this.machine.start(k, STEP_BUDGET));
     } catch (error) {
-      this.reject(error);
+      this.reject(this.boundaryError ?? error);
     }
   }
 
@@ -147,7 +151,7 @@ class Fiber<A> implements FiberHandle<A> {
             : machine.continue(STEP_BUDGET),
       );
     } catch (error) {
-      this.reject(error);
+      this.reject(this.boundaryError ?? error);
     }
   }
 
@@ -160,7 +164,7 @@ class Fiber<A> implements FiberHandle<A> {
     try {
       this.pump(this.machine.raise(new InterruptedError(), STEP_BUDGET));
     } catch (error) {
-      this.reject(error);
+      this.reject(this.boundaryError ?? error);
     }
   }
 

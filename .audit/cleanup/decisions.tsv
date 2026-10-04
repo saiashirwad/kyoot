@@ -1,0 +1,4 @@
+ts	phase	decision	why	evidence	result
+2026-10-04T14:53:32Z	frame	Split thirteen findings into six verified units	Resource and tool replay defects need concrete red and green evidence	.audit/cleanup/handoff.md	baseline check passed; implementation open
+2026-10-04T14:56:37Z	design	Selected candidate A with receipt ordering and settled cleanup from B	One retained turn avoids action replay; fail-fast ownership avoids queue lifecycle complexity	.audit/cleanup/design-judge.md	design selected; implementation open
+2026-10-04T14:57:51Z	resource	Raised unhandled operations through normal unwind and attempted every finalizer	Boundary failures previously bypassed releases and typed release errors aborted the loop	.audit/cleanup/resource-review.md	VERIFIED; 196 core tests and typecheck passed

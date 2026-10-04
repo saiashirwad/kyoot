@@ -1,0 +1,320 @@
+Scope: all 6 workspace projects
+✓ Lockfile passes supply-chain policies (verified 23m ago)
+Lockfile is up to date, resolution step is skipped
+Already up to date
+
+Done in 154ms using pnpm v11.13.0
+$ pnpm format:check && pnpm lint && pnpm typecheck && pnpm test
+$ oxfmt --check .
+Checking formatting...
+
+All matched files use the correct format.
+Finished in 265ms on 104 files using 10 threads.
+$ oxlint
+$ pnpm -r typecheck
+Scope: 5 of 6 workspace projects
+packages/kyoot typecheck$ tsc -p tsconfig.json
+packages/kyoot typecheck: Done
+packages/platform typecheck$ tsc -p tsconfig.json
+packages/registry typecheck$ tsc -p tsconfig.json
+packages/bench typecheck$ tsc -p tsconfig.json
+packages/ai typecheck$ tsc -p tsconfig.json
+packages/bench typecheck: Done
+packages/platform typecheck: Done
+packages/registry typecheck: Done
+packages/ai typecheck: Done
+$ pnpm -r test
+Scope: 5 of 6 workspace projects
+packages/kyoot test$ node --test test/*.test.ts
+packages/kyoot test: ✔ fromPromise resolves through runPromise (0.841125ms)
+packages/kyoot test: ✔ fromPromise exposes an AbortSignal from day one (0.097375ms)
+packages/kyoot test: ✔ fromPromise sends a synchronous throw to Fail.run as a defect (0.209458ms)
+packages/kyoot test: ✔ fork/join: a fiber is an independent interpreter loop (18.852875ms)
+packages/kyoot test: ✔ concurrent fibers may yield the same node (0.54775ms)
+packages/kyoot test: ✔ fiber.await returns a Result instead of throwing (9.346083ms)
+packages/kyoot test: ✔ race: first to complete wins (14.431583ms)
+packages/kyoot test: ✔ timeout: a slow computation fails with a typed Timeout (6.783375ms)
+packages/kyoot test: ✔ timeout: a fast computation wins (6.671041ms)
+packages/kyoot test: ✔ timeout inside a gen resumes the surrounding computation (6.407083ms)
+packages/kyoot test: ✔ runPromise surfaces defects as rejections (4.075ms)
+packages/kyoot test: ✔ runPromise on an unhandled non-async effect rejects loudly (0.167ms)
+packages/kyoot test: ✔ runSync rejects an async op at runtime (0.068834ms)
+packages/kyoot test: ✔ interrupt: finalizers run and await reports Interrupted (0.26925ms)
+packages/kyoot test: ✔ structured concurrency: a completed parent interrupts its children (0.155583ms)
+packages/kyoot test: ✔ interrupt: stale wait may resolve before async cleanup (0.182917ms)
+packages/kyoot test: ✔ interrupt: stale wait may reject before async cleanup (0.067375ms)
+packages/kyoot test: ✔ interrupt: stale wait may resolve after async cleanup (0.070041ms)
+packages/kyoot test: ✔ interrupt: stale wait may reject after async cleanup (0.061375ms)
+packages/kyoot test: ✔ all: results come back in input order, not completion order (21.495916ms)
+packages/kyoot test: ✔ all: branches run concurrently (21.904041ms)
+packages/kyoot test: ✔ all: empty array resolves immediately (0.19775ms)
+packages/kyoot test: ✔ all: NaN concurrency runs every branch (0.221333ms)
+packages/kyoot test: ✔ all: first failure interrupts the rest and runs their finalizers (6.394458ms)
+packages/kyoot test: ✔ all: interrupting the parent interrupts every branch (12.085792ms)
+packages/kyoot test: ✔ race interrupts the loser and runs its finalizers (6.609292ms)
+packages/kyoot test: ✔ timeout interrupts the branch and runs its finalizers (6.194458ms)
+packages/kyoot test: ✔ fromPromise's signal fires on interruption (0.313167ms)
+packages/kyoot test: ✔ joining an interrupted fiber interrupts the joiner (0.165625ms)
+packages/kyoot test: ✔ all: concurrency limit bounds in-flight fibers and keeps order (17.864667ms)
+packages/kyoot test: ✔ all: a failure stops scheduling the rest (2.933292ms)
+packages/kyoot test: ✔ fork: a fiber sees the Env provided outside the fork (0.498417ms)
+packages/kyoot test: ✔ fork: Log.collect around the fork gathers the fiber's entries (0.2615ms)
+packages/kyoot test: ✔ fork: Emit.collect around the fork collects what fibers emit (0.141083ms)
+packages/kyoot test: ✔ fork: a collecting handler is fresh per run, even when forked into (0.076375ms)
+packages/kyoot test: ✔ fork: a typed failure in the fiber crosses join as a fail op (2.122792ms)
+packages/kyoot test: ✔ fork: fiber.await reports a typed failure as a Fail cause (0.240208ms)
+packages/kyoot test: ✔ race: a failing branch that finishes first fails the race, typed (0.649208ms)
+packages/kyoot test: ✔ all: a typed failure in one branch fails the whole, and the rest are interrupted (1.933667ms)
+packages/kyoot test: ✔ fork: Resource.run outside the fork gives the fiber a scope of its own (1.939834ms)
+packages/kyoot test: ✔ fork: Clock.virtual outside the fork makes the fiber's sleeps instant (0.587084ms)
+packages/kyoot test: ✔ fork: a copied handler that returns instead of resuming is a defect (0.312916ms)
+packages/kyoot test: ✔ fork: a handler marked fork: none stops at the fiber, loudly (0.262167ms)
+packages/kyoot test: ✔ fork: a copied handler that fails in its own scope fails the fiber, typed (0.231625ms)
+packages/kyoot test: ✔ fork: a typed failure still ends the fiber's own scope (0.386375ms)
+packages/kyoot test: ✔ fork: a user effect handled outside the fork answers inside it (0.158541ms)
+packages/kyoot test: ✔ scheduler: a hot loop in one fiber does not starve a sleeper (48.256917ms)
+packages/kyoot test: ✔ scheduler: a hot loop can be interrupted (1.444833ms)
+packages/kyoot test: ✔ scheduler: runSync never yields (3.409125ms)
+packages/kyoot test: ✔ scheduler: yields keep handler state and continuations (8.936375ms)
+packages/kyoot test: ✔ mapPromise keeps input order and hands each callback its index (8.70375ms)
+packages/kyoot test: ✔ forEachPromise runs one item at a time and returns void (3.762417ms)
+packages/kyoot test: ✔ reducePromise threads the accumulator in order (0.116167ms)
+packages/kyoot test: ✔ a rejected batch callback is a defect, like fromPromise (0.140875ms)
+packages/kyoot test: ✔ Async.intercept sees one operation for a whole batch (0.189333ms)
+packages/kyoot test: ✔ interruption stops a batch before the next item starts (21.060584ms)
+packages/kyoot test: ✔ a pending batch callback sees the operation's abort signal (0.1535ms)
+packages/kyoot test: ✔ a batch takes the source's length once, so a callback cannot extend it (0.105458ms)
+packages/kyoot test: ✔ pure handlers run the whole checkout under runSync (1.296708ms)
+packages/kyoot test: ✔ events stream out in order; success is Result.ok (0.291542ms)
+packages/kyoot test: ✔ out of stock is a typed failure from checkout itself (0.141375ms)
+packages/kyoot test: ✔ a declined card is a typed failure introduced by the payments handler (1.689666ms)
+packages/kyoot test: ✔ orThrow surfaces a typed failure as a throw (0.647917ms)
+packages/kyoot test: ✔ Clock.virtual: sleeps finish at once and add up (0.7825ms)
+packages/kyoot test: ✔ Clock.virtual: time is per run, not shared (0.081917ms)
+packages/kyoot test: ✔ runPromise serves the clock with real time (40.715958ms)
+packages/kyoot test: ✔ a nearer virtual clock wins over the driver's real one (0.431916ms)
+packages/kyoot test: ✔ a forked fiber gets the real clock, and interrupt cancels its sleep (0.76375ms)
+packages/kyoot test: ✔ map keeps a returned Kyoot as a value (1.421875ms)
+packages/kyoot test: ✔ flatMap sequences a returned Kyoot (0.542334ms)
+packages/kyoot test: ✔ map chains are trampolined: 100k maps, no stack overflow (13.491166ms)
+packages/kyoot test: ✔ pipe threads the computation through functions (0.130791ms)
+packages/kyoot test: ✔ gen: yield* plain values and sub-computations (0.107042ms)
+packages/kyoot test: ✔ gen isolates repeated, nested, and separate runs (0.461417ms)
+packages/kyoot test: ✔ gen keeps direct yield resumption unchanged (0.058375ms)
+packages/kyoot test: ✔ gen with an effect, handled (0.413041ms)
+packages/kyoot test: ✔ a throw inside map is a defect and surfaces at the edge as-is (0.215ms)
+packages/kyoot test: ✔ a throw inside a gen body is a defect (0.090375ms)
+packages/kyoot test: ✔ runSync on an unhandled effect fails loudly at runtime (0.070958ms)
+packages/kyoot test: ✔ a continuation dropped by its handler cannot be resumed later (0.13825ms)
+packages/kyoot test: ✔ a resume token discarded by its handler cannot be run later (0.072209ms)
+packages/kyoot test: ✔ a continuation may only be resumed once (0.055916ms)
+packages/kyoot test: ✔ a resume saved from one operation cannot answer a later operation (0.06275ms)
+packages/kyoot test: ✔ a resume.with saved from one operation cannot answer a later operation (0.063958ms)
+packages/kyoot test: ✔ a resume token saved from one operation cannot answer a later operation (0.06325ms)
+packages/kyoot test: ✔ a resume.with token saved from one operation cannot answer a later operation (0.060125ms)
+packages/kyoot test: ✔ a continuation held past its op still answers that op (0.06475ms)
+packages/kyoot test: ✔ a handler that resumes zero times short-circuits (0.041916ms)
+packages/kyoot test: ✔ an op escaping a yielded handler node keeps the outer continuation (0.057917ms)
+packages/kyoot test: ✔ a throw inside onOp goes to the same handler's onDefect (0.045375ms)
+packages/kyoot test: ✔ resume.with continues the program at the op, where its own handlers see it (0.059792ms)
+packages/kyoot test: ✔ intercept answers some ops and performs the rest for the handler outside (0.088958ms)
+packages/kyoot test: ✔ intercept with a cell: state per run, fresh each run (0.087083ms)
+packages/kyoot test: ✔ Clock, Log, and Random intercept: scale time, redact, fix the dice (0.244708ms)
+packages/kyoot test: ✔ Clock.intercept caps real sleeps under runPromise (3.248125ms)
+packages/kyoot test: ✔ Emit and Sync intercept: rewrite values, wrap thunks (0.628042ms)
+packages/kyoot test: ✔ Fail.intercept sees a failure on its way out and passes it on (0.40375ms)
+packages/kyoot test: ✔ Env intercept wraps the service the handler outside provides (0.576666ms)
+packages/kyoot test: ✔ Var intercept validates a set; the failure lands at the set (0.234167ms)
+packages/kyoot test: ✔ Resource intercept sees each acquire (0.229333ms)
+packages/kyoot test: ✔ Async intercept sees every async op; a fiber forked through it keeps the frames inside (0.502917ms)
+packages/kyoot test: ✔ Env: provide answers the service key (0.655666ms)
+packages/kyoot test: ✔ Env: tags yield directly (0.08775ms)
+packages/kyoot test: ✔ Env: multiple services get distinct keys (0.072833ms)
+packages/kyoot test: ✔ Var: get/set/update (11.672209ms)
+packages/kyoot test: ✔ Var: same-typed tags stay independent (0.323125ms)
+packages/kyoot test: ✔ Var: nested scopes shadow and restore (0.236041ms)
+packages/kyoot test: ✔ Var: each execution gets a fresh state frame (0.158042ms)
+packages/kyoot test: ✔ Emit.collect collects everything emitted (0.181417ms)
+packages/kyoot test: ✔ Emit.forEach consumes values as they happen (8.194042ms)
+packages/kyoot test: ✔ Emit.discard drops the stream (0.1205ms)
+packages/kyoot test: ✔ Sync.defer is lazy and Sync.run discharges it (0.072792ms)
+packages/kyoot test: ✔ Sync.defer: a throwing thunk is a defect, not a typed failure (0.2165ms)
+packages/kyoot test: ✔ Env: provide(make) runs the program, which may use a handler outside (2.050291ms)
+packages/kyoot test: ✔ Env: provide(make) runs once per run, however often the service is used (0.436417ms)
+packages/kyoot test: ✔ Env: a resource the program opens is released after the program (1.200083ms)
+packages/kyoot test: ✔ Env: a program that fails fails the whole program (0.263916ms)
+packages/kyoot test: ✔ Env: intercept wraps a provided service (0.158667ms)
+packages/kyoot test: ✔ Fail.run: success becomes Result.ok (0.696584ms)
+packages/kyoot test: ✔ Fail.run: typed failure becomes Result with a Fail cause (0.182292ms)
+packages/kyoot test: ✔ Fail.run: a defect lands in the defect channel, not the error channel (0.154541ms)
+packages/kyoot test: ✔ defects bypass Fail.catchAll (0.173209ms)
+packages/kyoot test: ✔ Fail.catchAll replaces a typed failure with a new computation (0.075625ms)
+packages/kyoot test: ✔ Fail.orThrow throws the error value at the edge (0.060125ms)
+packages/kyoot test: ✔ handler order: Var before Fail is transactional — failure carries no state (0.113667ms)
+packages/kyoot test: ✔ handler order: Fail before Var — state survives failure (0.077416ms)
+packages/kyoot test: ✔ Fail.catchTag: handles one tag and re-fails the rest (0.18525ms)
+packages/kyoot test: ✔ Fail.mapError: rewrites the failure (0.094083ms)
+packages/kyoot test: ✔ generator: finally runs when Fail.run drops the continuation (0.891083ms)
+packages/kyoot test: ✔ generator: catchAll recovers, then the dropped frame closes (0.149125ms)
+packages/kyoot test: ✔ generator: finally runs when Fail.orThrow drops the continuation (0.188875ms)
+packages/kyoot test: ✔ generator: finally runs when a custom handler answers without resuming (0.063584ms)
+packages/kyoot test: ✔ generator: nested generators close innermost first (0.072125ms)
+packages/kyoot test: ✔ generator: a defect closes the frames it unwinds past (0.091416ms)
+packages/kyoot test: ✔ generator: finally still runs on normal completion and on a thrown error (0.102334ms)
+packages/kyoot test: ✔ generator: finally runs before an outer Resource releases (0.203792ms)
+packages/kyoot test: ✔ generator: a finally that yields is a defect, not half-run cleanup (0.102375ms)
+packages/kyoot test: ✔ generator: a finally that throws surfaces after the rest of the cleanup (0.132291ms)
+packages/kyoot test: ✔ generator: an unhandled effect at the edge closes the frame (0.083708ms)
+packages/kyoot test: ✔ generator: finally runs when a fiber is interrupted (0.398625ms)
+packages/kyoot test: ✔ generator: a drop that ends in an unhandled effect still closes the frame (0.096917ms)
+packages/kyoot test: ✔ generator: a claimed continuation that never lands closes too (0.058375ms)
+packages/kyoot test: ✔ generator: frames queued behind a cleanup program close when the machine stops (0.1065ms)
+packages/kyoot test: ✔ generator: an outer finally that throws replaces the inner one's error (0.069083ms)
+packages/kyoot test: ✔ generator: the outer error also wins when the machine stops with a stack (0.060791ms)
+packages/kyoot test: ✔ generator: a handler that discards the resume token still drops the continuation (0.066709ms)
+packages/kyoot test: ✔ generator: a token saved past a closed continuation cannot restore it (0.0995ms)
+packages/kyoot test: ✔ generator: a frame queued inside a dropped continuation closes too (0.106416ms)
+packages/kyoot test: ✔ generator: a dropped cleanup plan still reports the error its finally raised (0.09475ms)
+packages/kyoot test: ✔ Log.collect gathers entries in order (0.8145ms)
+packages/kyoot test: ✔ Log.discard drops them (0.083667ms)
+packages/kyoot test: ✔ Random.seeded is deterministic and in range (2.017083ms)
+packages/kyoot test: ✔ Random.live draws from Math.random (0.339625ms)
+packages/kyoot test: ✔ Resource: release runs on success (1.408292ms)
+packages/kyoot test: ✔ Resource: sync releases on an unhandled effect (0.404625ms)
+packages/kyoot test: ✔ Resource: fiber releases on an unhandled effect (0.266334ms)
+packages/kyoot test: ✔ Resource: a typed release failure does not skip older finalizers (0.199583ms)
+packages/kyoot test: ✔ Resource: the body defect wins over typed release failures (0.14425ms)
+packages/kyoot test: ✔ Resource: finalizers run in LIFO order (0.079333ms)
+packages/kyoot test: ✔ Resource: release runs on typed failure (Resource outside Fail) (0.084208ms)
+packages/kyoot test: ✔ Resource: release runs on defect (0.082917ms)
+packages/kyoot test: ✔ Resource: a finalizer may be a program (runs on success) (11.89325ms)
+packages/kyoot test: ✔ Resource: program finalizers run on defect and the defect wins (6.117334ms)
+packages/kyoot test: ✔ Resource: program finalizers run to completion on interrupt (10.911125ms)
+packages/kyoot test: ✔ a rejected async op is a defect that handlers see (0.133542ms)
+packages/kyoot test: ✔ Resource: an acquire that throws releases what the scope already holds (0.069916ms)
+packages/kyoot test: ✔ Resource inside Fail.run: a failure still releases (0.121041ms)
+packages/kyoot test: ✔ Resource inside catchAll: the recovery runs, then the scope is released (0.122583ms)
+packages/kyoot test: ✔ Resource inside a catchTag that passes the failure on: the outer catch releases (0.080833ms)
+packages/kyoot test: ✔ a handler that performs an op and then does not resume releases after its op (0.0725ms)
+packages/kyoot test: ✔ a handler that resumes does not release early (0.091041ms)
+packages/kyoot test: ✔ a handler that claims a resume token and discards it still releases (0.055125ms)
+packages/kyoot test: ✔ a handler that claims a resume.with token and discards it still releases (0.054042ms)
+packages/kyoot test: ✔ a discarded resume token releases nested captured resources, innermost first (0.174333ms)
+packages/kyoot test: ✔ a discarded resume token releases a captured resource whose finalizer is async (0.088041ms)
+packages/kyoot test: ✔ a resume token returned later in the handler's program still resumes (0.065542ms)
+packages/kyoot test: ✔ Retry: re-runs until success, sleeping between attempts (0.953209ms)
+packages/kyoot test: ✔ Retry: gives up after `times` retries with the last failure (0.137583ms)
+packages/kyoot test: ✔ Retry: gives up when `while` rejects the failure (0.075875ms)
+packages/kyoot test: ✔ Retry: defects are not retried (0.2505ms)
+packages/kyoot test: ✔ Retry: works under runPromise with the real clock (7.601583ms)
+packages/kyoot test: ✔ Emit.fromIterable + map + run (1.156292ms)
+packages/kyoot test: ✔ Emit.forEach with an effectful callback (0.147792ms)
+packages/kyoot test: ✔ Emit.fromAsyncIterable → toAsyncIterable round trip (0.901833ms)
+packages/kyoot test: ✔ fromAsyncIterable removes settled abort listeners (0.943208ms)
+packages/kyoot test: ✔ toAsyncIterable: breaking early interrupts the producer (0.462458ms)
+packages/kyoot test: ✔ toAsyncIterable: a defect in the producer rejects the consumer (0.4175ms)
+packages/kyoot test: ✔ toAsyncIterable: the producer runs at most `buffer` items ahead (1.027417ms)
+packages/kyoot test: ✔ toAsyncIterable: breaking while the producer is parked interrupts it (0.253459ms)
+packages/kyoot test: ✔ toAsyncIterable: a producer that throws undefined rejects the consumer (0.167833ms)
+packages/kyoot test: ✔ toAsyncIterable: a defect after an emission delivers the item, then rejects (0.122708ms)
+packages/kyoot test: ✔ toAsyncIterable: an empty stream still completes (0.077167ms)
+packages/kyoot test: ✔ toAsyncIterable: a producer that throws null rejects the consumer (0.078958ms)
+packages/kyoot test: ✔ toAsyncIterable: a producer that throws 0 rejects the consumer (0.041125ms)
+packages/kyoot test: ✔ toAsyncIterable: a producer that throws false rejects the consumer (0.036875ms)
+packages/kyoot test: ✔ toAsyncIterable: a producer that throws "" rejects the consumer (0.047125ms)
+packages/kyoot test: ℹ tests 196
+packages/kyoot test: ℹ suites 0
+packages/kyoot test: ℹ pass 196
+packages/kyoot test: ℹ fail 0
+packages/kyoot test: ℹ cancelled 0
+packages/kyoot test: ℹ skipped 0
+packages/kyoot test: ℹ todo 0
+packages/kyoot test: ℹ duration_ms 442.380291
+packages/kyoot test: Done
+packages/registry test$ node --test test/*.test.ts
+packages/platform test$ node --test test/*.test.ts
+packages/ai test$ node --test test/*.test.ts
+packages/registry test: ✔ rapid provider churn keeps activations balanced (19.992042ms)
+packages/registry test: ✔ synchronous root finalizers do not lose notify transitions (13.457208ms)
+packages/registry test: ✔ a component activates when its dependencies appear (3.102209ms)
+packages/registry test: ✔ withdrawing a provider tears down dependents first (0.643958ms)
+packages/registry test: ✔ hot swap: a replacement provider reactivates dependents on the new value (0.472ms)
+packages/registry test: ✔ a root binding counts as a provider (0.19725ms)
+packages/registry test: ✔ a component whose setup throws is inactive with the error, and others keep working (0.32125ms)
+packages/registry test: ✔ dispose unloads in reverse order (0.24325ms)
+packages/registry test: ✔ a dependency chain stops and starts in dependency order (1.2525ms)
+packages/registry test: ✔ a diamond dependent changes state once for each missing edge (4.192833ms)
+packages/registry test: ✔ a component waits until all injected tags are present (0.977125ms)
+packages/registry test: ✔ a target flip during setup releases partial resources (0.274917ms)
+packages/registry test: ✔ failed setup releases resources, preserves peers, and retries after a target flip (0.3415ms)
+packages/registry test: ✔ use waits for setup to land (0.822583ms)
+packages/registry test: ✔ a root binding is withdrawn when its resource scope ends (0.141833ms)
+packages/registry test: ✔ dispose waits for an in-flight setup and leaves no resources (0.227125ms)
+packages/registry test: ✔ remove is idempotent and does not orphan another component (0.1455ms)
+packages/registry test: ✔ interrupting a registry program releases components in reverse order (0.25775ms)
+packages/registry test: ✔ two registries do not share bindings (0.168917ms)
+packages/registry test: ✔ a duplicate provider fails its setup and leaves the first binding alone (0.253542ms)
+packages/registry test: ✔ a binding becomes visible only when its provider lands (0.192709ms)
+packages/registry test: ℹ tests 21
+packages/registry test: ℹ suites 0
+packages/registry test: ℹ pass 21
+packages/registry test: ℹ fail 0
+packages/registry test: ℹ cancelled 0
+packages/registry test: ℹ skipped 0
+packages/registry test: ℹ todo 0
+packages/registry test: ℹ duration_ms 248.705
+packages/registry test: Done
+packages/ai test: ✔ ask: runs tool calls as effects and feeds results back (1.687834ms)
+packages/ai test: ✔ gen: decodes the answer tool, sending bad arguments back (0.5585ms)
+packages/ai test: ✔ ask: gives up with TooManyRounds (0.242042ms)
+packages/ai test: ✔ generate: one shot, returns the new messages (0.064625ms)
+packages/ai test: ✔ instances keep history; agents compose as tools with their own model (1.261917ms)
+packages/ai test: ✔ modes: system prompts and config layer around the model (0.373459ms)
+packages/ai test: ✔ events: text from the provider, calls and results from the loop (0.20325ms)
+packages/ai test: ✔ approval is an effect the tool performs (0.212375ms)
+packages/ai test: ✔ a tool's typed failure goes back to the model, not up the stack (0.183ms)
+packages/ai test: ✔ chatCompletions streams text, a split tool call, and usage (23.845959ms)
+packages/ai test: ✔ chatCompletions retries 429 with virtual backoff (1.842833ms)
+packages/ai test: ✔ chatCompletions does not retry 401 (0.30375ms)
+packages/ai test: ✔ sse: parses data events split across chunks and stops at [DONE] (14.610875ms)
+packages/ai test: ✔ sse: ends lines on CRLF, CR, and LF (1.30975ms)
+packages/ai test: ✔ sse: a CR at the end of a chunk ends one line, CRLF or not (5.285125ms)
+packages/ai test: ✔ sse: ignores comment lines (2.266041ms)
+packages/ai test: ✔ sse: keeps the data of an event that has other fields (0.975666ms)
+packages/ai test: ✔ sse: joins data lines with newlines, and a bare data line adds one (0.543333ms)
+packages/ai test: ✔ sse: yields nothing for an event with no data (2.34475ms)
+packages/ai test: ✔ sse: discards data the stream never terminates with a blank line (0.183042ms)
+packages/ai test: ✔ sse: stops at [DONE] with or without the leading space (0.208208ms)
+packages/ai test: ✔ sse: decodes a multi-byte character split across chunks (0.173208ms)
+packages/ai test: ℹ tests 22
+packages/ai test: ℹ suites 0
+packages/ai test: ℹ pass 22
+packages/ai test: ℹ fail 0
+packages/ai test: ℹ cancelled 0
+packages/ai test: ℹ skipped 0
+packages/ai test: ℹ todo 0
+packages/ai test: ℹ duration_ms 263.052458
+packages/ai test: Done
+packages/platform test: ✔ command: exit code and output (104.219959ms)
+packages/platform test: ✔ command: stdin, cwd, env (71.301708ms)
+packages/platform test: ✔ command: a program that cannot start is a CommandError (2.114666ms)
+packages/platform test: ✔ command: a fake handler (0.095875ms)
+packages/platform test: ✔ the same program runs against the in-memory file system (3.649833ms)
+packages/platform test: ✔ and against the real one (6.282208ms)
+packages/platform test: ✔ memory: errors carry codes (0.870458ms)
+packages/platform test: ✔ memory: recursive mkdir does not replace a file (0.22875ms)
+packages/platform test: ✔ node: errors carry codes (4.9735ms)
+packages/platform test: ✔ node: exists returns false when a path component is not a directory (2.794084ms)
+packages/platform test: ✔ a failure lands at the op, where the program's own catch sees it (3.688625ms)
+packages/platform test: ✔ handlers between the program and the file system see every op (2.086834ms)
+packages/platform test: ✔ confine takes the paths a prefix test lets through (0.297917ms)
+packages/platform test: ✔ confine checks the destination of a rename, and takes an absolute POSIX root (0.337584ms)
+packages/platform test: ℹ tests 14
+packages/platform test: ℹ suites 0
+packages/platform test: ℹ pass 14
+packages/platform test: ℹ fail 0
+packages/platform test: ℹ cancelled 0
+packages/platform test: ℹ skipped 0
+packages/platform test: ℹ todo 0
+packages/platform test: ℹ duration_ms 394.097
+packages/platform test: Done

@@ -17,8 +17,15 @@ export function runSync<A, S extends Row>(k: Kyoot<A, S> & Only<S>): A {
   const machine = spare ?? new Machine();
   spare = undefined;
   try {
-    if (machine.start(k as AnyKyoot) === "done") return machine.value as A;
-    throw unhandledEffect("runSync", machine.key);
+    let outcome = machine.start(k as AnyKyoot);
+    let boundaryError: Error | undefined;
+    while (outcome !== "done") {
+      const error = unhandledEffect("runSync", machine.key);
+      boundaryError ??= error;
+      outcome = machine.raise(error);
+    }
+    if (boundaryError !== undefined) throw boundaryError;
+    return machine.value as A;
   } finally {
     machine.reset();
     spare = machine;
@@ -90,6 +97,7 @@ class Fiber<A> implements FiberHandle<A> {
   private generation = 0;
   private waiting = false;
   private interrupted = false;
+  private boundaryError: Error | undefined;
 
   constructor(k: Kyoot<A, any>, parent: Fiber<any> | undefined) {
     const { controller } = this;
@@ -166,7 +174,8 @@ class Fiber<A> implements FiberHandle<A> {
     let outcome = initial;
     while (true) {
       if (outcome === "done") {
-        this.resolve(machine.value as A);
+        if (this.boundaryError !== undefined) this.reject(this.boundaryError);
+        else this.resolve(machine.value as A);
         return;
       }
 
@@ -178,8 +187,10 @@ class Fiber<A> implements FiberHandle<A> {
 
       const { key, payload, handlers } = machine;
       if (!served(key)) {
-        this.reject(unhandledEffect("fiber", key));
-        return;
+        const error = unhandledEffect("fiber", key);
+        this.boundaryError ??= error;
+        outcome = machine.raise(error, STEP_BUDGET);
+        continue;
       }
 
       if (controller.signal.aborted && !this.interrupted) {

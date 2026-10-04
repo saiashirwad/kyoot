@@ -438,7 +438,6 @@ test("generator: a frame queued inside a dropped continuation closes too", () =>
       events.push("outer");
     }
   });
-  // The replacement stops the machine before the cleanup of the held continuation starts.
   const answer = Kyoot.gen(function* () {
     yield* Resource.acquire(
       () => 2,
@@ -454,7 +453,7 @@ test("generator: a frame queued inside a dropped continuation closes too", () =>
     () => Kyoot.runSync(prog as never),
     (e: unknown) => e instanceof Error && e.message.includes("unhandled effect 'missing'"),
   );
-  assert.deepEqual(events, ["outer"]);
+  assert.deepEqual(events, ["release", "outer"]);
 });
 
 test("generator: a dropped cleanup plan still reports the error its finally raised", () => {

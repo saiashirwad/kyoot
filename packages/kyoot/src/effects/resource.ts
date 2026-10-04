@@ -1,6 +1,8 @@
 import { gen, isKyoot, makeHandler, makeIntercept, op, succeed } from "../core.ts";
 import type { Kyoot, RowOf } from "../model.ts";
 import type { MergeAll, Row } from "../types.ts";
+import type { Result } from "../result.ts";
+import * as Fail from "./fail.ts";
 
 type Finalizer = () => unknown;
 
@@ -18,30 +20,21 @@ export const intercept = <S extends Row = {}>() =>
 
 const unit = succeed(undefined);
 
-const attempting = Symbol("resource/finalizer");
-
-const attempt = (f: Finalizer, errors: unknown[]) =>
-  makeHandler(
-    attempting,
-    unit.flatMap(() => {
+const attempt = (f: Finalizer) =>
+  unit
+    .flatMap(() => {
       const r = f();
       return isKyoot(r) ? r : succeed(r);
-    }),
-    {
-      onOp: () => {
-        throw new Error("unreachable");
-      },
-      onDefect: (d) => {
-        errors.push(d);
-        return unit;
-      },
-    },
-  );
+    })
+    .pipe(Fail.run);
 
 const finalize = (finalizers: readonly Finalizer[]) =>
   gen(function* () {
-    const errors: unknown[] = [];
-    for (let i = finalizers.length - 1; i >= 0; i--) yield* attempt(finalizers[i]!, errors);
+    const errors: Result<unknown, unknown>[] = [];
+    for (let i = finalizers.length - 1; i >= 0; i--) {
+      const result = yield* attempt(finalizers[i]!);
+      if (!result.ok) errors.push(result);
+    }
     return errors;
   });
 
@@ -59,10 +52,9 @@ export const run = <A, S extends Row & { resource?: ResourceOp<any> }>(
       return resume(r);
     },
     onSuccess: (a, finalizers) =>
-      finalize(finalizers).map((errors) => {
-        if (errors.length > 0) throw errors[0];
-        return a;
-      }),
+      finalize(finalizers).flatMap((errors) =>
+        errors.length > 0 ? Fail.fromResult(errors[0]!) : succeed(a),
+      ),
     onDefect: (d, finalizers) =>
       finalize(finalizers).map(() => {
         throw d;

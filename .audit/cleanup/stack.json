@@ -1,0 +1,32 @@
+[
+  {
+    "branch": "cleanup/resource-unwind",
+    "base": "main",
+    "pr": 31
+  },
+  {
+    "branch": "cleanup/platform",
+    "base": "cleanup/resource-unwind",
+    "pr": 32
+  },
+  {
+    "branch": "cleanup/registry",
+    "base": "cleanup/platform",
+    "pr": 33
+  },
+  {
+    "branch": "cleanup/ai-protocol",
+    "base": "cleanup/registry",
+    "pr": 34
+  },
+  {
+    "branch": "cleanup/effect-contracts",
+    "base": "cleanup/ai-protocol",
+    "pr": 35
+  },
+  {
+    "branch": "cleanup/ai-turns",
+    "base": "cleanup/effect-contracts",
+    "pr": 36
+  }
+]

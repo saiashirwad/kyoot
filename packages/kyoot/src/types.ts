@@ -1,8 +1,10 @@
+import type { Requirement } from "./core.ts";
+
 export type Row = Record<string, unknown>;
 
 export type Merge<S1 extends Row, S2 extends Row> = MergeAll<S1 | S2>;
 
-export type FailRow<E> = [E] extends [never] ? {} : { fail: E };
+export type FailRow<E> = [E] extends [never] ? {} : { fail: Requirement<E, never> };
 
 export type Unhandled<K> = { readonly "unhandled effects": K };
 

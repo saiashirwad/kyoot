@@ -1,0 +1,27 @@
+Scope: all 6 workspace projects
+✓ Lockfile passes supply-chain policies (verified 1h ago)
+Lockfile is up to date, resolution step is skipped
+Already up to date
+
+Done in 185ms using pnpm v11.13.0
+.audit/cleanup/continuation-contract/original-probe.mts(7,3): error TS2345: Argument of type '<B, S extends Row & { [k in "n"]?: Requirement<void, number, void, EffectRow<"s", void, number>>; }>(k: Kyoot<B, S>) => Kyoot<B, MergeAll<Omit<S, "n"> | {}>>' is not assignable to parameter of type '(a: Performed<"n", Requirement<void, number, void, {}>, number, {}>) => Kyoot<number, { [x: string]: unknown; }>'.
+  Types of parameters 'k' and 'a' are incompatible.
+    Type 'Performed<"n", Requirement<void, number, void, {}>, number, {}>' is not assignable to type 'Kyoot<number, Row & { n?: Requirement<void, number, void, EffectRow<"s", void, number>> | undefined; }>'.
+      Types of property '_' are incompatible.
+        Type '((s: { n: (value: Requirement<void, number, void, {}>) => Requirement<void, number, void, {}>; }) => void) | undefined' is not assignable to type '((s: { [x: string]: (value: unknown) => unknown; n?: ((value: Requirement<void, number, void, EffectRow<"s", void, number>> | undefined) => Requirement<void, number, void, EffectRow<...>> | undefined) | undefined; }) => void) | undefined'.
+          Type '(s: { n: (value: Requirement<void, number, void, {}>) => Requirement<void, number, void, {}>; }) => void' is not assignable to type '(s: { [x: string]: (value: unknown) => unknown; n?: ((value: Requirement<void, number, void, EffectRow<"s", void, number>> | undefined) => Requirement<void, number, void, EffectRow<...>> | undefined) | undefined; }) => void'.
+            Types of parameters 's' and 's' are incompatible.
+              Type '{ [x: string]: (value: unknown) => unknown; n?: ((value: Requirement<void, number, void, EffectRow<"s", void, number>> | undefined) => Requirement<void, number, void, EffectRow<...>> | undefined) | undefined; }' is not assignable to type '{ n: (value: Requirement<void, number, void, {}>) => Requirement<void, number, void, {}>; }'.
+                Types of property 'n' are incompatible.
+                  Type '((value: Requirement<void, number, void, EffectRow<"s", void, number>> | undefined) => Requirement<void, number, void, EffectRow<"s", void, number>> | undefined) | undefined' is not assignable to type '(value: Requirement<void, number, void, {}>) => Requirement<void, number, void, {}>'.
+                    Type 'undefined' is not assignable to type '(value: Requirement<void, number, void, {}>) => Requirement<void, number, void, {}>'.
+.audit/cleanup/continuation-contract/original-probe.mts(14,3): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'Kyoot<number, Row> & Unhandled<string>'.
+  Type 'unknown' is not assignable to type 'Kyoot<number, Row>'.
+.audit/cleanup/continuation-contract/original-probe.mts(15,5): error TS2345: Argument of type '<B, S extends Row & { [k in "n"]?: Requirement<void, number, void, EffectRow<"s", void, string>>; }>(k: Kyoot<B, S>) => Kyoot<B, MergeAll<Omit<S, "n"> | {}>>' is not assignable to parameter of type '(a: Performed<"n", Requirement<void, number, void, EffectRow<"s", void, number>>, number, EffectRow<"s", void, number>>) => Kyoot<...>'.
+  Types of parameters 'k' and 'a' are incompatible.
+    Type 'Performed<"n", Requirement<void, number, void, EffectRow<"s", void, number>>, number, EffectRow<"s", void, number>>' is not assignable to type 'Kyoot<number, Row & { n?: Requirement<void, number, void, EffectRow<"s", void, string>> | undefined; }>'.
+      Types of property '_' are incompatible.
+        Type '((s: { n: (value: Requirement<void, number, void, EffectRow<"s", void, number>>) => Requirement<void, number, void, EffectRow<"s", void, number>>; s: (value: Requirement<...>) => Requirement<...>; }) => void) | undefined' is not assignable to type '((s: { [x: string]: (value: unknown) => unknown; n?: ((value: Requirement<void, number, void, EffectRow<"s", void, string>> | undefined) => Requirement<void, number, void, EffectRow<...>> | undefined) | undefined; }) => void) | undefined'.
+          Type '(s: { n: (value: Requirement<void, number, void, EffectRow<"s", void, number>>) => Requirement<void, number, void, EffectRow<"s", void, number>>; s: (value: Requirement<...>) => Requirement<...>; }) => void' is not assignable to type '(s: { [x: string]: (value: unknown) => unknown; n?: ((value: Requirement<void, number, void, EffectRow<"s", void, string>> | undefined) => Requirement<void, number, void, EffectRow<...>> | undefined) | undefined; }) => void'.
+            Types of parameters 's' and 's' are incompatible.
+              Property 's' is missing in type '{ [x: string]: (value: unknown) => unknown; n?: ((value: Requirement<void, number, void, EffectRow<"s", void, string>> | undefined) => Requirement<void, number, void, EffectRow<...>> | undefined) | undefined; }' but required in type '{ n: (value: Requirement<void, number, void, EffectRow<"s", void, number>>) => Requirement<void, number, void, EffectRow<"s", void, number>>; s: (value: Requirement<...>) => Requirement<...>; }'.

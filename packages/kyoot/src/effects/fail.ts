@@ -1,15 +1,24 @@
-import { fail, InterruptedError, makeHandler, makeIntercept, succeed } from "../core.ts";
+import {
+  fail,
+  InterruptedError,
+  unsafeMakeHandler,
+  makeIntercept,
+  succeed,
+  type Requirement,
+  type Payload,
+} from "../core.ts";
 import type { AnyKyoot, Kyoot } from "../model.ts";
 import { Result } from "../result.ts";
 import type { FailRow, MergeAll, Row } from "../types.ts";
 
 export { fail };
 
-export const intercept = <E = unknown>() => makeIntercept<"fail", E, never>("fail");
+export const intercept = <E = unknown>() =>
+  makeIntercept<"fail", E, never, {}, Requirement<E, never>>("fail");
 
-export const run = <A, S extends Row & { fail?: unknown }>(k: Kyoot<A, S>) =>
-  makeHandler("fail", k, {
-    onOp: (e) => succeed(Result.fail(e)),
+export const run = <A, S extends Row & { fail?: Requirement<any, never> }>(k: Kyoot<A, S>) =>
+  unsafeMakeHandler("fail", k, {
+    onOp: (e: Payload<S, "fail">) => succeed(Result.fail(e)),
     onSuccess: (a) => succeed(Result.ok(a)),
     onDefect: (d) => succeed(Result.defect(d)),
   });
@@ -28,12 +37,14 @@ export const fromResult = <E, A = never>(r: Result<E, A>): Kyoot<A, FailRow<E>> 
 
 export const catchAll =
   <E, A2, S2 extends Row>(f: (e: E) => Kyoot<A2, S2>) =>
-  <A, S extends Row & { fail?: E }>(k: Kyoot<A, S>) =>
-    makeHandler("fail", k, { onOp: (e) => f(e) });
+  <A, S extends Row & { fail?: Requirement<any, never> }>(
+    k: Kyoot<A, S> & ([Payload<S, "fail">] extends [E] ? unknown : never),
+  ) =>
+    unsafeMakeHandler("fail", k, { onOp: (e: E) => f(e) });
 
-export const orThrow = <A, S extends Row & { fail?: unknown }>(k: Kyoot<A, S>) =>
-  makeHandler("fail", k, {
-    onOp: (e) => {
+export const orThrow = <A, S extends Row & { fail?: Requirement<any, never> }>(k: Kyoot<A, S>) =>
+  unsafeMakeHandler("fail", k, {
+    onOp: (e: Payload<S, "fail">) => {
       throw e;
     },
   });
@@ -47,9 +58,14 @@ export const catchTag =
     tag: T,
     f: (e: E) => Kyoot<A2, S2>,
   ) =>
-  <A, S extends Row & { fail?: Tagged }>(
-    k: Kyoot<A, S>,
-  ): Kyoot<A | A2, MergeAll<Refail<S, Exclude<S["fail"], { _tag: T } | undefined>> | S2>> =>
+  <A, S extends Row & { fail?: Requirement<any, never> }>(
+    k: Kyoot<A, S> &
+      ([Payload<S, "fail">] extends [Tagged] ? unknown : never) &
+      ([Extract<Payload<S, "fail">, { _tag: T }>] extends [E] ? unknown : never),
+  ): Kyoot<
+    A | A2,
+    MergeAll<Refail<S, Exclude<Payload<S, "fail">, { _tag: T } | undefined>> | S2>
+  > =>
     catchAll((e: Tagged): AnyKyoot => (e._tag === tag ? f(e as E) : fail(e)))(k) as never;
 
 export const mapError = <E, E2>(f: (e: E) => E2) => catchAll((e: E) => fail(f(e)));

@@ -1,0 +1,12 @@
+$ pnpm -r typecheck
+Scope: 5 of 6 workspace projects
+packages/kyoot typecheck$ tsc -p tsconfig.json
+packages/kyoot typecheck: Done
+packages/ai typecheck$ tsc -p tsconfig.json
+packages/bench typecheck$ tsc -p tsconfig.json
+packages/platform typecheck$ tsc -p tsconfig.json
+packages/registry typecheck$ tsc -p tsconfig.json
+packages/platform typecheck: Done
+packages/ai typecheck: Done
+packages/bench typecheck: Done
+packages/registry typecheck: Done

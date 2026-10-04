@@ -1,4 +1,12 @@
-import { gen, isKyoot, makeHandler, makeIntercept, op, succeed } from "../core.ts";
+import {
+  gen,
+  isKyoot,
+  unsafeMakeHandler,
+  makeIntercept,
+  makeOp,
+  type DependentRequirement,
+  succeed,
+} from "../core.ts";
 import type { Kyoot, RowOf } from "../model.ts";
 import type { MergeAll, Row } from "../types.ts";
 import type { Result } from "../result.ts";
@@ -12,11 +20,16 @@ export interface ResourceOp<S extends Row = {}> {
   readonly release: (r: unknown) => unknown;
 }
 
-export const acquire = <R, C>(open: () => R, close: (r: R) => C) =>
-  op<R>()("resource", { acquire: open, release: close } as ResourceOp<RowOf<C>>);
+declare const family: unique symbol;
+export type ResourceRow<S extends Row = {}> = {
+  resource: DependentRequirement<ResourceOp<S>, S, typeof family>;
+};
 
-export const intercept = <S extends Row = {}>() =>
-  makeIntercept<"resource", ResourceOp<S>, unknown>("resource");
+export const acquire = <R, C>(open: () => R, close: (r: R) => C) =>
+  makeOp("resource", { acquire: open, release: close }) as Kyoot<R, ResourceRow<RowOf<C>>>;
+
+export const unsafeIntercept = <S extends Row = {}>() =>
+  makeIntercept<"resource", ResourceOp<S>, unknown, {}, ResourceRow<S>["resource"]>("resource");
 
 const unit = succeed(undefined);
 
@@ -38,15 +51,16 @@ const finalize = (finalizers: readonly Finalizer[]) =>
     return errors;
   });
 
-type ReleaseRow<R> = R extends ResourceOp<infer S> ? S : never;
+type ReleaseRow<R> =
+  R extends DependentRequirement<ResourceOp<infer S>, any, typeof family> ? S : never;
 
-export const run = <A, S extends Row & { resource?: ResourceOp<any> }>(
+export const run = <A, S extends Row & Partial<ResourceRow<any>>>(
   k: Kyoot<A, S>,
 ): Kyoot<A, MergeAll<Omit<S, "resource"> | ReleaseRow<S["resource"]>>> =>
-  makeHandler("resource", k, {
+  unsafeMakeHandler("resource", k, {
     fork: "scope",
     create: () => [] as Finalizer[],
-    onOp: (res, resume, finalizers) => {
+    onOp: (res: ResourceOp, resume, finalizers) => {
       const r = res.acquire();
       finalizers.push(() => res.release(r));
       return resume(r);

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Clock, Emit, Fail, InterruptedError, Kyoot, runFiber } from "kyoot";
-import { chatCompletions, Model, ProviderError, type Request } from "@kyoot/ai";
+import { chatCompletions, Events, Model, ProviderError, type Request } from "@kyoot/ai";
 
 const options = { url: "https://example.test/chat", model: "test", apiKey: "secret" };
 const request: Request = { messages: [{ role: "user", content: "hello" }] };
@@ -77,7 +77,7 @@ test("chatCompletions interruption cancels a pending stream read", { timeout: 20
   const fiber = runFiber(
     Model(request).pipe(
       chatCompletions(options),
-      Emit.intercept<unknown>()((value, next) => {
+      Emit.intercept<Events.Event>()((value, next) => {
         started();
         return next(value);
       }),

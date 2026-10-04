@@ -1,17 +1,17 @@
 import { Async, InterruptedError, Kyoot, Resource, runFiber } from "kyoot";
-import type { AsyncOp, Env, FiberHandle, Kyoot as K, Only, Row } from "kyoot";
+import type { Env, FiberHandle, Kyoot as K, Only, Row } from "kyoot";
 
-type Tag<E> = Env.Tag<string, E>;
+type Tag<E> = Pick<Env.Tag<string, E>, "key"> & { get(): K<E, any> };
 type AnyTag = Tag<any>;
 
 export type Inject = Record<string, AnyTag>;
 
 export type Resolve<I extends Inject> = {
-  [N in keyof I]: I[N] extends Env.Tag<string, infer E> ? E : never;
+  [N in keyof I]: I[N] extends Tag<infer E> ? E : never;
 };
 
 export interface Ctx {
-  set<E>(tag: Tag<E>, impl: E): K<void, { resource: Resource.ResourceOp }>;
+  set<E>(tag: Tag<E>, impl: NoInfer<E>): K<void, Resource.ResourceRow>;
 }
 
 export interface Component<I extends Inject = Inject> {
@@ -27,7 +27,7 @@ export const component = <I extends Inject, S extends Row>(spec: {
 export interface Handle {
   readonly active: boolean;
   readonly error: unknown;
-  remove(): K<void, { async: AsyncOp }>;
+  remove(): K<void, Async.AsyncRow>;
 }
 
 interface Entry {
@@ -55,7 +55,7 @@ export class Registry implements Ctx {
   private readonly bindings = new Map<AnyTag, { impl: unknown; owner: Entry }>();
   private readonly entries: Entry[] = [];
 
-  use(component: Component<any>): K<Handle, { async: AsyncOp }> {
+  use(component: Component<any>): K<Handle, Async.AsyncRow> {
     return Kyoot.gen(
       function* (this: Registry) {
         const registration = yield* Resource.acquire(
@@ -90,23 +90,23 @@ export class Registry implements Ctx {
     ).pipe(Resource.run);
   }
 
-  set<E>(tag: Tag<E>, impl: E) {
+  set<E>(tag: Tag<E>, impl: NoInfer<E>) {
     return this.bind(root, tag, impl);
   }
 
-  dispose(): K<void, { async: AsyncOp }> {
+  dispose(): K<void, Async.AsyncRow> {
     return Async.fromPromise(async () => {
       for (const entry of [...this.entries].reverse()) await this.remove(entry);
     });
   }
 
-  settled(): K<void, { async: AsyncOp }> {
+  settled(): K<void, Async.AsyncRow> {
     return Async.fromPromise(async () => {
       await Promise.all(this.entries.map((e) => e.inertia));
     });
   }
 
-  private bind<E>(owner: Entry, tag: Tag<E>, impl: E) {
+  private bind<E>(owner: Entry, tag: Tag<E>, impl: NoInfer<E>) {
     return Resource.acquire(
       () => {
         if (this.bindings.has(tag)) throw new Error(`duplicate provider for ${tag.key}`);

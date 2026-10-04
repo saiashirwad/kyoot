@@ -1,9 +1,16 @@
-import { InterruptedError } from "./core.ts";
+import { InterruptedError, type Requirement } from "./core.ts";
 import { Machine, type Outcome } from "./machine.ts";
 import { NodeSym, type AnyKyoot, type Kyoot, type Snapshot } from "./model.ts";
 import type { Only, Row } from "./types.ts";
 
 export type Served = "async" | "clock";
+export type ServedRow = {
+  clock: number | Requirement<number, void>;
+  async: import("./effects/async.ts").AsyncRow["async"] | Requirement<AsyncOp, unknown>;
+};
+export type ServedKeys<S> = {
+  [K in keyof S]: K extends keyof ServedRow ? (S[K] extends ServedRow[K] ? K : never) : never;
+}[keyof S];
 const served = (key: PropertyKey): key is Served => key === "async" || key === "clock";
 
 const unhandledEffect = (edge: string, key: PropertyKey) =>
@@ -220,7 +227,9 @@ class Fiber<A> implements FiberHandle<A> {
   }
 }
 
-export function runPromise<A, S extends Row>(k: Kyoot<A, S> & Only<S, Served>): Promise<A> {
+export function runPromise<A, S extends Row & Partial<ServedRow>>(
+  k: Kyoot<A, S> & Only<S, Served>,
+): Promise<A> {
   return runFiber<A>(k).promise;
 }
 

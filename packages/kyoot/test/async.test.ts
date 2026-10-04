@@ -697,9 +697,9 @@ test("a rejected batch callback is a defect, like fromPromise", async () => {
   assert.deepEqual(started, [1, 2]);
 });
 
-test("Async.intercept sees one operation for a whole batch", async () => {
+test("Async.unsafeIntercept sees one operation for a whole batch", async () => {
   let ops = 0;
-  const count = Async.intercept((op, next) => (ops++, next(op)));
+  const count = Async.unsafeIntercept((op, next) => (ops++, next(op)));
   await Kyoot.runPromise(
     Async.forEachPromise([1, 2, 3, 4, 5], () => Promise.resolve()).pipe(count),
   );

@@ -1,5 +1,5 @@
 import type { Pipeable } from "./pipe.ts";
-import type { Merge, Row } from "./types.ts";
+import type { MergeAll, Row } from "./types.ts";
 
 export type AnyKyoot = Kyoot<any, any>;
 
@@ -14,7 +14,7 @@ export type OnOp = (
   inherited?: readonly Snapshot[],
 ) => AnyKyoot;
 
-export type ForkMode = "copy" | "scope" | "none";
+export type ForkMode<St = unknown> = "share" | "scope" | "none" | ((state: St) => St);
 
 export type RuntimeNode =
   | {
@@ -80,13 +80,13 @@ export interface Snapshot {
 export const NodeSym: unique symbol = Symbol("kyoot.node");
 
 export interface Kyoot<A, S extends Row = {}> extends Pipeable {
-  readonly _?: (s: S) => void;
+  readonly _?: (s: 0 extends 1 & S ? any : { [K in keyof S]: (value: S[K]) => S[K] }) => void;
 
   readonly [NodeSym]: RuntimeNode;
 
   map<B>(f: (a: A) => B): Kyoot<B, S>;
 
-  flatMap<B, S2 extends Row>(f: (a: A) => Kyoot<B, S2>): Kyoot<B, Merge<S, S2>>;
+  flatMap<R extends AnyKyoot>(f: (a: A) => R): Kyoot<ValueOf<R>, MergeAll<S | RowOf<R>>>;
 
   [Symbol.iterator](): Iterator<Kyoot<unknown, S>, A, unknown>;
 }

@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import * as fsp from "node:fs/promises";
 import { Async, Fail } from "kyoot";
-import type { Kyoot as K, Row } from "kyoot";
+import type { Kyoot as K, Row, Requirement } from "kyoot";
 import * as Command from "./command.ts";
 import * as FileSystem from "./fs.ts";
 
@@ -66,7 +66,7 @@ const performFs = (op: FileSystem.Op): Promise<unknown> => {
   }
 };
 
-export const fs = FileSystem.handle({
+export const fs = FileSystem.unsafeHandle({
   onOp: (op, resume) =>
     attempt(
       () => performFs(op),
@@ -101,6 +101,17 @@ export const command = Command.handle({
     ).flatMap((r) => (r.ok ? resume(r.value) : resume.with(Fail.fail(r.error)))),
 });
 
-export const provide = <A, S extends Row & { fs?: FileSystem.Op; command?: Command.Op }>(
+export const provide = <
+  A,
+  S extends Row &
+    Partial<FileSystem.FileSystemRow> & {
+      command?: Requirement<
+        Command.Op,
+        Command.Output,
+        Command.Op,
+        { fail: Requirement<Command.CommandError, never> }
+      >;
+    },
+>(
   k: K<A, S>,
 ) => k.pipe(fs, command);

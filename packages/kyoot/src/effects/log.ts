@@ -1,4 +1,4 @@
-import { effect, makeHandler, succeed } from "../core.ts";
+import { effect, type Requirement, unsafeMakeHandler, succeed } from "../core.ts";
 import type { Kyoot } from "../model.ts";
 import type { Row } from "../types.ts";
 
@@ -29,10 +29,10 @@ export const print = log.handle({
   },
 });
 
-export const collect = <A, S extends Row & { log?: Entry }>(k: Kyoot<A, S>) =>
-  makeHandler("log", k, {
+export const collect = <A, S extends Row & { log?: Requirement<Entry, void> }>(k: Kyoot<A, S>) =>
+  unsafeMakeHandler("log", k, {
     create: () => [] as Entry[],
-    onOp: (entry, resume, entries) => {
+    onOp: (entry: Entry, resume, entries) => {
       entries.push(entry);
       return resume(undefined);
     },

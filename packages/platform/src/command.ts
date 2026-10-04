@@ -1,4 +1,4 @@
-import { effect } from "kyoot";
+import { type Requirement, effect } from "kyoot";
 
 export interface Options {
   readonly cwd?: string;
@@ -28,7 +28,7 @@ export class CommandError {
   }
 }
 
-const command = effect<Op, Output, { fail: CommandError }>()("command");
+const command = effect<Op, Output, { fail: Requirement<CommandError, never> }>()("command");
 
 export const handle = command.handle;
 

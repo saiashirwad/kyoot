@@ -1,0 +1,6 @@
+$ tsc -p tsconfig.json
+test/contract-repair.test-d.ts(49,1): error TS2578: Unused '@ts-expect-error' directive.
+test/contract-repair.test-d.ts(52,1): error TS2578: Unused '@ts-expect-error' directive.
+/Users/texoport/code/kyoot-contracts-repair/packages/kyoot:
+[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] kyoot@0.1.0 typecheck: `tsc -p tsconfig.json`
+Exit status 1

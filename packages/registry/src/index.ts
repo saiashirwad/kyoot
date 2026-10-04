@@ -32,6 +32,7 @@ export interface Handle {
 
 interface Entry {
   readonly component: Component;
+  registered: boolean;
   target: boolean;
   active: boolean;
   landed: boolean;
@@ -44,6 +45,7 @@ type Outcome = { type: "landed" } | { type: "interrupted" } | { type: "failed"; 
 
 const root: Entry = {
   component: { inject: {}, run: () => Async.never },
+  registered: true,
   target: true,
   active: true,
   landed: true,
@@ -54,25 +56,38 @@ export class Registry implements Ctx {
   private readonly entries: Entry[] = [];
 
   use(component: Component<any>): K<Handle, { async: AsyncOp }> {
-    const entry: Entry = { component, target: false, active: false, landed: false };
-    return Async.fromPromise(async () => {
-      this.entries.push(entry);
-      await this.refresh(entry);
-      return {
-        get active() {
-          return entry.active;
-        },
-        get error() {
-          return entry.error;
-        },
-        remove: () =>
-          Async.fromPromise(async () => {
-            await this.retarget(entry, false);
-            const i = this.entries.indexOf(entry);
-            if (i >= 0) this.entries.splice(i, 1);
-          }),
-      };
-    });
+    return Kyoot.gen(
+      function* (this: Registry) {
+        const registration = yield* Resource.acquire(
+          () => {
+            const entry: Entry = {
+              component,
+              registered: true,
+              target: false,
+              active: false,
+              landed: false,
+            };
+            this.entries.push(entry);
+            return { entry, delivered: false };
+          },
+          ({ entry, delivered }) =>
+            delivered ? Kyoot.succeed(undefined) : Async.fromPromise(() => this.remove(entry)),
+        );
+        const { entry } = registration;
+        yield* Async.fromPromise(() => this.refresh(entry));
+        const handle: Handle = {
+          get active() {
+            return entry.active;
+          },
+          get error() {
+            return entry.error;
+          },
+          remove: () => Async.fromPromise(() => this.remove(entry)),
+        };
+        registration.delivered = true;
+        return handle;
+      }.bind(this),
+    ).pipe(Resource.run);
   }
 
   set<E>(tag: Tag<E>, impl: E) {
@@ -81,8 +96,7 @@ export class Registry implements Ctx {
 
   dispose(): K<void, { async: AsyncOp }> {
     return Async.fromPromise(async () => {
-      for (const entry of [...this.entries].reverse()) await this.retarget(entry, false);
-      this.entries.length = 0;
+      for (const entry of [...this.entries].reverse()) await this.remove(entry);
     });
   }
 
@@ -125,7 +139,14 @@ export class Registry implements Ctx {
   }
 
   private refresh(entry: Entry) {
-    return this.retarget(entry, this.satisfied(entry));
+    return this.retarget(entry, entry.registered && this.satisfied(entry));
+  }
+
+  private async remove(entry: Entry) {
+    entry.registered = false;
+    await this.retarget(entry, false);
+    const index = this.entries.indexOf(entry);
+    if (index >= 0) this.entries.splice(index, 1);
   }
 
   private retarget(entry: Entry, target: boolean) {

@@ -9,4 +9,4 @@ export const handle = sync.handle;
 
 export const intercept = sync.intercept;
 
-export const run = sync.handle({ onOp: (f, resume) => resume(f()) });
+export const run = sync.handle({ tail: (f) => f() });

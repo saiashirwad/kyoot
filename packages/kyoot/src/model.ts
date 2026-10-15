@@ -19,7 +19,10 @@ export interface HandlerHooks {
   readonly initial?: unknown;
   readonly create?: () => unknown;
   readonly fork?: Fork;
-  readonly onOp: OnOp;
+  // A handler gives one of these: `onOp`, which runs a program and resumes or aborts,
+  // or `tail`, which answers the op with a value at once, as if the op were a call.
+  readonly onOp?: OnOp;
+  readonly tail?: (payload: any, state: any) => unknown;
   readonly onReturn?: (a: unknown, state: unknown) => AnyKyoot;
 }
 
@@ -39,8 +42,7 @@ export interface Kyoot<A, S extends Row = {}> extends Pipeable {
   [Symbol.iterator](): Iterator<Kyoot<unknown, S>, A, unknown>;
 }
 
-export type RowsOf<Y> = Y extends Kyoot<any, infer S> ? S : never;
-
-export type RowOf<R> = R extends Kyoot<any, infer S> ? S : {};
+// The effects a program performs; anything that is not a program performs none.
+export type RowsOf<R> = R extends Kyoot<any, infer S> ? S : {};
 
 export type ValueOf<R> = R extends Kyoot<infer A, any> ? A : never;

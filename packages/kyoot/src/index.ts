@@ -5,22 +5,25 @@ import type { Row } from "./types.ts";
 
 export {
   catchDefect,
+  collect,
   effect,
   ensuring,
+  forEach,
   inherit,
   InterruptedError,
   makeHandler,
   makeIntercept,
   op,
+  withState,
 } from "./core.ts";
 export { runFiber } from "./runtime.ts";
-export type { Cell, Intercept, Resume } from "./core.ts";
+export type { Cell, Hooks, Intercept, OpHooks, Resume, TailHooks } from "./core.ts";
 export type { AsyncOp, AsyncRuntime, FiberHandle } from "./runtime.ts";
 export type { Pipeable } from "./pipe.ts";
 export { Result } from "./result.ts";
 export type { Cause, DefectCause, Err, FailCause, InterruptedCause, Ok } from "./result.ts";
 export type { Merge, MergeAll, Only, Row, Simplify, Unhandled } from "./types.ts";
-export type { AnyKyoot, Fork, RowOf, RowsOf, Snapshot } from "./model.ts";
+export type { AnyKyoot, Fork, RowsOf, Snapshot } from "./model.ts";
 
 export * as Async from "./effects/async.ts";
 export * as Clock from "./effects/clock.ts";

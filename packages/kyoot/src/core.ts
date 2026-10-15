@@ -4,12 +4,11 @@ import type {
   HandlerHooks,
   Kyoot,
   OnOp,
-  RowOf,
   RowsOf,
   Snapshot,
   ValueOf,
 } from "./model.ts";
-import { pipeArguments, type Pipeable } from "./pipe.ts";
+import type { Pipeable } from "./pipe.ts";
 import type { MergeAll, Only, Row, Simplify } from "./types.ts";
 
 // What each node's slots hold. One runtime shape keeps the machine's loads monomorphic.
@@ -93,7 +92,7 @@ export class KyootImpl<A, S extends Row = {}> implements Kyoot<A, S> {
 }
 
 KyootImpl.prototype.pipe = function (this: unknown, ...fns: Array<(x: any) => any>) {
-  return pipeArguments(this, fns);
+  return fns.reduce((value, fn) => fn(value), this);
 };
 
 export const node = (k: AnyKyoot): RuntimeNode => k as unknown as RuntimeNode;
@@ -103,6 +102,9 @@ export const isKyoot = (value: unknown): value is AnyKyoot => value instanceof K
 export const succeed = <A>(value: A): Kyoot<A, {}> => new KyootImpl("pure", value);
 
 export const unit: Kyoot<void, {}> = succeed(undefined);
+
+// For `onReturn`: the result, beside the state the handler ended with.
+export const withState = <A, St>(a: A, state: St) => succeed([a, state] as const);
 
 export const raise = (error: unknown): Kyoot<never, {}> => new KyootImpl("raise", error);
 
@@ -158,7 +160,7 @@ type Interceptor<K extends string, P, V, A, C extends Row, St, Ret> = (
 
 type Interception<K extends string, V, Ret> = <B, S extends Row & { [k in K]?: V }>(
   k: Kyoot<B, S>,
-) => Kyoot<B, MergeAll<Omit<S, K> | RowOf<Ret>>>;
+) => Kyoot<B, MergeAll<Omit<S, K> | RowsOf<Ret>>>;
 
 export interface Intercept<K extends string, P, A, C extends Row = {}, V = P> {
   <Ret extends Kyoot<A, any>>(
@@ -189,12 +191,25 @@ export const makeIntercept = <K extends string, P, A, C extends Row = {}, V = P>
   };
 };
 
-export interface Hooks<P, A, St, C extends Row, ROp extends AnyKyoot> {
+interface State<St> {
   initial?: St;
   create?: () => St;
   fork?: Fork;
+}
+
+export interface OpHooks<P, A, St, C extends Row, ROp extends AnyKyoot> extends State<St> {
   onOp: (payload: P, resume: Resume<A, St, C>, state: St) => ROp;
 }
+
+// A handler that answers every op with a value, right where it was performed: a throw
+// lands at the op. It may change mutable state; it cannot replace it.
+export interface TailHooks<P, A, St> extends State<St> {
+  tail: (payload: P, state: St) => A;
+}
+
+export type Hooks<P, A, St, C extends Row, ROp extends AnyKyoot> =
+  | OpHooks<P, A, St, C, ROp>
+  | TailHooks<P, A, St>;
 
 type Nothing = Kyoot<never, {}>;
 
@@ -228,7 +243,7 @@ export function makeHandler<
   hooks: Hooks<P, any, St, C, ROp> & {
     onReturn?: (a: A, state: St) => RReturn;
   },
-): Kyoot<ValueOf<RReturn> | ValueOf<ROp>, MergeAll<Omit<S, K> | RowOf<ROp> | RowOf<RReturn>>> {
+): Kyoot<ValueOf<RReturn> | ValueOf<ROp>, MergeAll<Omit<S, K> | RowsOf<ROp> | RowsOf<RReturn>>> {
   return new KyootImpl("handler", self, effectKey, hooks as unknown as HandlerHooks) as never;
 }
 
@@ -248,7 +263,38 @@ export const inherit = (k: AnyKyoot, snapshots: readonly Snapshot[] = []): AnyKy
     k =
       typeof fork === "function"
         ? fork(k)
-        : makeHandler(key, k, { initial: state, fork, onOp: hooks.onOp } as never);
+        : makeHandler(key, k, {
+            initial: state,
+            fork,
+            onOp: hooks.onOp,
+            tail: hooks.tail,
+          } as never);
   }
   return k;
 };
+
+// Answers each op for `key` with nothing, keeping its payloads in order beside the result.
+export const collect =
+  <const K extends string>(key: K) =>
+  <A, S extends Row & { [k in K]?: unknown }>(
+    k: Kyoot<A, S>,
+  ): Kyoot<readonly [A, Array<Payload<S, K>>], MergeAll<Omit<S, K>>> =>
+    makeHandler(key, k, {
+      create: () => [] as unknown[],
+      tail: (payload, payloads) => void payloads.push(payload),
+      onReturn: withState,
+    }) as never;
+
+// Answers each op for `key` once `f` has seen its payload, and has run, if `f` returns
+// one, the program it returned.
+export const forEach =
+  <const K extends string, P, R>(key: K, f: (payload: P) => R) =>
+  <A, S extends Row & { [k in K]?: P }>(
+    k: Kyoot<A, S>,
+  ): Kyoot<A, MergeAll<Omit<S, K> | RowsOf<R>>> =>
+    makeHandler(key, k, {
+      onOp: (payload, resume) => {
+        const r = f(payload as P);
+        return isKyoot(r) ? r.flatMap(() => resume(undefined)) : resume(undefined);
+      },
+    }) as never;

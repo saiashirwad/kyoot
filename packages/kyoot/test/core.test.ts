@@ -474,3 +474,26 @@ test("Async intercept sees every async op; a fiber forked through it keeps the f
   );
   assert.ok(ops >= 2, `fork and join were intercepted (${ops})`);
 });
+
+test("a tail handler answers at the op, so a throw lands where the op was performed", () => {
+  const Parse = effect<string, number>()("parse");
+  const events: string[] = [];
+  const program = Kyoot.gen(function* () {
+    try {
+      return yield* Parse("not a number");
+    } catch (e) {
+      events.push((e as Error).message);
+      return -1;
+    }
+  });
+  const parse = Parse.handle({
+    tail: (s) => {
+      const n = Number(s);
+      if (Number.isNaN(n)) throw new Error(`bad number: ${s}`);
+      return n;
+    },
+  });
+  assert.equal(Kyoot.runSync(program.pipe(parse)), -1);
+  assert.deepEqual(events, ["bad number: not a number"]);
+  assert.equal(Kyoot.runSync(Parse("42").pipe(parse)), 42);
+});

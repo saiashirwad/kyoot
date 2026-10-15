@@ -1,4 +1,4 @@
-import { effect, makeHandler, makeOp, succeed } from "../core.ts";
+import { effect, makeHandler, makeOp, withState } from "../core.ts";
 import type { Kyoot } from "../model.ts";
 import type { AsyncRuntime } from "../runtime.ts";
 import type { Row } from "../types.ts";
@@ -15,7 +15,7 @@ export const virtual = <A, S extends Row & { clock?: number }>(k: Kyoot<A, S>) =
   makeHandler("clock", k, {
     initial: 0,
     onOp: (ms, resume, now) => resume(undefined, now + ms),
-    onReturn: (a, now) => succeed([a, now] as const),
+    onReturn: withState,
   });
 
 const realSleep = (ms: number, signal: AbortSignal) =>

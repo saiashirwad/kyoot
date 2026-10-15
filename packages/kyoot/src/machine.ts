@@ -373,9 +373,11 @@ export class Machine {
         skip--;
         continue;
       }
+      const { tail, onOp } = entry.hooks;
+      if (tail !== undefined) return succeed(tail(payload, entry.state));
       const mask = new Mask(entry, i, stack.length);
       stack.push(mask);
-      return entry.hooks.onOp(payload, resumer(mask), entry.state, skip0 + 1);
+      return onOp!(payload, resumer(mask), entry.state, skip0 + 1);
     }
     return undefined;
   }

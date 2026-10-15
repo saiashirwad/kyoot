@@ -8,7 +8,7 @@ import {
   op,
   unit,
 } from "../core.ts";
-import type { Kyoot, RowOf } from "../model.ts";
+import type { Kyoot, RowsOf } from "../model.ts";
 import type { MergeAll, Row } from "../types.ts";
 
 type Finalizer = () => unknown;
@@ -20,7 +20,7 @@ export interface ResourceOp<S extends Row = {}> {
 }
 
 export const acquire = <R, C>(open: () => R, close: (r: R) => C) =>
-  op<R>()("resource", { acquire: open, release: close } as ResourceOp<RowOf<C>>);
+  op<R>()("resource", { acquire: open, release: close } as ResourceOp<RowsOf<C>>);
 
 export const intercept = <S extends Row = {}>() =>
   makeIntercept<"resource", ResourceOp<S>, unknown>("resource");

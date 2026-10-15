@@ -12,7 +12,7 @@ export const intercept = random.intercept;
 
 export const int = (max: number) => next().map((x) => Math.floor(x * max));
 
-export const live = random.handle({ onOp: (_, resume) => resume(Math.random()) });
+export const live = random.handle({ tail: () => Math.random() });
 
 const step = (seed: number) => {
   let t = (seed + 0x6d2b79f5) | 0;

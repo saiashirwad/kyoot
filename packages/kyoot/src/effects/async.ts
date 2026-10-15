@@ -31,6 +31,30 @@ export const fromPromise = <A>(f: (signal: AbortSignal) => Promise<A>) =>
 
 export const never = fromPromise<never>(() => new Promise(() => {}));
 
+// A promise whose rejection is a typed failure rather than a defect.
+export const tryPromise = <A, E>(
+  f: (signal: AbortSignal) => Promise<A>,
+  onError: (e: unknown) => E,
+): Kyoot<A, MergeAll<AsyncRow | FailRow<E>>> =>
+  fromPromise((signal) =>
+    f(signal).then(
+      (value) => ({ ok: true as const, value }),
+      (e: unknown) => ({ ok: false as const, error: onError(e) }),
+    ),
+  ).flatMap((r) => (r.ok ? succeed(r.value) : fail(r.error))) as never;
+
+// The iterator's next item. Interrupting the wait closes the iterator.
+export const next = <T>(it: AsyncIterator<T>) =>
+  fromPromise(async (signal) => {
+    const onAbort = () => void it.return?.();
+    signal.addEventListener("abort", onAbort, { once: true });
+    try {
+      return await it.next();
+    } finally {
+      signal.removeEventListener("abort", onAbort);
+    }
+  });
+
 // Runs `step` on each value in turn, stopping between items once interrupted.
 const each = async <A>(
   values: ReadonlyArray<A>,

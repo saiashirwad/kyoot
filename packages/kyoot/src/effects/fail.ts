@@ -1,4 +1,12 @@
-import { catchDefect, InterruptedError, makeHandler, makeIntercept, op, succeed } from "../core.ts";
+import {
+  catchDefect,
+  InterruptedError,
+  makeHandler,
+  makeIntercept,
+  op,
+  succeed,
+  type Resume,
+} from "../core.ts";
 import type { AnyKyoot, Kyoot } from "../model.ts";
 import { Result } from "../result.ts";
 import type { FailRow, MergeAll, Row } from "../types.ts";
@@ -17,6 +25,13 @@ export const run = <A, S extends Row & { fail?: unknown }>(k: Kyoot<A, S>) =>
     }),
     (d) => succeed(Result.defect(d)),
   );
+
+// Answers an op from a handler that runs `program` first: with its value, or, if it
+// fails, with that failure raised at the op, where the program's own catch sees it.
+export const resumeOrFail = <A, E, S extends Row & { fail?: E }>(
+  resume: Resume<A, any, { fail: E }>,
+  program: Kyoot<A, S>,
+) => program.pipe(catchAll((e: E) => resume.with(fail(e)))).flatMap((a) => resume(a));
 
 export const fromResult = <E, A = never>(r: Result<E, A>): Kyoot<A, FailRow<E>> => {
   if (r.ok) return succeed(r.value) as Kyoot<A, FailRow<E>>;

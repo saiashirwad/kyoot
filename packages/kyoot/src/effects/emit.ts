@@ -1,7 +1,7 @@
-import { gen, isKyoot, makeHandler, makeIntercept, op, succeed } from "../core.ts";
-import type { Kyoot, RowOf } from "../model.ts";
+import { collect as collecting, forEach as eaching, gen, makeIntercept, op } from "../core.ts";
+import type { Kyoot } from "../model.ts";
 import { runFiber, type Served } from "../runtime.ts";
-import type { MergeAll, Only, Row } from "../types.ts";
+import type { Only, Row } from "../types.ts";
 import * as Async from "./async.ts";
 
 export const value = <E>(e: E) => op<void>()("emit", e);
@@ -17,41 +17,15 @@ export const fromAsyncIterable = <E>(items: AsyncIterable<E>) =>
   gen(function* () {
     const it = items[Symbol.asyncIterator]();
     while (true) {
-      const r = yield* Async.fromPromise(async (signal) => {
-        const onAbort = () => void it.return?.();
-        signal.addEventListener("abort", onAbort, { once: true });
-        try {
-          return await it.next();
-        } finally {
-          signal.removeEventListener("abort", onAbort);
-        }
-      });
+      const r = yield* Async.next(it);
       if (r.done) return;
       yield* value(r.value);
     }
   });
 
-export const collect = <A, S extends Row & { emit?: unknown }>(k: Kyoot<A, S>) =>
-  makeHandler("emit", k, {
-    create: () => [] as Array<S["emit"]>,
-    onOp: (e, resume, acc) => {
-      acc.push(e);
-      return resume(undefined);
-    },
-    onReturn: (a, acc) => succeed([a, acc] as const),
-  });
+export const collect = collecting("emit");
 
-export const forEach =
-  <E, R>(f: (e: E) => R) =>
-  <A, S extends Row & { emit?: E }>(
-    k: Kyoot<A, S>,
-  ): Kyoot<A, MergeAll<Omit<S, "emit"> | RowOf<R>>> =>
-    makeHandler("emit", k, {
-      onOp: (e, resume) => {
-        const r = f(e as E);
-        return isKyoot(r) ? r.flatMap(() => resume(undefined)) : resume(undefined);
-      },
-    }) as never;
+export const forEach = <E, R>(f: (e: E) => R) => eaching("emit", f);
 
 export const map = <E, E2>(f: (e: E) => E2) => forEach((e: E) => value(f(e)));
 

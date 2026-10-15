@@ -784,3 +784,20 @@ test("a batch takes the source's length once, so a callback cannot extend it", a
   assert.deepEqual(forEachValues, [1, 2, 11, 12]);
   assert.deepEqual(reduceValues, [1, 2, 11, 12]);
 });
+
+test("Async.next closes the iterator when the wait is interrupted", async () => {
+  let closed = false;
+  const it: AsyncIterator<number> = {
+    next: () => new Promise(() => {}),
+    return: async () => ((closed = true), { done: true, value: undefined }),
+  };
+  const prog = Kyoot.gen(function* () {
+    const fiber = yield* Async.fork(Async.next(it));
+    yield* Clock.sleep(1);
+    yield* fiber.interrupt;
+    return yield* fiber.await;
+  });
+  const r = await Kyoot.runPromise(prog);
+  assert.ok(!r.ok && r.cause._tag === "Interrupted");
+  assert.equal(closed, true);
+});

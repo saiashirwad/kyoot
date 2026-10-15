@@ -11,13 +11,11 @@ import type {
 import type { Pipeable } from "./pipe.ts";
 import type { MergeAll, Only, Row, Simplify } from "./types.ts";
 
-// What each node's slots hold. One runtime shape keeps the machine's loads monomorphic.
 export type RuntimeNode =
   | { readonly _tag: "pure"; readonly a: unknown }
   | { readonly _tag: "map"; readonly a: AnyKyoot; readonly b: (a: unknown) => unknown }
   | { readonly _tag: "flatMap"; readonly a: AnyKyoot; readonly b: (a: unknown) => AnyKyoot }
   | { readonly _tag: "gen"; readonly a: () => Generator<AnyKyoot, unknown, unknown> }
-  // c: how many handlers for the key to pass over before one answers.
   | { readonly _tag: "op"; readonly a: PropertyKey; readonly b: unknown; readonly c: number }
   | {
       readonly _tag: "handler";
@@ -27,7 +25,6 @@ export type RuntimeNode =
     }
   | { readonly _tag: "catch"; readonly a: AnyKyoot; readonly b: (d: unknown) => AnyKyoot }
   | { readonly _tag: "ensure"; readonly a: AnyKyoot; readonly b: AnyKyoot }
-  // a: the operation it answers; b: the value (resume) or program (resumeWith); c: new state or KEEP.
   | {
       readonly _tag: "resume" | "resumeWith";
       readonly a: unknown;
@@ -57,7 +54,6 @@ class KyootIterator<A, S extends Row> implements Iterator<Kyoot<unknown, S>, A, 
     return this as unknown as IteratorResult<Kyoot<unknown, S>, A>;
   }
 
-  // A defect thrown into the generator surfaces at its `yield*`.
   throw(e: unknown): IteratorResult<Kyoot<unknown, S>, A> {
     throw e;
   }
@@ -103,7 +99,6 @@ export const succeed = <A>(value: A): Kyoot<A, {}> => new KyootImpl("pure", valu
 
 export const unit: Kyoot<void, {}> = succeed(undefined);
 
-// For `onReturn`: the result, beside the state the handler ended with.
 export const withState = <A, St>(a: A, state: St) => succeed([a, state] as const);
 
 export const raise = (error: unknown): Kyoot<never, {}> => new KyootImpl("raise", error);
@@ -124,14 +119,11 @@ export const op =
   <const K extends string, P>(key: K, payload: P): Kyoot<A, { [k in K]: P }> =>
     makeOp(key, payload) as Kyoot<A, { [k in K]: P }>;
 
-// A defect is anything thrown. `f` sees it in place of `k`'s result; interruption passes by.
 export const catchDefect = <A, S extends Row, B, S2 extends Row>(
   k: Kyoot<A, S>,
   f: (defect: unknown) => Kyoot<B, S2>,
 ): Kyoot<A | B, MergeAll<S | S2>> => new KyootImpl("catch", k, f) as never;
 
-// `cleanup` runs however `k` ends: a result, a defect, an abort, or an interrupt. Like a
-// `finally`, a defect it raises replaces the outcome it was cleaning up after.
 export const ensuring = <A, S extends Row, S2 extends Row>(
   k: Kyoot<A, S>,
   cleanup: Kyoot<unknown, S2>,
@@ -172,9 +164,6 @@ export interface Intercept<K extends string, P, A, C extends Row = {}, V = P> {
   ): Interception<K, V, Ret>;
 }
 
-// An interceptor's program runs at the op, as if the op had been written as that
-// program: what it performs, and what `next` performs past this handler, meets the
-// handlers the op itself would have met.
 export const makeIntercept = <K extends string, P, A, C extends Row = {}, V = P>(
   key: K,
 ): Intercept<K, P, A, C, V> => {
@@ -201,8 +190,6 @@ export interface OpHooks<P, A, St, C extends Row, ROp extends AnyKyoot> extends 
   onOp: (payload: P, resume: Resume<A, St, C>, state: St) => ROp;
 }
 
-// A handler that answers every op with a value, right where it was performed: a throw
-// lands at the op. It may change mutable state; it cannot replace it.
 export interface TailHooks<P, A, St> extends State<St> {
   tail: (payload: P, state: St) => A;
 }
@@ -255,8 +242,6 @@ export class InterruptedError extends Error {
   }
 }
 
-// Installs, around `k`, what a fiber inherits from the handlers it was forked under:
-// innermost first, so they nest as they did at the fork.
 export const inherit = (k: AnyKyoot, snapshots: readonly Snapshot[] = []): AnyKyoot => {
   for (const { key, hooks, state } of snapshots) {
     const fork = hooks.fork;
@@ -273,7 +258,6 @@ export const inherit = (k: AnyKyoot, snapshots: readonly Snapshot[] = []): AnyKy
   return k;
 };
 
-// Answers each op for `key` with nothing, keeping its payloads in order beside the result.
 export const collect =
   <const K extends string>(key: K) =>
   <A, S extends Row & { [k in K]?: unknown }>(
@@ -285,8 +269,6 @@ export const collect =
       onReturn: withState,
     }) as never;
 
-// Answers each op for `key` once `f` has seen its payload, and has run, if `f` returns
-// one, the program it returned.
 export const forEach =
   <const K extends string, P, R>(key: K, f: (payload: P) => R) =>
   <A, S extends Row & { [k in K]?: P }>(

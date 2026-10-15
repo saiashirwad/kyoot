@@ -30,7 +30,6 @@ const parse = <A>(schema: Schema.Schema<A>, raw: string): { args: A } | { error:
   }
 };
 
-// A tool's typed failure goes back to the model as text; defects and interrupts do not.
 const run = (tool: Tool, args: unknown) =>
   tool
     .run(args)

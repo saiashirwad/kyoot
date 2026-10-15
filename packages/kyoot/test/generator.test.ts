@@ -437,7 +437,6 @@ test("generator: a frame queued inside a dropped continuation closes too", () =>
       events.push("outer");
     }
   });
-  // The replacement stops the machine before the cleanup of the held continuation starts.
   const answer = Kyoot.gen(function* () {
     yield* Resource.acquire(
       () => 2,
@@ -482,8 +481,6 @@ test("generator: an abort during cleanup replaces the error a finally raised", (
   }).pipe(
     Resource.run,
     Stop.handle({ onOp: () => Kyoot.succeed(undefined) }),
-    // Aborts part-way through the cleanup, while it is releasing the outer scope: like a
-    // `return` in a `finally`, the later exit wins.
     Cleanup.handle({ onOp: () => Kyoot.succeed("cleanup aborted") }),
   );
   assert.equal(Kyoot.runSync(prog), "cleanup aborted");

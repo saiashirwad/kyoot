@@ -25,8 +25,6 @@ export const acquire = <R, C>(open: () => R, close: (r: R) => C) =>
 export const intercept = <S extends Row = {}>() =>
   makeIntercept<"resource", ResourceOp<S>, unknown>("resource");
 
-// Runs every finalizer, last acquired first, whatever the others do; the first defect
-// among them is raised once they all have run.
 const finalize = (finalizers: readonly Finalizer[]) =>
   gen(function* () {
     let failed: { defect: unknown } | undefined;
@@ -46,7 +44,6 @@ const finalize = (finalizers: readonly Finalizer[]) =>
 
 type ReleaseRow<R> = R extends ResourceOp<infer S> ? S : never;
 
-// A forked fiber gets a scope of its own, released when the fiber ends.
 export const run = <A, S extends Row & { resource?: ResourceOp<any> }>(
   k: Kyoot<A, S>,
 ): Kyoot<A, MergeAll<Omit<S, "resource"> | ReleaseRow<S["resource"]>>> =>

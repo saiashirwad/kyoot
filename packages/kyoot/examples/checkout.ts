@@ -1,4 +1,3 @@
-// Custom effects (Inventory, Payments) with swappable handlers, chosen via .pipe().
 import { effect, Emit, Fail, Kyoot, Var } from "../src/index.ts";
 
 export class OutOfStock {

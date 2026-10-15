@@ -31,7 +31,6 @@ export const fromPromise = <A>(f: (signal: AbortSignal) => Promise<A>) =>
 
 export const never = fromPromise<never>(() => new Promise(() => {}));
 
-// A promise whose rejection is a typed failure rather than a defect.
 export const tryPromise = <A, E>(
   f: (signal: AbortSignal) => Promise<A>,
   onError: (e: unknown) => E,
@@ -43,7 +42,6 @@ export const tryPromise = <A, E>(
     ),
   ).flatMap((r) => (r.ok ? succeed(r.value) : fail(r.error))) as never;
 
-// The iterator's next item. Interrupting the wait closes the iterator.
 export const next = <T>(it: AsyncIterator<T>) =>
   fromPromise(async (signal) => {
     const onAbort = () => void it.return?.();
@@ -55,7 +53,6 @@ export const next = <T>(it: AsyncIterator<T>) =>
     }
   });
 
-// Runs `step` on each value in turn, stopping between items once interrupted.
 const each = async <A>(
   values: ReadonlyArray<A>,
   signal: AbortSignal,
@@ -127,7 +124,6 @@ const spawn = <A, E>(rt: AsyncRuntime, k: AnyKyoot): Spawned<A, E> => {
     onOp: failed,
     onReturn: (a: A) => record(Result.ok(a)),
   });
-  // Outside the inherited handlers too, for failures their own programs raise.
   const outer = makeHandler("fail", inherit(inner, rt.handlers), { fork: false, onOp: failed });
   const h: FiberHandle = rt.spawn(outer);
   return {

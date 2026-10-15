@@ -28,7 +28,6 @@ const realSleep = (ms: number, signal: AbortSignal) =>
     signal.addEventListener("abort", onAbort, { once: true });
   });
 
-// Real time, as async ops. Every fiber runs under it.
 export const live = clock.handle({
   onOp: (ms, resume) =>
     resume.with(

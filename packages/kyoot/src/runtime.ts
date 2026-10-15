@@ -4,7 +4,6 @@ import { Machine, type Outcome } from "./machine.ts";
 import type { AnyKyoot, Kyoot, Snapshot } from "./model.ts";
 import type { Only, Row } from "./types.ts";
 
-// What a fiber answers for its program: async ops, and the clock it installs.
 export type Served = "async" | "clock";
 
 const unhandledEffect = (edge: string, key: PropertyKey) =>
@@ -35,7 +34,6 @@ export interface AsyncRuntime {
 
 export interface AsyncOp {
   execute(rt: AsyncRuntime): Promise<unknown>;
-  // Set on ops that spawn fibers, which inherit the handlers around the op.
   readonly inherits?: boolean;
 }
 

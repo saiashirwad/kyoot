@@ -12,7 +12,6 @@ export interface Policy {
 const delayOf = ({ delay = 0 }: Policy, attempt: number) =>
   typeof delay === "function" ? delay(attempt) : delay;
 
-// Re-runs `k` on a typed failure; defects and interruption pass straight through.
 export const run =
   (policy: Policy) =>
   <A, S extends Row & { fail?: unknown }>(

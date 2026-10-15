@@ -5,12 +5,6 @@ export type Outcome = "done" | "suspended" | "yielded";
 
 const STALE = "resume used outside the operation it answers";
 
-// A frame is whatever waits on the stack for the program above it to end, and it is
-// told how that program ended, the way a generator is: `value` (next), `error` (throw)
-// or `cancel` (return). Each may hand back a program to run in its place; `value`
-// returning undefined passes the value on, `error` returning undefined lets the error
-// keep falling, `cancel` returning undefined means there is nothing to clean up.
-// A `map` sits on the stack as its function and a `flatMap` as its node; see `deliver`.
 interface Frame {
   value?(v: unknown, m: Machine): AnyKyoot | undefined;
   error?(e: unknown, m: Machine): AnyKyoot | undefined;
@@ -39,7 +33,6 @@ class GenFrame implements Frame {
     return step.done ? undefined : this.step(step, m);
   }
 
-  // Answers pure yields in place, spending budget as the machine would.
   private step(step: IteratorResult<AnyKyoot, unknown>, m: Machine): AnyKyoot {
     while (!step.done) {
       const yielded = node(step.value);
@@ -70,9 +63,6 @@ class HandlerFrame implements Frame {
   }
 }
 
-// Stands above the stack an op was performed on while its handler's program runs there.
-// Below it, down to and including the handler, is the op's continuation: lookups pass
-// over it, and if the program ends without resuming, it is cancelled.
 class Mask implements Frame {
   readonly handler: HandlerFrame;
   readonly below: number;
@@ -125,8 +115,6 @@ class EnsureFrame implements Frame {
   }
 }
 
-// Holds a cancellation's place while a frame's cleanup runs, then carries on with it.
-// A cleanup that raises replaces the outcome the cancellation was heading for.
 class Unwind implements Frame {
   readonly index: number;
   then: AnyKyoot;
@@ -161,7 +149,6 @@ export class Machine {
   private remaining = Infinity;
 
   value: unknown;
-  // The op the machine is suspended on: no handler on the stack answers it.
   key: PropertyKey = "";
   payload: unknown;
   private skip = 0;
@@ -195,8 +182,6 @@ export class Machine {
     return true;
   }
 
-  // The handlers a fiber forked here inherits, innermost first: those the op it is
-  // suspended on could reach, less any marked to stay out.
   snapshot(): Snapshot[] {
     const out: Snapshot[] = [];
     const stack = this.stack;
@@ -214,8 +199,6 @@ export class Machine {
     return out;
   }
 
-  // Ends the run in place, closing generators synchronously; there is no machine left
-  // to run cleanup that performs effects, so that is skipped. The outermost raise wins.
   reset(): void {
     const abandoned = this.stack.splice(0);
     this.current = undefined!;
@@ -234,8 +217,6 @@ export class Machine {
     if (thrown !== undefined) throw thrown.error;
   }
 
-  // Cancels every frame above `index`, innermost first, running their cleanup with the
-  // stack below them still in place, then goes on with `then`.
   cancelTo(index: number, then: AnyKyoot): AnyKyoot {
     const stack = this.stack;
     while (stack.length > index) {
@@ -317,7 +298,6 @@ export class Machine {
     }
   }
 
-  // Hands `v` down the stack until a frame has something to run with it.
   private deliver(v: unknown): AnyKyoot | undefined {
     const stack = this.stack;
     while (true) {
@@ -337,8 +317,6 @@ export class Machine {
     }
   }
 
-  // Lets the error fall through the stack until a frame takes it. Interruption is not
-  // an error to catch: it cancels the whole stack and leaves the machine.
   private fail(error: unknown): AnyKyoot {
     const stack = this.stack;
     if (stack.length === 0) throw error;
@@ -357,8 +335,6 @@ export class Machine {
     throw error;
   }
 
-  // Finds the handler for `key` nearest the top, passing over masked continuations and
-  // the first `skip` handlers for the key, and runs its `onOp` above a mask.
   private perform(key: PropertyKey, payload: unknown, skip: number): AnyKyoot | undefined {
     const stack = this.stack;
     const skip0 = skip;
@@ -382,8 +358,6 @@ export class Machine {
     return undefined;
   }
 
-  // Resuming ends the handler's program: anything it left above the mask is cancelled,
-  // then the op's continuation goes on, with the value or the program it was given.
   private resumeAt(k: AnyKyoot): AnyKyoot | undefined {
     const n = node(k) as { _tag: "resume" | "resumeWith"; a: Mask; b: unknown; c: unknown };
     const mask = n.a;

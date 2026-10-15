@@ -15,7 +15,6 @@ export const fail = <E>(e: E) => op<never>()("fail", e);
 
 export const intercept = <E = unknown>() => makeIntercept<"fail", E, never>("fail");
 
-// Failure handlers stay out of forked fibers: a fiber's failure crosses `join` instead.
 export const run = <A, S extends Row & { fail?: unknown }>(k: Kyoot<A, S>) =>
   catchDefect(
     makeHandler("fail", k, {
@@ -26,8 +25,6 @@ export const run = <A, S extends Row & { fail?: unknown }>(k: Kyoot<A, S>) =>
     (d) => succeed(Result.defect(d)),
   );
 
-// Answers an op from a handler that runs `program` first: with its value, or, if it
-// fails, with that failure raised at the op, where the program's own catch sees it.
 export const resumeOrFail = <A, E, S extends Row & { fail?: E }>(
   resume: Resume<A, any, { fail: E }>,
   program: Kyoot<A, S>,

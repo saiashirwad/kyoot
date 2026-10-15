@@ -1,7 +1,6 @@
 export async function* events<T = unknown>(body: ReadableStream): AsyncGenerator<T> {
   let buffer = "";
   let data = "";
-  // A CR ends a line on its own, and eats the LF of a CRLF that the next chunk may carry.
   let skipLf = false;
   for await (const chunk of body.pipeThrough(new TextDecoderStream())) {
     buffer += chunk;

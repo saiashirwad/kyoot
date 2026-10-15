@@ -5,8 +5,6 @@ import { Fail, Kyoot, Log } from "kyoot";
 import { FileSystem, Memory } from "@kyoot/platform";
 import * as Node from "@kyoot/platform/node";
 
-// A path posix.resolve and the handler will read the same way: not relative, no backslash
-// separators, no leading "//", which Windows reads as a UNC share.
 const plainPosix = (path: string) =>
   posix.isAbsolute(path) && !path.startsWith("//") && !path.includes("\\");
 

@@ -77,7 +77,7 @@ const complete = ({ url, model, apiKey }: Options, req: Request) =>
     let usage = { input: 0, output: 0 };
     const calls: { id: string; name: string; arguments: string }[] = [];
     while (true) {
-      const r = yield* Async.fromPromise(() => it.next());
+      const r = yield* Async.next(it);
       if (r.done) break;
       const { content, tool_calls = [] } = r.value.choices?.[0]?.delta ?? {};
       if (content) {

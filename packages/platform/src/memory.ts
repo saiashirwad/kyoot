@@ -109,7 +109,7 @@ export const fs =
           throw e;
         }
       },
-      onSuccess: (a) =>
+      onReturn: (a) =>
         Kyoot.succeed([a, Object.fromEntries([...files].map(([p, f]) => [p, f.data]))] as const),
     });
   };

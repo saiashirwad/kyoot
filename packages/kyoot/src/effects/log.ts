@@ -1,6 +1,4 @@
-import { effect, makeHandler, succeed } from "../core.ts";
-import type { Kyoot } from "../model.ts";
-import type { Row } from "../types.ts";
+import { collect as collecting, effect } from "../core.ts";
 
 export type Level = "debug" | "info" | "warn" | "error";
 
@@ -23,20 +21,9 @@ export const warn = at("warn");
 export const error = at("error");
 
 export const print = log.handle({
-  onOp: ({ level, message }, resume) => {
-    console[level === "debug" ? "log" : level](message);
-    return resume(undefined);
-  },
+  tail: ({ level, message }) => console[level === "debug" ? "log" : level](message),
 });
 
-export const collect = <A, S extends Row & { log?: Entry }>(k: Kyoot<A, S>) =>
-  makeHandler("log", k, {
-    create: () => [] as Entry[],
-    onOp: (entry, resume, entries) => {
-      entries.push(entry);
-      return resume(undefined);
-    },
-    onSuccess: (a, entries) => succeed([a, entries] as const),
-  });
+export const collect = collecting("log");
 
-export const discard = log.handle({ onOp: (_e, resume) => resume(undefined) });
+export const discard = log.handle({ tail: () => {} });

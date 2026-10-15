@@ -1,4 +1,4 @@
-import { Fail, InterruptedError, Kyoot } from "kyoot";
+import { Fail, Kyoot } from "kyoot";
 import type { Kyoot as K, MergeAll } from "kyoot";
 import * as Events from "./events.ts";
 import { Model, type Message, type Request } from "./model.ts";
@@ -33,12 +33,8 @@ const parse = <A>(schema: Schema.Schema<A>, raw: string): { args: A } | { error:
 const run = (tool: Tool, args: unknown) =>
   tool
     .run(args)
-    .pipe(Fail.run)
-    .map((r) => {
-      if (r.ok) return JSON.stringify(r.value);
-      if (r.cause._tag === "Fail") return `error: ${show(r.cause.error)}`;
-      throw r.cause._tag === "Defect" ? r.cause.defect : new InterruptedError();
-    });
+    .map((v) => JSON.stringify(v))
+    .pipe(Fail.catchAll((e: unknown) => Kyoot.succeed(`error: ${show(e)}`)));
 
 export function generate<T extends Tool = never>(
   messages: readonly Message[],

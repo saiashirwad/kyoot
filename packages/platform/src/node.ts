@@ -5,14 +5,6 @@ import type { Kyoot as K, Row } from "kyoot";
 import * as Command from "./command.ts";
 import * as FileSystem from "./fs.ts";
 
-const attempt = <A, E>(f: () => Promise<A>, onError: (e: unknown) => E) =>
-  Async.fromPromise(() =>
-    f().then(
-      (value) => ({ ok: true as const, value }),
-      (e: unknown) => ({ ok: false as const, error: onError(e) }),
-    ),
-  );
-
 const codes: Record<string, FileSystem.Code> = {
   ENOENT: "NotFound",
   EEXIST: "AlreadyExists",
@@ -68,10 +60,13 @@ const performFs = (op: FileSystem.Op): Promise<unknown> => {
 
 export const fs = FileSystem.handle({
   onOp: (op, resume) =>
-    attempt(
-      () => performFs(op),
-      (e) => fsError(op, e),
-    ).flatMap((r) => (r.ok ? resume(r.value) : resume.with(Fail.fail(r.error)))),
+    Fail.resumeOrFail(
+      resume,
+      Async.tryPromise(
+        () => performFs(op),
+        (e) => fsError(op, e),
+      ),
+    ),
 });
 
 const exec = (op: Command.Op) =>
@@ -91,10 +86,13 @@ const exec = (op: Command.Op) =>
 
 export const command = Command.handle({
   onOp: (op, resume) =>
-    attempt(
-      () => exec(op),
-      (e) => new Command.CommandError(op.command, (e as Error).message),
-    ).flatMap((r) => (r.ok ? resume(r.value) : resume.with(Fail.fail(r.error)))),
+    Fail.resumeOrFail(
+      resume,
+      Async.tryPromise(
+        () => exec(op),
+        (e) => new Command.CommandError(op.command, (e as Error).message),
+      ),
+    ),
 });
 
 export const provide = <A, S extends Row & { fs?: FileSystem.Op; command?: Command.Op }>(

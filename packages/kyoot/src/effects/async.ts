@@ -1,6 +1,5 @@
 import {
   effect,
-  fail,
   inherit,
   InterruptedError,
   makeHandler,
@@ -8,10 +7,10 @@ import {
   succeed,
   type Payload,
 } from "../core.ts";
-import { fromResult } from "./fail.ts";
+import { fail, fromResult } from "./fail.ts";
 import { sleep } from "./clock.ts";
 import { Result } from "../result.ts";
-import type { AnyKyoot, Kyoot, Snapshot } from "../model.ts";
+import type { AnyKyoot, Kyoot } from "../model.ts";
 import type { AsyncOp, AsyncRuntime, FiberHandle, Served } from "../runtime.ts";
 import type { FailRow, MergeAll, Row } from "../types.ts";
 
@@ -22,10 +21,8 @@ const asyncEffect = effect<AsyncOp, unknown>()("async");
 const asyncOp = <A>(execute: (rt: AsyncRuntime) => Promise<A>) =>
   makeOp("async", { execute } as AsyncOp) as Kyoot<A, AsyncRow>;
 
-const NO_FRAMES: readonly Snapshot[] = [];
-
 const spawning = <A>(execute: (rt: AsyncRuntime) => Promise<A>) =>
-  makeOp("async", { execute } as AsyncOp, NO_FRAMES) as Kyoot<A, AsyncRow>;
+  makeOp("async", { execute, inherits: true } as AsyncOp) as Kyoot<A, AsyncRow>;
 
 export const intercept = asyncEffect.intercept;
 
@@ -34,17 +31,49 @@ export const fromPromise = <A>(f: (signal: AbortSignal) => Promise<A>) =>
 
 export const never = fromPromise<never>(() => new Promise(() => {}));
 
+export const tryPromise = <A, E>(
+  f: (signal: AbortSignal) => Promise<A>,
+  onError: (e: unknown) => E,
+): Kyoot<A, MergeAll<AsyncRow | FailRow<E>>> =>
+  fromPromise((signal) =>
+    f(signal).then(
+      (value) => ({ ok: true as const, value }),
+      (e: unknown) => ({ ok: false as const, error: onError(e) }),
+    ),
+  ).flatMap((r) => (r.ok ? succeed(r.value) : fail(r.error))) as never;
+
+export const next = <T>(it: AsyncIterator<T>) =>
+  fromPromise(async (signal) => {
+    const onAbort = () => void it.return?.();
+    signal.addEventListener("abort", onAbort, { once: true });
+    try {
+      return await it.next();
+    } finally {
+      signal.removeEventListener("abort", onAbort);
+    }
+  });
+
+const each = async <A>(
+  values: ReadonlyArray<A>,
+  signal: AbortSignal,
+  step: (value: A, index: number) => Promise<void>,
+) => {
+  const count = values.length;
+  for (let index = 0; index < count; index++) {
+    if (signal.aborted) throw new InterruptedError();
+    await step(values[index]!, index);
+  }
+};
+
 export const mapPromise = <A, B>(
   values: ReadonlyArray<A>,
   f: (value: A, index: number, signal: AbortSignal) => Promise<B>,
 ): Kyoot<B[], AsyncRow> =>
   fromPromise(async (signal) => {
-    const count = values.length;
-    const results: B[] = new Array(count);
-    for (let index = 0; index < count; index++) {
-      if (signal.aborted) throw new InterruptedError();
-      results[index] = await f(values[index]!, index, signal);
-    }
+    const results: B[] = new Array(values.length);
+    await each(values, signal, async (v, i) => {
+      results[i] = await f(v, i, signal);
+    });
     return results;
   });
 
@@ -52,13 +81,11 @@ export const forEachPromise = <A>(
   values: ReadonlyArray<A>,
   f: (value: A, index: number, signal: AbortSignal) => Promise<unknown>,
 ): Kyoot<void, AsyncRow> =>
-  fromPromise(async (signal) => {
-    const count = values.length;
-    for (let index = 0; index < count; index++) {
-      if (signal.aborted) throw new InterruptedError();
-      await f(values[index]!, index, signal);
-    }
-  });
+  fromPromise((signal) =>
+    each(values, signal, async (v, i) => {
+      await f(v, i, signal);
+    }),
+  );
 
 export const reducePromise = <A, B>(
   values: ReadonlyArray<A>,
@@ -66,12 +93,10 @@ export const reducePromise = <A, B>(
   f: (accumulator: B, value: A, index: number, signal: AbortSignal) => Promise<B>,
 ): Kyoot<B, AsyncRow> =>
   fromPromise(async (signal) => {
-    const count = values.length;
     let accumulator = initial;
-    for (let index = 0; index < count; index++) {
-      if (signal.aborted) throw new InterruptedError();
-      accumulator = await f(accumulator, values[index]!, index, signal);
-    }
+    await each(values, signal, async (v, i) => {
+      accumulator = await f(accumulator, v, i, signal);
+    });
     return accumulator;
   });
 
@@ -95,12 +120,11 @@ const spawn = <A, E>(rt: AsyncRuntime, k: AnyKyoot): Spawned<A, E> => {
   const record = (r: Result<E, A>) => ((exit = r), succeed(undefined));
   const failed = (e: E) => record(Result.fail(e));
   const inner = makeHandler("fail", k, {
-    fork: "none",
+    fork: false,
     onOp: failed,
-    onSuccess: (a: A) => record(Result.ok(a)),
+    onReturn: (a: A) => record(Result.ok(a)),
   });
-  const handlers = rt.handlers?.filter((h) => h.node.b !== "fail");
-  const outer = makeHandler("fail", inherit(inner, handlers), { fork: "none", onOp: failed });
+  const outer = makeHandler("fail", inherit(inner, rt.handlers), { fork: false, onOp: failed });
   const h: FiberHandle = rt.spawn(outer);
   return {
     promise: h.promise.then(
@@ -108,7 +132,7 @@ const spawn = <A, E>(rt: AsyncRuntime, k: AnyKyoot): Spawned<A, E> => {
         exit ??
         Result.defect(
           new Error(
-            'a handler copied into a fiber returned a value instead of resuming; give it fork: "none"',
+            "a handler copied into a fiber returned a value instead of resuming; give it fork: false",
           ),
         ),
       (e: unknown) => (e instanceof InterruptedError ? Result.interrupted() : Result.defect(e)),
@@ -190,10 +214,8 @@ export class Timeout {
   }
 }
 
-const timedOut = Symbol("timeout");
-
 export const timeout = <A, S extends Row>(ms: number, k: Kyoot<A, S>) =>
   race(
     k,
-    sleep(ms).map(() => timedOut),
-  ).flatMap((r) => (r === timedOut ? fail(new Timeout(ms)) : succeed(r as A)));
+    sleep(ms).flatMap(() => fail(new Timeout(ms))),
+  );

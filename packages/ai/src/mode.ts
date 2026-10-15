@@ -1,4 +1,4 @@
-import { Kyoot, makeHandler } from "kyoot";
+import { makeHandler, withState } from "kyoot";
 import type { Kyoot as K, Row } from "kyoot";
 import { Model, type Request, type Usage } from "./model.ts";
 
@@ -20,5 +20,5 @@ export const usage = <A, S extends Row & { "ai/model"?: Request }>(k: K<A, S>) =
           output: total.output + (c.usage?.output ?? 0),
         }),
       ),
-    onSuccess: (a, total) => Kyoot.succeed([a, total] as const),
+    onReturn: withState,
   });

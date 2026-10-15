@@ -1,5 +1,14 @@
-import { gen, isKyoot, makeHandler, makeIntercept, op, succeed } from "../core.ts";
-import type { Kyoot, RowOf } from "../model.ts";
+import {
+  catchDefect,
+  ensuring,
+  gen,
+  isKyoot,
+  makeHandler,
+  makeIntercept,
+  op,
+  unit,
+} from "../core.ts";
+import type { Kyoot, RowsOf } from "../model.ts";
 import type { MergeAll, Row } from "../types.ts";
 
 type Finalizer = () => unknown;
@@ -11,38 +20,26 @@ export interface ResourceOp<S extends Row = {}> {
 }
 
 export const acquire = <R, C>(open: () => R, close: (r: R) => C) =>
-  op<R>()("resource", { acquire: open, release: close } as ResourceOp<RowOf<C>>);
+  op<R>()("resource", { acquire: open, release: close } as ResourceOp<RowsOf<C>>);
 
 export const intercept = <S extends Row = {}>() =>
   makeIntercept<"resource", ResourceOp<S>, unknown>("resource");
 
-const unit = succeed(undefined);
-
-const attempting = Symbol("resource/finalizer");
-
-const attempt = (f: Finalizer, errors: unknown[]) =>
-  makeHandler(
-    attempting,
-    unit.flatMap(() => {
-      const r = f();
-      return isKyoot(r) ? r : succeed(r);
-    }),
-    {
-      onOp: () => {
-        throw new Error("unreachable");
-      },
-      onDefect: (d) => {
-        errors.push(d);
-        return unit;
-      },
-    },
-  );
-
 const finalize = (finalizers: readonly Finalizer[]) =>
   gen(function* () {
-    const errors: unknown[] = [];
-    for (let i = finalizers.length - 1; i >= 0; i--) yield* attempt(finalizers[i]!, errors);
-    return errors;
+    let failed: { defect: unknown } | undefined;
+    const record = (defect: unknown) => ((failed ??= { defect }), unit);
+    for (let i = finalizers.length - 1; i >= 0; i--) {
+      let r: unknown;
+      try {
+        r = finalizers[i]!();
+      } catch (defect) {
+        record(defect);
+        continue;
+      }
+      if (isKyoot(r)) yield* catchDefect(r, record);
+    }
+    if (failed !== undefined) throw failed.defect;
   });
 
 type ReleaseRow<R> = R extends ResourceOp<infer S> ? S : never;
@@ -50,22 +47,15 @@ type ReleaseRow<R> = R extends ResourceOp<infer S> ? S : never;
 export const run = <A, S extends Row & { resource?: ResourceOp<any> }>(
   k: Kyoot<A, S>,
 ): Kyoot<A, MergeAll<Omit<S, "resource"> | ReleaseRow<S["resource"]>>> =>
-  makeHandler("resource", k, {
-    fork: "scope",
-    create: () => [] as Finalizer[],
-    onOp: (res, resume, finalizers) => {
-      const r = res.acquire();
-      finalizers.push(() => res.release(r));
-      return resume(r);
-    },
-    onSuccess: (a, finalizers) =>
-      finalize(finalizers).map((errors) => {
-        if (errors.length > 0) throw errors[0];
-        return a;
-      }),
-    onDefect: (d, finalizers) =>
-      finalize(finalizers).map(() => {
-        throw d;
-      }),
-    onInterrupt: (finalizers) => finalize(finalizers),
+  gen(function* () {
+    const finalizers: Finalizer[] = [];
+    const scope = makeHandler("resource", k, {
+      fork: run,
+      onOp: (res, resume) => {
+        const r = res.acquire();
+        finalizers.push(() => res.release(r));
+        return resume(r);
+      },
+    });
+    return yield* ensuring(scope, finalize(finalizers));
   }) as never;

@@ -1,4 +1,4 @@
-import { effect, makeHandler, succeed, type Intercept } from "../core.ts";
+import { effect, makeHandler, withState, type Intercept } from "../core.ts";
 import type { Kyoot } from "../model.ts";
 import type { MergeAll, Row } from "../types.ts";
 
@@ -46,7 +46,7 @@ export const tag =
                 return resume(undefined, op.f(value));
             }
           },
-          onSuccess: (a, value) => succeed([a, value] as const),
+          onReturn: withState,
         }),
     };
   };

@@ -551,12 +551,12 @@ test("fork: a copied handler that returns instead of resuming is a defect", asyn
   assert.match(String((r.cause as { defect: Error }).defect.message), /returned a value/);
 });
 
-test("fork: a handler marked fork: none stops at the fiber, loudly", async () => {
+test("fork: a handler marked fork: false stops at the fiber, loudly", async () => {
   const Ask = effect<string, number>()("ask");
   const prog = Kyoot.gen(function* () {
     const fiber = yield* Async.fork(Ask("n?"));
     return yield* fiber.await;
-  }).pipe(Ask.handle({ fork: "none", onOp: (_q, resume) => resume(1) }));
+  }).pipe(Ask.handle({ fork: false, onOp: (_q, resume) => resume(1) }));
   const r = await Kyoot.runPromise(prog);
   assert.ok(!r.ok && r.cause._tag === "Defect");
   assert.match(String((r.cause as { defect: Error }).defect.message), /unhandled effect 'ask'/);
@@ -783,4 +783,21 @@ test("a batch takes the source's length once, so a callback cannot extend it", a
   assert.deepEqual(mapValues, [1, 2, 11, 12]);
   assert.deepEqual(forEachValues, [1, 2, 11, 12]);
   assert.deepEqual(reduceValues, [1, 2, 11, 12]);
+});
+
+test("Async.next closes the iterator when the wait is interrupted", async () => {
+  let closed = false;
+  const it: AsyncIterator<number> = {
+    next: () => new Promise(() => {}),
+    return: async () => ((closed = true), { done: true, value: undefined }),
+  };
+  const prog = Kyoot.gen(function* () {
+    const fiber = yield* Async.fork(Async.next(it));
+    yield* Clock.sleep(1);
+    yield* fiber.interrupt;
+    return yield* fiber.await;
+  });
+  const r = await Kyoot.runPromise(prog);
+  assert.ok(!r.ok && r.cause._tag === "Interrupted");
+  assert.equal(closed, true);
 });

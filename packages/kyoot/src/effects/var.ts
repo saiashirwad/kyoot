@@ -46,7 +46,7 @@ export const tag =
                 return resume(undefined, op.f(value));
             }
           },
-          onSuccess: (a, value) => succeed([a, value] as const),
+          onReturn: (a, value) => succeed([a, value] as const),
         }),
     };
   };

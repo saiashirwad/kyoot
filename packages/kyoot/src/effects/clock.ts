@@ -1,5 +1,6 @@
-import { effect, makeHandler, succeed } from "../core.ts";
+import { effect, makeHandler, makeOp, succeed } from "../core.ts";
 import type { Kyoot } from "../model.ts";
+import type { AsyncRuntime } from "../runtime.ts";
 import type { Row } from "../types.ts";
 
 const clock = effect<number, void>()("clock");
@@ -14,5 +15,23 @@ export const virtual = <A, S extends Row & { clock?: number }>(k: Kyoot<A, S>) =
   makeHandler("clock", k, {
     initial: 0,
     onOp: (ms, resume, now) => resume(undefined, now + ms),
-    onSuccess: (a, now) => succeed([a, now] as const),
+    onReturn: (a, now) => succeed([a, now] as const),
   });
+
+const realSleep = (ms: number, signal: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    const onAbort = () => clearTimeout(t);
+    const t = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+
+// Real time, as async ops. Every fiber runs under it.
+export const live = clock.handle({
+  onOp: (ms, resume) =>
+    resume.with(
+      makeOp("async", { execute: (rt: AsyncRuntime) => realSleep(ms, rt.signal) }) as never,
+    ),
+});

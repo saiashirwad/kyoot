@@ -38,7 +38,7 @@ export const collect = <A, S extends Row & { emit?: unknown }>(k: Kyoot<A, S>) =
       acc.push(e);
       return resume(undefined);
     },
-    onSuccess: (a, acc) => succeed([a, acc] as const),
+    onReturn: (a, acc) => succeed([a, acc] as const),
   });
 
 export const forEach =

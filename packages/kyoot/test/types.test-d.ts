@@ -3,6 +3,7 @@ import {
   Clock,
   effect,
   Emit,
+  ensuring,
   Env,
   Fail,
   Kyoot,
@@ -169,10 +170,12 @@ type _catchAllValue = Expect<Equal<ValueOf<typeof recovered>, number | "fallback
 type _catchAllKeys = Expect<Equal<keyof RowsOf<typeof recovered>, "clock">>;
 
 const slowSync = Sync.defer(() => 1).pipe((k) =>
-  makeHandler("sync", k, {
-    onOp: (f, resume) => Clock.sleep(1).flatMap(() => resume(f())),
-    onInterrupt: () => Async.fromPromise(() => Promise.resolve()),
-  }),
+  ensuring(
+    makeHandler("sync", k, {
+      onOp: (f, resume) => Clock.sleep(1).flatMap(() => resume(f())),
+    }),
+    Async.fromPromise(() => Promise.resolve()),
+  ),
 );
 type _asyncHandlerValue = Expect<Equal<ValueOf<typeof slowSync>, number>>;
 type _asyncHandlerKeys = Expect<Equal<keyof RowsOf<typeof slowSync>, "async" | "clock">>;
@@ -247,14 +250,14 @@ const none = Async.all([]);
 type _noneKeys = Expect<Equal<keyof RowsOf<typeof none>, "async">>;
 
 const Ask2 = effect<string, number>()("ask2");
-Ask2.handle({ fork: "none", onOp: (_q, resume) => resume(1) });
+Ask2.handle({ fork: false, onOp: (_q, resume) => resume(1) });
 Ask2.handle({
-  fork: "scope",
+  fork: (k) => k,
   create: () => [] as string[],
   onOp: (q, resume, seen) => resume(seen.push(q)),
 });
-// @ts-expect-error fork takes one of the three modes
-Ask2.handle({ fork: "share", onOp: (_q, resume) => resume(1) });
+// @ts-expect-error fork is false or a function that installs the fiber's own handler
+Ask2.handle({ fork: "none", onOp: (_q, resume) => resume(1) });
 
 const Config = Env.tag<{ url: string }>()("config");
 const Db = Env.tag<{ query(sql: string): KyootT<string, { async: AsyncOp }> }>()("db");

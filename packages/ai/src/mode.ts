@@ -20,5 +20,5 @@ export const usage = <A, S extends Row & { "ai/model"?: Request }>(k: K<A, S>) =
           output: total.output + (c.usage?.output ?? 0),
         }),
       ),
-    onSuccess: (a, total) => Kyoot.succeed([a, total] as const),
+    onReturn: (a, total) => Kyoot.succeed([a, total] as const),
   });

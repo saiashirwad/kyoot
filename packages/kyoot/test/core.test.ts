@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { makeHandler, makeOp, succeed } from "../src/core.ts";
+import { catchDefect, makeHandler, makeOp, succeed } from "../src/core.ts";
 import {
   Async,
   Clock,
@@ -129,7 +129,10 @@ test("a continuation dropped by its handler cannot be resumed later", () => {
     }),
   );
   assert.equal(Kyoot.runSync(k), "dropped");
-  assert.throws(() => Kyoot.runSync(saved!(1) as never), /resumed after it was dropped/);
+  assert.throws(
+    () => Kyoot.runSync(saved!(1) as never),
+    /resume used outside the operation it answers/,
+  );
 });
 
 test("a resume token discarded by its handler cannot be run later", () => {
@@ -146,10 +149,10 @@ test("a resume token discarded by its handler cannot be run later", () => {
     }),
   );
   assert.equal(Kyoot.runSync(k), "discarded");
-  assert.throws(() => Kyoot.runSync(token!), /resumed after it was dropped/);
+  assert.throws(() => Kyoot.runSync(token!), /resume used outside the operation it answers/);
 });
 
-test("a continuation may only be resumed once", () => {
+test("resuming ends the handler's program: code after a resume never runs", () => {
   const k = makeHandler(
     "myfx",
     Kyoot.gen(function* () {
@@ -163,7 +166,7 @@ test("a continuation may only be resumed once", () => {
       },
     },
   );
-  assert.throws(() => Kyoot.runSync(k as never), /continuation resumed twice \(one-shot law\)/);
+  assert.equal(Kyoot.runSync(k as never), 10);
 });
 
 test("a resume saved from one operation cannot answer a later operation", () => {
@@ -183,7 +186,7 @@ test("a resume saved from one operation cannot answer a later operation", () => 
       },
     }),
   );
-  assert.throws(() => Kyoot.runSync(k), /continuation resumed twice \(one-shot law\)/);
+  assert.throws(() => Kyoot.runSync(k), /resume used outside the operation it answers/);
 });
 
 test("a resume.with saved from one operation cannot answer a later operation", () => {
@@ -203,7 +206,7 @@ test("a resume.with saved from one operation cannot answer a later operation", (
       },
     }),
   );
-  assert.throws(() => Kyoot.runSync(k), /continuation resumed twice \(one-shot law\)/);
+  assert.throws(() => Kyoot.runSync(k), /resume used outside the operation it answers/);
 });
 
 test("a resume token saved from one operation cannot answer a later operation", () => {
@@ -223,7 +226,7 @@ test("a resume token saved from one operation cannot answer a later operation", 
       },
     }),
   );
-  assert.throws(() => Kyoot.runSync(k), /continuation resumed twice \(one-shot law\)/);
+  assert.throws(() => Kyoot.runSync(k), /resume used outside the operation it answers/);
 });
 
 test("a resume.with token saved from one operation cannot answer a later operation", () => {
@@ -243,7 +246,7 @@ test("a resume.with token saved from one operation cannot answer a later operati
       },
     }),
   );
-  assert.throws(() => Kyoot.runSync(k), /continuation resumed twice \(one-shot law\)/);
+  assert.throws(() => Kyoot.runSync(k), /resume used outside the operation it answers/);
 });
 
 test("a continuation held past its op still answers that op", () => {
@@ -281,15 +284,26 @@ test("an op escaping a yielded handler node keeps the outer continuation", () =>
   assert.equal(Kyoot.runSync(k as never), "handled continued");
 });
 
-test("a throw inside onOp goes to the same handler's onDefect", () => {
+test("a throw inside onOp is a defect raised where the handler is installed", () => {
   const boom = new Error("boom");
-  const k = makeHandler("myfx", makeOp("myfx", undefined) as never, {
+  const events: string[] = [];
+  const body = Kyoot.gen(function* () {
+    try {
+      yield* makeOp("myfx", undefined);
+    } catch {
+      events.push("the op's own catch");
+    } finally {
+      events.push("finally");
+    }
+  });
+  const handled = makeHandler("myfx", body as never, {
     onOp: () => {
       throw boom;
     },
-    onDefect: (d) => succeed(d === boom ? "caught" : "wrong"),
   });
+  const k = catchDefect(handled, (d) => succeed(d === boom ? "caught" : "wrong"));
   assert.equal(Kyoot.runSync(k as never), "caught");
+  assert.deepEqual(events, ["finally"]);
 });
 
 test("resume.with continues the program at the op, where its own handlers see it", () => {
@@ -309,6 +323,20 @@ test("intercept answers some ops and performs the rest for the handler outside",
     return [yield* Fetch("hot"), yield* Fetch("cold")];
   });
   assert.deepEqual(Kyoot.runSync(program.pipe(cache, live)), ["cached", "fetched cold"]);
+});
+
+test("stacked intercepts each see the op once, innermost first", () => {
+  const Ask = effect<string, string>()("ask");
+  const seen: string[] = [];
+  const tag = (name: string) => Ask.intercept((q, next) => (seen.push(name), next(`${q}>${name}`)));
+  const k = Ask("q").pipe(
+    tag("inner"),
+    tag("middle"),
+    tag("outer"),
+    Ask.handle({ onOp: (q, resume) => resume(q) }),
+  );
+  assert.equal(Kyoot.runSync(k), "q>inner>middle>outer");
+  assert.deepEqual(seen, ["inner", "middle", "outer"]);
 });
 
 test("intercept with a cell: state per run, fresh each run", () => {

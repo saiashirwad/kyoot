@@ -162,24 +162,26 @@ test("generator: finally runs before an outer Resource releases", () => {
   assert.deepEqual(events, ["finally", "release"]);
 });
 
-test("generator: a finally that yields is a defect, not half-run cleanup", () => {
+test("generator: a finally may perform effects while its frame is cancelled", () => {
   const events: string[] = [];
   const prog = Kyoot.gen(function* () {
     try {
       yield* Fail.fail("stop");
     } finally {
-      yield* Kyoot.succeed(1);
-      events.push("after the yield");
+      yield* Cleanup(undefined);
+      events.push("after the effect");
     }
-  }).pipe(Fail.run);
-  assert.throws(
-    () => Kyoot.runSync(prog),
-    (e: unknown) => e instanceof Error && e.message.includes("finally yielded an effect"),
+  }).pipe(
+    Cleanup.handle({
+      onOp: (_, resume) => (events.push("cleanup handled"), resume(undefined)),
+    }),
+    Fail.run,
   );
-  assert.deepEqual(events, []);
+  assert.deepEqual(Kyoot.runSync(prog), { ok: false, cause: { _tag: "Fail", error: "stop" } });
+  assert.deepEqual(events, ["cleanup handled", "after the effect"]);
 });
 
-test("generator: a finally that throws surfaces after the rest of the cleanup", () => {
+test("generator: a finally that throws is a defect, raised after the rest of the cleanup", () => {
   const events: string[] = [];
   const boom = new Error("from finally");
   const raise = () => {
@@ -196,10 +198,7 @@ test("generator: a finally that throws surfaces after the rest of the cleanup", 
       raise();
     }
   }).pipe(Resource.run, Fail.run);
-  assert.throws(
-    () => Kyoot.runSync(prog),
-    (e: unknown) => e === boom,
-  );
+  assert.deepEqual(Kyoot.runSync(prog), { ok: false, cause: { _tag: "Defect", defect: boom } });
   assert.deepEqual(events, ["release"]);
 });
 
@@ -334,10 +333,7 @@ test("generator: an outer finally that throws replaces the inner one's error", (
       raise(outer);
     }
   }).pipe(Fail.run);
-  assert.throws(
-    () => Kyoot.runSync(prog),
-    (e: unknown) => e === outer,
-  );
+  assert.deepEqual(Kyoot.runSync(prog), { ok: false, cause: { _tag: "Defect", defect: outer } });
   assert.deepEqual(events, ["inner", "outer"]);
 });
 
@@ -419,7 +415,10 @@ test("generator: a token saved past a closed continuation cannot restore it", ()
     (e: unknown) => e instanceof Error && e.message.includes("unhandled effect 'missing'"),
   );
   assert.deepEqual(events, ["finally"]);
-  assert.throws(() => Kyoot.runSync(token as never), /resumed after it was dropped/);
+  assert.throws(
+    () => Kyoot.runSync(token as never),
+    /resume used outside the operation it answers/,
+  );
   assert.deepEqual(events, ["finally"]);
 });
 
@@ -457,7 +456,7 @@ test("generator: a frame queued inside a dropped continuation closes too", () =>
   assert.deepEqual(events, ["outer"]);
 });
 
-test("generator: a dropped cleanup plan still reports the error its finally raised", () => {
+test("generator: an abort during cleanup replaces the error a finally raised", () => {
   const events: string[] = [];
   const boom = new Error("boom");
   const raise = () => {
@@ -483,12 +482,10 @@ test("generator: a dropped cleanup plan still reports the error its finally rais
   }).pipe(
     Resource.run,
     Stop.handle({ onOp: () => Kyoot.succeed(undefined) }),
-    // Drops the cleanup plan part-way, while it is releasing the outer scope.
-    Cleanup.handle({ onOp: () => Kyoot.succeed(undefined) }),
+    // Aborts part-way through the cleanup, while it is releasing the outer scope: like a
+    // `return` in a `finally`, the later exit wins.
+    Cleanup.handle({ onOp: () => Kyoot.succeed("cleanup aborted") }),
   );
-  assert.throws(
-    () => Kyoot.runSync(prog),
-    (e: unknown) => e === boom,
-  );
+  assert.equal(Kyoot.runSync(prog), "cleanup aborted");
   assert.deepEqual(events, ["inner release", "finally"]);
 });

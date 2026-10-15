@@ -36,7 +36,7 @@ export const collect = <A, S extends Row & { log?: Entry }>(k: Kyoot<A, S>) =>
       entries.push(entry);
       return resume(undefined);
     },
-    onSuccess: (a, entries) => succeed([a, entries] as const),
+    onReturn: (a, entries) => succeed([a, entries] as const),
   });
 
 export const discard = log.handle({ onOp: (_e, resume) => resume(undefined) });

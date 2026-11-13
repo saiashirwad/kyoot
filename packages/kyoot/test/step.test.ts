@@ -118,9 +118,7 @@ test("step: disposing a pending step cancels it", () => {
       events.push("finally");
     }
   });
-  {
-    using _step = pending(Kyoot.step(program));
-  }
+  pending(Kyoot.step(program))[Symbol.dispose]();
   assert.deepEqual(events, ["finally"]);
 });
 

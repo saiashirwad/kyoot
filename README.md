@@ -2,7 +2,7 @@
 
 An experimental effects system for TypeScript, inspired by [Kyo](https://github.com/getkyo/kyo). The API may change.
 
-A program's type tracks its unhandled effects. You supply handlers with `.pipe()`. Each handler removes the effects it handles and may introduce effects of its own. `runSync` requires all effects to be handled; `runPromise` also accepts `Async` and `Clock`, which its runtime handles for you. TypeScript checks these requirements when you call either runner.
+A program's type tracks its unhandled effects. You supply handlers with `.pipe()`. Each handler removes the effects it handles and may introduce effects of its own. `runSync` requires all effects to be handled. `runPromise`, from `kyoot/async`, also accepts `Async` and `Clock`, which its runtime handles for you. TypeScript checks these requirements when you call either runner.
 
 Here, the program needs a config and a greeting. Providing just the config leaves the greeting unhandled:
 
@@ -27,12 +27,12 @@ Kyoot.runSync(program.pipe(Config.provide({ id: "hi", name: "what" }), Greeting.
 
 ## Packages
 
-| Package                                | Contents                                        |
-| -------------------------------------- | ----------------------------------------------- |
-| [`kyoot`](packages/kyoot)              | Effects, handlers, fibers, and built-in effects |
-| [`@kyoot/ai`](packages/ai)             | Language models, tools, and providers           |
-| [`@kyoot/platform`](packages/platform) | File system and process effects                 |
-| [`@kyoot/registry`](packages/registry) | Loading and hot swapping components at runtime  |
+| Package                                | Contents                                                         |
+| -------------------------------------- | ---------------------------------------------------------------- |
+| [`kyoot`](packages/kyoot)              | Effects, handlers, and built-in effects; fibers in `kyoot/async` |
+| [`@kyoot/ai`](packages/ai)             | Language models, tools, and providers                            |
+| [`@kyoot/platform`](packages/platform) | File system and process effects                                  |
+| [`@kyoot/registry`](packages/registry) | Loading and hot swapping components at runtime                   |
 
 ## Try it
 

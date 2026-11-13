@@ -1,6 +1,7 @@
 import { gen, succeed } from "./core.ts";
 import type { Kyoot as KyootType } from "./model.ts";
-import { runPromise, runSync } from "./runtime.ts";
+import { runPromise } from "./runtime.ts";
+import { runSync, step } from "./step.ts";
 import type { Row } from "./types.ts";
 
 export {
@@ -19,6 +20,7 @@ export {
 export { runFiber } from "./runtime.ts";
 export type { Cell, Hooks, Intercept, OpHooks, Resume, TailHooks } from "./core.ts";
 export type { AsyncOp, AsyncRuntime, FiberHandle } from "./runtime.ts";
+export type { Done, Pending, Step } from "./step.ts";
 export type { Pipeable } from "./pipe.ts";
 export { Result } from "./result.ts";
 export type { Cause, DefectCause, Err, FailCause, InterruptedCause, Ok } from "./result.ts";
@@ -38,4 +40,4 @@ export * as Sync from "./effects/sync.ts";
 export * as Var from "./effects/var.ts";
 
 export type Kyoot<A, S extends Row = {}> = KyootType<A, S>;
-export const Kyoot = { succeed, gen, runSync, runPromise };
+export const Kyoot = { succeed, gen, runSync, runPromise, step };

@@ -1,24 +1,10 @@
-import { InterruptedError, node } from "./core.ts";
+import { InterruptedError } from "./core.ts";
 import { live } from "./effects/clock.ts";
 import { Machine, type Outcome } from "./machine.ts";
-import type { AnyKyoot, Kyoot, Snapshot } from "./model.ts";
+import type { Kyoot, Snapshot } from "./model.ts";
 import type { Only, Row } from "./types.ts";
 
 export type Served = "async" | "clock";
-
-const unhandledEffect = (edge: string, key: PropertyKey) =>
-  new Error(`${edge} encountered unhandled effect '${String(key)}'`);
-
-export function runSync<A, S extends Row>(k: Kyoot<A, S> & Only<S>): A {
-  const n = node(k);
-  if (n._tag === "pure") return n.a as A;
-  const machine = new Machine();
-  let outcome = machine.start(k as AnyKyoot);
-  if (outcome === "done") return machine.value as A;
-  const key = machine.key;
-  while (outcome !== "done") outcome = machine.cancel();
-  throw unhandledEffect("runSync", key);
-}
 
 export interface FiberHandle<A = unknown> {
   readonly promise: Promise<A>;
@@ -170,7 +156,7 @@ class Fiber<A> implements FiberHandle<A> {
 
       const { key, payload } = machine;
       if (key !== "async") {
-        outcome = this.cancel(unhandledEffect("fiber", key));
+        outcome = this.cancel(new Error(`fiber encountered unhandled effect '${String(key)}'`));
         continue;
       }
 

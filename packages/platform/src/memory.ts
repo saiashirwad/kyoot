@@ -1,7 +1,7 @@
 import { posix } from "node:path";
-import { Fail, Kyoot, makeHandler } from "kyoot";
+import { Fail } from "kyoot";
 import type { Kyoot as K, Row } from "kyoot";
-import { FsError, type Code, type Op } from "./fs.ts";
+import { FsError, handle, type Code, type FsRow, type Op } from "./fs.ts";
 
 const { resolve, dirname, basename } = posix;
 
@@ -10,7 +10,7 @@ const under = (path: string, root: string) =>
 
 export const fs =
   (initial: Record<string, string> = {}) =>
-  <A, S extends Row & { fs?: Op }>(k: K<A, S>) => {
+  <A, S extends Row & Partial<FsRow>>(k: K<A, S>) => {
     const files = new Map<string, { data: string; mtime: Date }>();
     const dirs = new Set(["/"]);
     const mkdirp = (dir: string) => {
@@ -100,7 +100,7 @@ export const fs =
       }
     };
 
-    return makeHandler("fs", k, {
+    const served = handle({
       onOp: (op, resume) => {
         try {
           return resume(run(op));
@@ -109,7 +109,8 @@ export const fs =
           throw e;
         }
       },
-      onReturn: (a) =>
-        Kyoot.succeed([a, Object.fromEntries([...files].map(([p, f]) => [p, f.data]))] as const),
     });
+    return served(k).map(
+      (a) => [a, Object.fromEntries([...files].map(([p, f]) => [p, f.data]))] as const,
+    );
   };

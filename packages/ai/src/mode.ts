@@ -1,6 +1,6 @@
 import { makeHandler, withState } from "kyoot";
-import type { Kyoot as K, Row } from "kyoot";
-import { Model, type Request, type Usage } from "./model.ts";
+import type { Kyoot as K, Op, Resume, Row } from "kyoot";
+import { Model, type Completion, type Request, type Usage } from "./model.ts";
 
 export const system = (content: string) =>
   Model.intercept((req, next) =>
@@ -10,10 +10,10 @@ export const system = (content: string) =>
 export const config = (patch: Pick<Request, "temperature" | "maxTokens">) =>
   Model.intercept((req, next) => next({ ...req, ...patch }));
 
-export const usage = <A, S extends Row & { "ai/model"?: Request }>(k: K<A, S>) =>
+export const usage = <A, S extends Row & { "ai/model"?: Op<Request, Completion> }>(k: K<A, S>) =>
   makeHandler("ai/model", k, {
     initial: { input: 0, output: 0 } as Usage,
-    onOp: (req, resume, total) =>
+    onOp: (req: Request, resume: Resume<Completion, Usage>, total) =>
       Model(req).flatMap((c) =>
         resume(c, {
           input: total.input + (c.usage?.input ?? 0),

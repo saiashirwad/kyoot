@@ -1,7 +1,7 @@
 import { Fail, Kyoot } from "kyoot";
-import type { Kyoot as K, MergeAll } from "kyoot";
+import type { Kyoot as K, MergeAll, Op } from "kyoot";
 import * as Events from "./events.ts";
-import { Model, type Message, type Request } from "./model.ts";
+import { Model, type Completion, type Message, type Request } from "./model.ts";
 import * as Schema from "./schema.ts";
 import { schemaOf, type Tool } from "./tool.ts";
 
@@ -16,7 +16,11 @@ export interface Options<A, T extends Tool> {
 }
 
 export type Requires<T extends Tool> = MergeAll<
-  | { "ai/model": Request; emit: Events.Event; fail: TooManyRounds }
+  | {
+      "ai/model": Op<Request, Completion>;
+      emit: Op<Events.Event, void>;
+      fail: Op<TooManyRounds, never>;
+    }
   | (T extends Tool<any, any, infer S> ? Omit<S, "fail"> : never)
 >;
 

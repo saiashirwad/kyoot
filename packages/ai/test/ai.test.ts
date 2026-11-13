@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { effect, Emit, Fail, Kyoot } from "kyoot";
+import type { Op } from "kyoot";
 import { z } from "zod";
 import {
   AI,
@@ -23,7 +24,9 @@ type Equal<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 const Calc = effect<{ expression: string }, number>()("calc");
 const calc = Tool("calc", "arithmetic", z.object({ expression: z.string() }), Calc);
 const emitting = Tool("emitting", "emits numbers", z.object({}), () => Emit.value(1));
-type _emittingRow = Expect<Equal<Requires<typeof emitting>["emit"], Events.Event | number>>;
+type _emittingRow = Expect<
+  Equal<Requires<typeof emitting>["emit"], Op<Events.Event | number, void>>
+>;
 const evaluate = Calc.handle({
   onOp: ({ expression }, resume) => resume(expression === "2+2" ? 4 : NaN),
 });

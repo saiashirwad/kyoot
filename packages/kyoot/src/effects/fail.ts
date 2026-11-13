@@ -23,7 +23,7 @@ export const resumeOrFail = <A, E, S extends Row & { fail?: Op<E, never> }>(
 ) => program.pipe(catchAll((e: E) => resume.with(fail(e)))).flatMap((a) => resume(a));
 
 export const fromResult = <E, A = never>(r: Result<E, A>): Kyoot<A, FailRow<E>> => {
-  if (r.ok) return succeed(r.value) as Kyoot<A, FailRow<E>>;
+  if (r.ok) return succeed(r.value);
   switch (r.cause._tag) {
     case "Fail":
       return fail(r.cause.error) as Kyoot<A, FailRow<E>>;

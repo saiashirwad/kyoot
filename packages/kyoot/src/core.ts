@@ -94,7 +94,7 @@ export const makeOp = (key: PropertyKey, payload: unknown, skip = 0) =>
 
 export const gen = <A, Y extends AnyKyoot>(
   f: () => Generator<Y, A, unknown>,
-): Kyoot<A, MergeAll<RowsOf<Y>>> => new KyootImpl("gen", f) as never;
+): Kyoot<A, MergeAll<RowsOf<Y>>> => new KyootImpl("gen", f);
 
 export const op =
   <A>() =>
@@ -104,12 +104,12 @@ export const op =
 export const catchDefect = <A, S extends Row, B, S2 extends Row>(
   k: Kyoot<A, S>,
   f: (defect: unknown) => Kyoot<B, S2>,
-): Kyoot<A | B, MergeAll<S | S2>> => new KyootImpl("catch", k, f) as never;
+): Kyoot<A | B, MergeAll<S | S2>> => new KyootImpl("catch", k, f);
 
 export const ensuring = <A, S extends Row, S2 extends Row>(
   k: Kyoot<A, S>,
   cleanup: Kyoot<unknown, S2>,
-): Kyoot<A, MergeAll<S | S2>> => new KyootImpl("ensure", k, cleanup) as never;
+): Kyoot<A, MergeAll<S | S2>> => new KyootImpl("ensure", k, cleanup);
 
 export interface Resume<A, St, C extends Row = Row> {
   (value: A, state?: St): Kyoot<never, {}>;
@@ -214,7 +214,7 @@ export function makeHandler<
     onReturn?: (a: A, state: St) => RReturn;
   },
 ): Kyoot<ValueOf<RReturn> | ValueOf<ROp>, MergeAll<Omit<S, K> | RowsOf<ROp> | RowsOf<RReturn>>> {
-  return handler(effectKey, self, hooks as unknown as HandlerHooks) as never;
+  return handler(effectKey, self, hooks as unknown as HandlerHooks);
 }
 
 export const collect =
@@ -226,7 +226,7 @@ export const collect =
       create: () => [],
       tail: (payload, payloads) => void payloads.push(payload),
       onReturn: withState,
-    }) as never;
+    });
 
 export const forEach =
   <const K extends string, P, R>(key: K, f: (payload: P) => R) =>
@@ -238,4 +238,4 @@ export const forEach =
         const r = f(payload);
         return isKyoot(r) ? r.flatMap(() => resume(undefined)) : resume(undefined);
       },
-    }) as never;
+    });

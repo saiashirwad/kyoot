@@ -21,7 +21,7 @@ export interface ResourceOp<S extends Row = {}> {
 }
 
 export const acquire = <R, C>(open: () => R, close: (r: R) => C) =>
-  op<unknown>()("resource", { acquire: open, release: close } as ResourceOp<RowsOf<C>>) as Kyoot<
+  op<unknown>()("resource", { acquire: open, release: close }) as Kyoot<
     R,
     { resource: Op<ResourceOp<RowsOf<C>>, unknown> }
   >;

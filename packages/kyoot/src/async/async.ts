@@ -1,4 +1,4 @@
-import { effect, gen, makeHandler, makeOp, succeed } from "../core.ts";
+import { gen, makeHandler, makeIntercept, makeOp, succeed } from "../core.ts";
 import { forEach, value } from "../effects/emit.ts";
 import { fail, fromResult } from "../effects/fail.ts";
 import type { AnyKyoot, Kyoot, Snapshot } from "../model.ts";
@@ -16,15 +16,13 @@ import {
 
 export type AsyncRow = { async: Op<AsyncOp, unknown> };
 
-const asyncEffect = effect<AsyncOp, unknown>()("async");
-
 const asyncOp = <A>(execute: (rt: AsyncRuntime) => Promise<A>) =>
-  makeOp("async", { execute } as AsyncOp) as Kyoot<A, AsyncRow>;
+  makeOp("async", { execute } satisfies AsyncOp) as Kyoot<A, AsyncRow>;
 
 const spawning = <A>(execute: (rt: AsyncRuntime) => Promise<A>) =>
-  makeOp("async", { execute, inherits: true } as AsyncOp) as Kyoot<A, AsyncRow>;
+  makeOp("async", { execute, inherits: true } satisfies AsyncOp) as Kyoot<A, AsyncRow>;
 
-export const intercept = asyncEffect.intercept;
+export const intercept = makeIntercept<"async", AsyncOp, unknown>("async");
 
 export const fromPromise = <A>(f: (signal: AbortSignal) => Promise<A>) =>
   asyncOp((rt) => f(rt.signal));
@@ -167,7 +165,7 @@ const land = <A, E>(exit: Exit<E, A>): Result<E, A> => {
 const fiber = <A, E>(h: Spawned<A, E>): Fiber<A, E> => {
   const result = asyncOp(() => h.promise);
   return {
-    join: asyncOp(() => h.promise.then(land)).flatMap(fromResult) as never,
+    join: asyncOp(() => h.promise.then(land)).flatMap(fromResult),
     await: result,
     interrupt: asyncOp(async () => h.interrupt()),
   };

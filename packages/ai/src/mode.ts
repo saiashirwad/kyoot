@@ -12,7 +12,7 @@ export const config = (patch: Pick<Request, "temperature" | "maxTokens">) =>
 
 export const usage = <A, S extends Row & { "ai/model"?: Op<Request, Completion> }>(k: K<A, S>) =>
   makeHandler("ai/model", k, {
-    initial: { input: 0, output: 0 } as Usage,
+    initial: { input: 0, output: 0 },
     onOp: (req: Request, resume: Resume<Completion, Usage>, total) =>
       Model(req).flatMap((c) =>
         resume(c, {

@@ -25,5 +25,5 @@ export const run =
             : Clock.sleep(delayOf(policy, tries)).flatMap(() => attempt(tries + 1)),
         ),
       );
-    return attempt(0) as never;
+    return attempt(0);
   };

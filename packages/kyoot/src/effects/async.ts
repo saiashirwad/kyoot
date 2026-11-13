@@ -141,10 +141,15 @@ const spawn = <A, E>(rt: AsyncRuntime, k: AnyKyoot): Spawned<A, E> => {
   };
 };
 
+const land = <A, E>(r: Result<E, A>) => {
+  if (!r.ok && r.cause._tag === "Interrupted") throw new InterruptedError();
+  return r;
+};
+
 const fiber = <A, E>(h: Spawned<A, E>): Fiber<A, E> => {
   const result = asyncOp(() => h.promise);
   return {
-    join: result.flatMap(fromResult) as never,
+    join: asyncOp(() => h.promise.then(land)).flatMap(fromResult) as never,
     await: result,
     interrupt: asyncOp(async () => h.interrupt()),
   };
@@ -167,7 +172,9 @@ export const race = <A, B, S1 extends Row, S2 extends Row>(
 > =>
   spawning((rt) => {
     const fibers = [spawn<A | B, unknown>(rt, a), spawn<A | B, unknown>(rt, b)];
-    return Promise.race(fibers.map((f) => f.promise)).finally(() => settle(fibers));
+    return Promise.race(fibers.map((f) => f.promise))
+      .finally(() => settle(fibers))
+      .then(land);
   }).flatMap(fromResult) as never;
 
 export const all = <A, S extends Row = {}>(
@@ -203,7 +210,7 @@ export const all = <A, S extends Row = {}>(
     await Promise.all(Array.from({ length: workers }, worker));
     if (stopped === undefined) return Result.ok(results);
     await settle(fibers);
-    return stopped;
+    return land(stopped);
   }).flatMap(fromResult) as never;
 
 export class Timeout {

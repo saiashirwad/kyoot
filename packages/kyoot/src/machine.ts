@@ -1,4 +1,4 @@
-import { InterruptedError, KEEP, KyootImpl, node, raise, succeed } from "./core.ts";
+import { KEEP, KyootImpl, node, raise, succeed, unit } from "./core.ts";
 import type { AnyKyoot, HandlerHooks, RuntimeResume, Snapshot } from "./model.ts";
 
 export type Outcome = "done" | "suspended" | "yielded";
@@ -172,6 +172,11 @@ export class Machine {
     return this.run(budget);
   }
 
+  cancel(budget = Infinity): Outcome {
+    this.current = this.cancelTo(0, unit);
+    return this.run(budget);
+  }
+
   push(entry: Entry): void {
     this.stack.push(entry);
   }
@@ -192,29 +197,9 @@ export class Machine {
       if (entry instanceof Mask) i = entry.below;
       else if (!(entry instanceof HandlerFrame)) continue;
       else if (skip > 0 && entry.key === key) skip--;
-      else if (entry.hooks.fork !== false) {
-        out.push({ key: entry.key, hooks: entry.hooks, state: entry.state });
-      }
+      else out.push({ key: entry.key, hooks: entry.hooks, state: entry.state });
     }
     return out;
-  }
-
-  reset(): void {
-    const abandoned = this.stack.splice(0);
-    this.current = undefined!;
-    this.value = undefined;
-    this.payload = undefined;
-    let thrown: { error: unknown } | undefined;
-    for (let i = abandoned.length - 1; i >= 0; i--) {
-      const entry = abandoned[i];
-      if (!(entry instanceof GenFrame)) continue;
-      try {
-        entry.generator.return(undefined);
-      } catch (error) {
-        thrown = { error };
-      }
-    }
-    if (thrown !== undefined) throw thrown.error;
   }
 
   cancelTo(index: number, then: AnyKyoot): AnyKyoot {
@@ -320,7 +305,6 @@ export class Machine {
   private fail(error: unknown): AnyKyoot {
     const stack = this.stack;
     if (stack.length === 0) throw error;
-    if (error instanceof InterruptedError) return this.cancelTo(0, raise(error));
     while (stack.length > 0) {
       const entry = stack.pop()!;
       if (typeof entry === "function" || entry instanceof KyootImpl) continue;

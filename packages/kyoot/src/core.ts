@@ -245,6 +245,7 @@ export class InterruptedError extends Error {
 export const inherit = (k: AnyKyoot, snapshots: readonly Snapshot[] = []): AnyKyoot => {
   for (const { key, hooks, state } of snapshots) {
     const fork = hooks.fork;
+    if (fork === false) continue;
     k =
       typeof fork === "function"
         ? fork(k)

@@ -422,7 +422,7 @@ test("generator: a token saved past a closed continuation cannot restore it", ()
   assert.deepEqual(events, ["finally"]);
 });
 
-test("generator: a frame queued inside a dropped continuation closes too", () => {
+test("generator: a dropped continuation releases its resources when the machine stops", () => {
   const events: string[] = [];
   const held = Kyoot.gen(function* () {
     try {
@@ -452,7 +452,7 @@ test("generator: a frame queued inside a dropped continuation closes too", () =>
     () => Kyoot.runSync(prog as never),
     (e: unknown) => e instanceof Error && e.message.includes("unhandled effect 'missing'"),
   );
-  assert.deepEqual(events, ["outer"]);
+  assert.deepEqual(events, ["release", "outer"]);
 });
 
 test("generator: an abort during cleanup replaces the error a finally raised", () => {

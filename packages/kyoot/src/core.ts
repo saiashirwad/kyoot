@@ -1,8 +1,7 @@
-import type { AnyKyoot, Fork, HandlerHooks, Kyoot, OnOp, RowsOf, ValueOf } from "./model.ts";
-import type { Pipeable } from "./pipe.ts";
+import type { AnyKyoot, HandlerHooks, Kyoot, OnOp, RowsOf, ValueOf } from "./model.ts";
 import type { Answer, MergeAll, Only, Op, Payload, Row, Simplify } from "./types.ts";
 
-export type RuntimeNode =
+type RuntimeNode =
   | { readonly _tag: "pure"; readonly a: unknown }
   | { readonly _tag: "map"; readonly a: AnyKyoot; readonly b: (a: unknown) => unknown }
   | { readonly _tag: "flatMap"; readonly a: AnyKyoot; readonly b: (a: unknown) => AnyKyoot }
@@ -23,8 +22,6 @@ export type RuntimeNode =
       readonly c: unknown;
     }
   | { readonly _tag: "raise"; readonly a: unknown };
-
-export const KEEP: unique symbol = Symbol("kyoot.keep");
 
 class KyootIterator<A, S extends Row> implements Iterator<Kyoot<unknown, S>, A, unknown> {
   private used = false;
@@ -50,8 +47,6 @@ class KyootIterator<A, S extends Row> implements Iterator<Kyoot<unknown, S>, A, 
   }
 }
 
-// oxlint-disable-next-line no-unused-vars, typescript/no-unsafe-declaration-merging
-export interface KyootImpl<A, S extends Row = {}> extends Pipeable {}
 export class KyootImpl<A, S extends Row = {}> implements Kyoot<A, S> {
   readonly _tag: RuntimeNode["_tag"];
   readonly a: unknown;
@@ -73,14 +68,14 @@ export class KyootImpl<A, S extends Row = {}> implements Kyoot<A, S> {
     return new KyootImpl("flatMap", this, mapper);
   }
 
+  pipe(...fns: Array<(x: any) => any>): any {
+    return fns.reduce((value, fn) => fn(value), this);
+  }
+
   [Symbol.iterator]() {
     return new KyootIterator<A, S>(this);
   }
 }
-
-KyootImpl.prototype.pipe = function (this: unknown, ...fns: Array<(x: any) => any>) {
-  return fns.reduce((value, fn) => fn(value), this);
-};
 
 export const node = (k: AnyKyoot): RuntimeNode => k as unknown as RuntimeNode;
 
@@ -97,13 +92,9 @@ export const raise = (error: unknown): Kyoot<never, {}> => new KyootImpl("raise"
 export const makeOp = (key: PropertyKey, payload: unknown, skip = 0) =>
   new KyootImpl("op", key, payload, skip);
 
-export const genNode = (factory: () => Generator<AnyKyoot, unknown, unknown>): AnyKyoot =>
-  new KyootImpl("gen", factory);
-
 export const gen = <A, Y extends AnyKyoot>(
   f: () => Generator<Y, A, unknown>,
-): Kyoot<A, MergeAll<RowsOf<Y>>> =>
-  genNode(f as () => Generator<AnyKyoot, unknown, unknown>) as never;
+): Kyoot<A, MergeAll<RowsOf<Y>>> => new KyootImpl("gen", f) as never;
 
 export const op =
   <A>() =>
@@ -133,9 +124,8 @@ type Performed<K extends string, P, A, C extends Row> = Kyoot<
   Simplify<{ [k in K]: Op<P, A> } & C>
 >;
 
-export interface Cell<St> {
+interface Cell<St> {
   readonly create: () => St;
-  readonly fork?: Fork;
 }
 
 type Interceptor<K extends string, P, A, C extends Row, St, Ret> = (
@@ -169,26 +159,25 @@ export const makeIntercept = <K extends string, P, A, C extends Row = {}>(
     const f = typeof cellOrF === "function" ? cellOrF : maybeF!;
     const onOp: OnOp = (payload, resume, state, past) =>
       resume.with(f(payload, nextPast(past), state));
-    return (k: AnyKyoot) =>
-      makeHandler(key, k, { create: cell?.create, fork: cell?.fork, onOp: onOp as never });
+    return (k: AnyKyoot) => makeHandler(key, k, { create: cell?.create, onOp: onOp as never });
   };
 };
 
 interface State<St> {
   initial?: St;
   create?: () => St;
-  fork?: Fork;
+  fork?: HandlerHooks["fork"];
 }
 
-export interface OpHooks<P, A, St, C extends Row, ROp extends AnyKyoot> extends State<St> {
+interface OpHooks<P, A, St, C extends Row, ROp extends AnyKyoot> extends State<St> {
   onOp: (payload: P, resume: Resume<A, St, C>, state: St) => ROp;
 }
 
-export interface TailHooks<P, A, St> extends State<St> {
+interface TailHooks<P, A, St> extends State<St> {
   tail: (payload: P, state: St) => NoInfer<A>;
 }
 
-export type Hooks<P, A, St, C extends Row, ROp extends AnyKyoot> =
+type Hooks<P, A, St, C extends Row, ROp extends AnyKyoot> =
   | OpHooks<P, A, St, C, ROp>
   | TailHooks<P, A, St>;
 

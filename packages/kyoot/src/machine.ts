@@ -1,7 +1,9 @@
-import { KEEP, KyootImpl, node, raise, succeed, unit } from "./core.ts";
+import { KyootImpl, node, raise, succeed, unit } from "./core.ts";
 import type { AnyKyoot, HandlerHooks, RuntimeResume, Snapshot } from "./model.ts";
 
 export type Outcome = "done" | "suspended" | "yielded";
+
+const KEEP = Symbol("kyoot.keep");
 
 const STALE = "resume used outside the operation it answers";
 
@@ -324,7 +326,6 @@ export class Machine {
 
   private fail(error: unknown): AnyKyoot {
     const stack = this.stack;
-    if (stack.length === 0) throw error;
     while (stack.length > 0) {
       const entry = stack.pop()!;
       if (typeof entry === "function" || entry instanceof KyootImpl) continue;

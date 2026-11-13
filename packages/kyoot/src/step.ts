@@ -75,8 +75,6 @@ export function step<A, S extends Row>(k: Kyoot<A, S>): Step<A, S> {
 }
 
 export function runSync<A, S extends Row>(k: Kyoot<A, S> & Only<S>): A {
-  const n = node(k);
-  if (n._tag === "pure") return n.a as A;
   const first = step(k as AnyKyoot) as AnyStep;
   if (first.done) return first.value as A;
   first[Symbol.dispose]();

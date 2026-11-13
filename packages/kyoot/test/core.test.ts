@@ -1,20 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { catchDefect, makeHandler, makeOp, succeed } from "../src/core.ts";
-import {
-  Async,
-  Clock,
-  effect,
-  Emit,
-  Env,
-  Fail,
-  Kyoot,
-  Log,
-  Random,
-  Resource,
-  Sync,
-  Var,
-} from "../src/index.ts";
+import { effect, Emit, Env, Fail, Kyoot, Log, Random, Resource, Sync, Var } from "../src/index.ts";
+import { Async, Clock, runPromise } from "../src/async/index.ts";
 
 const Count = Var.tag<number>()("Count");
 
@@ -382,7 +370,7 @@ test("Clock, Log, and Random intercept: scale time, redact, fix the dice", () =>
 test("Clock.intercept caps real sleeps under runPromise", async () => {
   const capped = Clock.intercept((ms, next) => next(Math.min(ms, 1)));
   const start = Date.now();
-  await Kyoot.runPromise(Clock.sleep(10_000).pipe(capped));
+  await runPromise(Clock.sleep(10_000).pipe(capped));
   assert.ok(Date.now() - start < 1000);
 });
 
@@ -466,7 +454,7 @@ test("Async intercept sees every async op; a fiber forked through it keeps the f
     yield* Log.info("from parent");
     return v;
   });
-  const [v, logs] = await Kyoot.runPromise(program.pipe(Log.collect, count));
+  const [v, logs] = await runPromise(program.pipe(Log.collect, count));
   assert.equal(v, 1);
   assert.deepEqual(
     logs.map((l) => l.message),

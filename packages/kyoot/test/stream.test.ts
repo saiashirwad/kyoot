@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Clock, Emit, InterruptedError, Kyoot, runFiber } from "../src/index.ts";
+import { Emit, Kyoot } from "../src/index.ts";
+import { Async, Clock, InterruptedError, runFiber } from "../src/async/index.ts";
 
 test("Emit.fromIterable + map + run", () => {
   const r = Kyoot.runSync(
@@ -28,9 +29,9 @@ async function* source(n: number) {
   for (let i = 0; i < n; i++) yield i;
 }
 
-test("Emit.fromAsyncIterable → toAsyncIterable round trip", async () => {
+test("Async.fromAsyncIterable → toAsyncIterable round trip", async () => {
   const out: number[] = [];
-  for await (const x of Emit.toAsyncIterable(Emit.fromAsyncIterable(source(4)))) out.push(x);
+  for await (const x of Async.toAsyncIterable(Async.fromAsyncIterable(source(4)))) out.push(x);
   assert.deepEqual(out, [0, 1, 2, 3]);
 });
 
@@ -56,7 +57,7 @@ test("fromAsyncIterable removes settled abort listeners", async () => {
       return Promise.resolve({ value: undefined, done: true });
     },
   };
-  const fiber = runFiber(Emit.fromAsyncIterable(it).pipe(Emit.discard));
+  const fiber = runFiber(Async.fromAsyncIterable(it).pipe(Emit.discard));
   await wait;
   fiber.interrupt();
   await assert.rejects(fiber.promise, (e) => e instanceof InterruptedError);
@@ -65,12 +66,12 @@ test("fromAsyncIterable removes settled abort listeners", async () => {
 
 test("toAsyncIterable: breaking early interrupts the producer", async () => {
   let produced = 0;
-  const stream = Emit.fromAsyncIterable(
+  const stream = Async.fromAsyncIterable(
     (async function* () {
       while (true) yield ++produced;
     })(),
   );
-  for await (const x of Emit.toAsyncIterable(stream, { buffer: 1 })) if (x >= 3) break;
+  for await (const x of Async.toAsyncIterable(stream, { buffer: 1 })) if (x >= 3) break;
   const at = produced;
   await Promise.resolve();
   assert.ok(at <= 4, "at most the in-flight item after the break");
@@ -84,7 +85,7 @@ test("toAsyncIterable: a defect in the producer rejects the consumer", async () 
   });
   await assert.rejects(
     (async () => {
-      for await (const _ of Emit.toAsyncIterable(stream)) void _;
+      for await (const _ of Async.toAsyncIterable(stream)) void _;
     })(),
     (e) => e === boom,
   );
@@ -100,7 +101,7 @@ test("toAsyncIterable: the producer runs at most `buffer` items ahead", async ()
   });
   let consumed = 0;
   let maxAhead = 0;
-  for await (const _ of Emit.toAsyncIterable(stream, { buffer: 3 })) {
+  for await (const _ of Async.toAsyncIterable(stream, { buffer: 3 })) {
     consumed++;
     maxAhead = Math.max(maxAhead, produced - consumed);
     await Promise.resolve();
@@ -118,7 +119,7 @@ test("toAsyncIterable: breaking while the producer is parked interrupts it", asy
       yield* Emit.value(produced);
     }
   });
-  for await (const x of Emit.toAsyncIterable(stream, { buffer: 2 })) if (x >= 5) break;
+  for await (const x of Async.toAsyncIterable(stream, { buffer: 2 })) if (x >= 5) break;
   const at = produced;
   assert.equal(produced, at);
   assert.ok(at <= 8);
@@ -130,7 +131,7 @@ test("toAsyncIterable: a producer that throws undefined rejects the consumer", a
   });
   await assert.rejects(
     (async () => {
-      for await (const _ of Emit.toAsyncIterable(stream)) void _;
+      for await (const _ of Async.toAsyncIterable(stream)) void _;
     })(),
     (e) => e === undefined,
   );
@@ -144,7 +145,7 @@ test("toAsyncIterable: a defect after an emission delivers the item, then reject
   const out: number[] = [];
   await assert.rejects(
     (async () => {
-      for await (const x of Emit.toAsyncIterable(stream)) out.push(x);
+      for await (const x of Async.toAsyncIterable(stream)) out.push(x);
     })(),
     (e) => e === undefined,
   );
@@ -152,7 +153,7 @@ test("toAsyncIterable: a defect after an emission delivers the item, then reject
 });
 
 test("toAsyncIterable: an empty stream still completes", async () => {
-  const stream = Emit.toAsyncIterable(Kyoot.gen(function* () {}));
+  const stream = Async.toAsyncIterable(Kyoot.gen(function* () {}));
   assert.deepEqual(await stream[Symbol.asyncIterator]().next(), { value: undefined, done: true });
 });
 
@@ -163,7 +164,7 @@ for (const defect of [null, 0, false, ""]) {
     });
     await assert.rejects(
       (async () => {
-        for await (const _ of Emit.toAsyncIterable(stream)) void _;
+        for await (const _ of Async.toAsyncIterable(stream)) void _;
       })(),
       (e) => Object.is(e, defect),
     );

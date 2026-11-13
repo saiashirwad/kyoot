@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Async, Clock, effect, Fail, Kyoot, Resource, Sync } from "../src/index.ts";
+import { effect, Fail, Kyoot, Resource, Sync } from "../src/index.ts";
+import { Async, Clock, runPromise } from "../src/async/index.ts";
 
 test("Resource: release runs on success", () => {
   const events: string[] = [];
@@ -83,7 +84,7 @@ test("Resource: a finalizer may be a program (runs on success)", async () => {
     yield* slowClose(events, "b");
     return "done";
   });
-  assert.equal(await Kyoot.runPromise(prog.pipe(Resource.run)), "done");
+  assert.equal(await runPromise(prog.pipe(Resource.run)), "done");
   assert.deepEqual(events, ["open a", "open b", "close b", "close a"]);
 });
 
@@ -94,13 +95,13 @@ test("Resource: program finalizers run on defect and the defect wins", async () 
     yield* slowClose(events, "a");
     yield* Async.fromPromise(() => Promise.reject(boom));
   });
-  await assert.rejects(Kyoot.runPromise(prog.pipe(Resource.run)), (e) => e === boom);
+  await assert.rejects(runPromise(prog.pipe(Resource.run)), (e) => e === boom);
   assert.deepEqual(events, ["open a", "close a"]);
 });
 
 test("Resource: program finalizers run to completion on interrupt", async () => {
   const events: string[] = [];
-  const r = await Kyoot.runPromise(
+  const r = await runPromise(
     Kyoot.gen(function* () {
       const fiber = yield* Async.fork(
         Kyoot.gen(function* () {
@@ -120,7 +121,7 @@ test("Resource: program finalizers run to completion on interrupt", async () => 
 test("a rejected async op is a defect that handlers see", async () => {
   const boom = new Error("boom");
   const events: string[] = [];
-  const r = await Kyoot.runPromise(
+  const r = await runPromise(
     Kyoot.gen(function* () {
       yield* Resource.acquire(
         () => events.push("open"),
@@ -334,7 +335,7 @@ test("a discarded resume token releases a captured resource whose finalizer is a
   }).pipe(
     Resource.run,
     Ask.handle({ onOp: (_, resume) => (resume(42), Kyoot.succeed("discarded")) }),
-    Kyoot.runPromise,
+    runPromise,
   );
   assert.equal(r, "discarded");
   assert.deepEqual(events, ["open", "close"]);

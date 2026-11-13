@@ -1,6 +1,7 @@
-import { Async, Emit, Fail, Kyoot, Log, Random, Var } from "kyoot";
+import { Emit, Fail, Kyoot, Log, Random, Var } from "kyoot";
 import { AI, Deepseek, Events, Mode } from "@kyoot/ai";
 import { z } from "zod";
+import { Async, runPromise } from "kyoot/async";
 
 const motions = [
   "Tabs are better than spaces",
@@ -58,7 +59,7 @@ const [, score] = await debate.pipe(
   Log.print,
   Random.live,
   Fail.orThrow,
-  Kyoot.runPromise,
+  runPromise,
 );
 
 console.log("\nFinal score:", score);

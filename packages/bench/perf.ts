@@ -1,6 +1,7 @@
 import { bench, group, run, summary } from "mitata";
 import { Context, Effect, Ref } from "effect";
-import { Async, Env, Fail, Kyoot, Var, type Kyoot as Program } from "kyoot";
+import { Env, Fail, Kyoot, Var, type Kyoot as Program } from "kyoot";
+import { Async, runPromise } from "kyoot/async";
 
 const size = 100;
 
@@ -55,7 +56,7 @@ const kyoot = (() => {
     environment: () => Kyoot.runSync(environment),
     state: () => Kyoot.runSync(state),
     failing: () => Kyoot.runSync(failing),
-    asynchronous: () => Kyoot.runPromise(asynchronous),
+    asynchronous: () => runPromise(asynchronous),
   };
 })();
 

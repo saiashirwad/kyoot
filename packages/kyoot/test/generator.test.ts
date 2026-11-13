@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Async, effect, Fail, Kyoot, Resource, Sync } from "../src/index.ts";
+import { effect, Fail, Kyoot, Resource, Sync } from "../src/index.ts";
+import { Async, runPromise } from "../src/async/index.ts";
 
 const Stop = effect<string, never>()("stop");
 const Hold = effect<undefined, undefined>()("hold");
@@ -233,7 +234,7 @@ test("generator: finally runs when a fiber is interrupted", async () => {
     yield* fiber.interrupt;
     return yield* fiber.await;
   });
-  const r = await Kyoot.runPromise(prog);
+  const r = await runPromise(prog);
   assert.equal(!r.ok && r.cause._tag, "Interrupted");
   assert.deepEqual(events, ["finally"]);
 });

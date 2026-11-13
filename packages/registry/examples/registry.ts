@@ -1,5 +1,6 @@
 import { Env, Kyoot, Resource } from "kyoot";
 import * as Registry from "@kyoot/registry";
+import { runPromise } from "kyoot/async";
 
 const Db = Env.tag<{ query: (sql: string) => string }>()("db");
 
@@ -25,7 +26,7 @@ const server = Registry.component({
     ),
 });
 
-await Kyoot.runPromise(
+await runPromise(
   Kyoot.gen(function* () {
     const registry = yield* Registry.make();
     const srv = yield* registry.use(server);

@@ -1,12 +1,4 @@
-import {
-  catchDefect,
-  InterruptedError,
-  makeHandler,
-  makeIntercept,
-  op,
-  succeed,
-  type Resume,
-} from "../core.ts";
+import { catchDefect, makeHandler, makeIntercept, op, succeed, type Resume } from "../core.ts";
 import type { AnyKyoot, Kyoot } from "../model.ts";
 import { Result } from "../result.ts";
 import type { FailRow, MergeAll, Row } from "../types.ts";
@@ -35,8 +27,6 @@ export const fromResult = <E, A = never>(r: Result<E, A>): Kyoot<A, FailRow<E>> 
   switch (r.cause._tag) {
     case "Fail":
       return fail(r.cause.error) as Kyoot<A, FailRow<E>>;
-    case "Interrupted":
-      throw new InterruptedError();
     case "Defect":
       throw r.cause.defect;
   }

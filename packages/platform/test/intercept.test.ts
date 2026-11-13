@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { Fail, Kyoot, Log } from "kyoot";
 import { FileSystem, Memory } from "@kyoot/platform";
 import * as Node from "@kyoot/platform/node";
+import { runPromise } from "kyoot/async";
 
 const plainPosix = (path: string) =>
   posix.isAbsolute(path) && !path.startsWith("//") && !path.includes("\\");
@@ -35,7 +36,7 @@ test("a failure lands at the op, where the program's own catch sees it", async (
     Fail.catchTag("FsError", (e: FileSystem.FsError) => Kyoot.succeed(e.code)),
   );
   assert.equal(Kyoot.runSync(program.pipe(Memory.fs()))[0], "NotFound");
-  assert.equal(await Kyoot.runPromise(program.pipe(Node.fs)), "NotFound");
+  assert.equal(await runPromise(program.pipe(Node.fs)), "NotFound");
 });
 
 test("handlers between the program and the file system see every op", () => {

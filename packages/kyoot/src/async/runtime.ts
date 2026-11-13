@@ -1,10 +1,17 @@
-import { InterruptedError } from "./core.ts";
-import { live } from "./effects/clock.ts";
-import { Machine, type Outcome } from "./machine.ts";
-import type { Kyoot, Snapshot } from "./model.ts";
-import type { Only, Row } from "./types.ts";
+import { Machine, type Outcome } from "../machine.ts";
+import type { Kyoot, Snapshot } from "../model.ts";
+import type { Only, Row } from "../types.ts";
+import { live } from "./clock.ts";
 
 export type Served = "async" | "clock";
+
+export class InterruptedError extends Error {
+  readonly _tag = "InterruptedError";
+  constructor(message = "fiber interrupted") {
+    super(message);
+    this.name = "InterruptedError";
+  }
+}
 
 export interface FiberHandle<A = unknown> {
   readonly promise: Promise<A>;

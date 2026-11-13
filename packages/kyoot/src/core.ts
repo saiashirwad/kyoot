@@ -1,13 +1,4 @@
-import type {
-  AnyKyoot,
-  Fork,
-  HandlerHooks,
-  Kyoot,
-  OnOp,
-  RowsOf,
-  Snapshot,
-  ValueOf,
-} from "./model.ts";
+import type { AnyKyoot, Fork, HandlerHooks, Kyoot, OnOp, RowsOf, ValueOf } from "./model.ts";
 import type { Pipeable } from "./pipe.ts";
 import type { MergeAll, Only, Row, Simplify } from "./types.ts";
 
@@ -233,31 +224,6 @@ export function makeHandler<
 ): Kyoot<ValueOf<RReturn> | ValueOf<ROp>, MergeAll<Omit<S, K> | RowsOf<ROp> | RowsOf<RReturn>>> {
   return new KyootImpl("handler", self, effectKey, hooks as unknown as HandlerHooks) as never;
 }
-
-export class InterruptedError extends Error {
-  readonly _tag = "InterruptedError";
-  constructor(message = "fiber interrupted") {
-    super(message);
-    this.name = "InterruptedError";
-  }
-}
-
-export const inherit = (k: AnyKyoot, snapshots: readonly Snapshot[] = []): AnyKyoot => {
-  for (const { key, hooks, state } of snapshots) {
-    const fork = hooks.fork;
-    if (fork === false) continue;
-    k =
-      typeof fork === "function"
-        ? fork(k)
-        : makeHandler(key, k, {
-            initial: state,
-            fork,
-            onOp: hooks.onOp,
-            tail: hooks.tail,
-          } as never);
-  }
-  return k;
-};
 
 export const collect =
   <const K extends string>(key: K) =>

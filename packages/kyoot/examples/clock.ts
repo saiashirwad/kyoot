@@ -1,4 +1,5 @@
-import { Clock, Kyoot } from "../src/index.ts";
+import { Kyoot } from "../src/index.ts";
+import { Clock, runPromise } from "../src/async/index.ts";
 
 const boilEgg = (minute: number) =>
   Kyoot.gen(function* () {
@@ -8,4 +9,4 @@ const boilEgg = (minute: number) =>
   });
 
 console.log(Kyoot.runSync(boilEgg(60_000).pipe(Clock.virtual)));
-console.log(await Kyoot.runPromise(boilEgg(20)));
+console.log(await runPromise(boilEgg(20)));

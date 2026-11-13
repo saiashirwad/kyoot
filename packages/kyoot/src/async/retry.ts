@@ -1,7 +1,7 @@
 import type { Kyoot } from "../model.ts";
 import type { MergeAll, Row } from "../types.ts";
 import * as Clock from "./clock.ts";
-import * as Fail from "./fail.ts";
+import * as Fail from "../effects/fail.ts";
 
 export interface Policy {
   readonly times: number;

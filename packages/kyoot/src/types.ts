@@ -19,11 +19,9 @@ export type Payload<S, K extends PropertyKey> = PayloadOf<At<S, K>>;
 
 export type Answer<S, K extends PropertyKey> = AnswerOf<At<S, K>>;
 
-export type Merge<S1 extends Row, S2 extends Row> = MergeAll<S1 | S2>;
-
 export type FailRow<E> = [E] extends [never] ? {} : { fail: Op<E, never> };
 
-export type Unhandled<K> = { readonly "unhandled effects": K };
+type Unhandled<K> = { readonly "unhandled effects": K };
 
 export type Only<S extends Row, Allow extends PropertyKey = never> =
   Exclude<keyof S, Allow> extends never ? unknown : Unhandled<Exclude<keyof S, Allow>>;

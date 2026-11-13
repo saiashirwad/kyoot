@@ -10,27 +10,14 @@ export {
   ensuring,
   forEach,
   makeHandler,
-  makeIntercept,
   op,
   withState,
 } from "./core.ts";
-export type { Cell, Hooks, Intercept, OpHooks, Resume, TailHooks } from "./core.ts";
+export type { Intercept, Resume } from "./core.ts";
 export type { Done, Pending, Step } from "./step.ts";
-export type { Pipeable } from "./pipe.ts";
 export { Result } from "./result.ts";
-export type { Cause, DefectCause, Err, FailCause, Ok } from "./result.ts";
-export type {
-  Answer,
-  Merge,
-  MergeAll,
-  Only,
-  Op,
-  Payload,
-  Row,
-  Simplify,
-  Unhandled,
-} from "./types.ts";
-export type { AnyKyoot, Fork, RowsOf } from "./model.ts";
+export type { Answer, MergeAll, Only, Op, Payload, Row } from "./types.ts";
+export type { RowsOf } from "./model.ts";
 
 export * as Emit from "./effects/emit.ts";
 export * as Env from "./effects/env.ts";

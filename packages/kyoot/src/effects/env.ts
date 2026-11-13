@@ -35,7 +35,7 @@ export const tag =
       provide: (impl: E | Kyoot<E, Row>) => {
         const withValue = (e: E) => env.handle({ tail: () => e });
         if (!isKyoot(impl)) return withValue(impl as E);
-        return (k: Kyoot<unknown, Row>) => impl.flatMap((e) => withValue(e)(k as never));
+        return (k: Kyoot<unknown, Row>) => impl.flatMap((e) => withValue(e)(k));
       },
     } as Tag<Id, E>;
   };

@@ -152,7 +152,7 @@ const flatMapped = Kyoot.succeed(1).flatMap((n) => Fail.fail(String(n)));
 type _flatKeys = Expect<Equal<keyof RowsOf<typeof flatMapped>, "fail">>;
 type _flatFail = Expect<Equal<RowsOf<typeof flatMapped>["fail"], Op<string, never>>>;
 
-import type { DefectCause, Err, FailCause, Ok } from "../src/index.ts";
+import type { DefectCause, Err, FailCause, Ok } from "../src/result.ts";
 import { Async, Clock, Retry, runPromise } from "../src/async/index.ts";
 import type { AsyncOp, Exit } from "../src/async/index.ts";
 type ValueOf<K> = K extends KyootT<infer A, any> ? A : never;

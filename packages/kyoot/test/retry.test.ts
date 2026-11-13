@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Clock, Fail, Kyoot, Retry, Sync } from "../src/index.ts";
+import { Fail, Kyoot, Sync } from "../src/index.ts";
+import { Clock, Retry, runPromise } from "../src/async/index.ts";
 
 class Flaky {
   readonly _tag = "Flaky";
@@ -66,8 +67,5 @@ test("Retry: defects are not retried", () => {
 
 test("Retry: works under runPromise with the real clock", async () => {
   const { prog } = failingFor(1);
-  assert.equal(
-    await Kyoot.runPromise(prog.pipe(Retry.run({ times: 1, delay: 5 }), Fail.orThrow)),
-    2,
-  );
+  assert.equal(await runPromise(prog.pipe(Retry.run({ times: 1, delay: 5 }), Fail.orThrow)), 2);
 });

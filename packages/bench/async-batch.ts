@@ -1,6 +1,7 @@
 import { Session } from "node:inspector/promises";
 import type { HeapProfiler } from "node:inspector";
-import { Async, Kyoot, type AsyncOp, type Kyoot as Program } from "kyoot";
+import { Kyoot, type Kyoot as Program } from "kyoot";
+import { Async, runPromise, type AsyncOp } from "kyoot/async";
 
 const items = 100;
 const samples = 10;
@@ -33,7 +34,7 @@ type Run = () => Promise<void>;
 const run =
   (name: string, program: Program<number, { async: AsyncOp }>): Run =>
   async () => {
-    const value = await Kyoot.runPromise(program);
+    const value = await runPromise(program);
     if (value !== expected) throw new Error(`${name} returned ${value}`);
   };
 

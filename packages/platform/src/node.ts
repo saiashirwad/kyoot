@@ -1,9 +1,10 @@
 import { execFile } from "node:child_process";
 import * as fsp from "node:fs/promises";
-import { Async, Fail } from "kyoot";
+import { Fail } from "kyoot";
 import type { Kyoot as K, Row } from "kyoot";
 import * as Command from "./command.ts";
 import * as FileSystem from "./fs.ts";
+import { Async } from "kyoot/async";
 
 const codes: Record<string, FileSystem.Code> = {
   ENOENT: "NotFound",

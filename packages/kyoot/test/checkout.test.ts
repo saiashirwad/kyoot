@@ -9,6 +9,7 @@ import {
 } from "../examples/checkout.ts";
 import type { Order, OrderEvent } from "../examples/checkout.ts";
 import { Emit, Fail, Kyoot } from "../src/index.ts";
+import { runPromise } from "../src/async/index.ts";
 
 const order: Order = {
   id: "o-1",
@@ -55,7 +56,7 @@ test("events stream out in order; success is Result.ok", async () => {
     approveAll,
     Emit.forEach((e: OrderEvent) => events.push(e)),
     Fail.run,
-    Kyoot.runPromise,
+    runPromise,
   );
   assert.deepEqual(events, [
     { type: "reserved", sku: "book" },

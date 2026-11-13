@@ -1,6 +1,6 @@
 import { effect, makeHandler, makeOp, withState } from "../core.ts";
 import type { Kyoot } from "../model.ts";
-import type { AsyncRuntime } from "../runtime.ts";
+import type { AsyncRuntime } from "./runtime.ts";
 import type { Row } from "../types.ts";
 
 const clock = effect<number, void>()("clock");

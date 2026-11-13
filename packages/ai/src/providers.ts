@@ -1,7 +1,8 @@
-import { Async, Fail, Kyoot, Retry } from "kyoot";
+import { Fail, Kyoot } from "kyoot";
 import { Model, type Message, type Request, type ToolCall } from "./model.ts";
 import { events } from "./sse.ts";
 import * as Events from "./events.ts";
+import { Async, Retry } from "kyoot/async";
 
 export class ProviderError {
   readonly _tag = "ProviderError";

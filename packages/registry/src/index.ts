@@ -1,5 +1,7 @@
-import { Async, InterruptedError, Kyoot, Resource, runFiber } from "kyoot";
-import type { AsyncOp, Env, FiberHandle, Kyoot as K, Only, Row } from "kyoot";
+import { Kyoot, Resource } from "kyoot";
+import type { Env, Kyoot as K, Only, Row } from "kyoot";
+import { Async, InterruptedError, runFiber } from "kyoot/async";
+import type { AsyncOp, FiberHandle } from "kyoot/async";
 
 type Tag<E> = Env.Tag<string, E>;
 type AnyTag = Tag<any>;

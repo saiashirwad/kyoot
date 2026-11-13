@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Async, Clock, Kyoot } from "../src/index.ts";
+import { Kyoot } from "../src/index.ts";
+import { Async, Clock, runPromise } from "../src/async/index.ts";
 
 const boilEgg = (minute: number) =>
   Kyoot.gen(function* () {
@@ -21,17 +22,17 @@ test("Clock.virtual: time is per run, not shared", () => {
 
 test("runPromise serves the clock with real time", async () => {
   const t0 = Date.now();
-  assert.equal(await Kyoot.runPromise(boilEgg(5)), "egg ready");
+  assert.equal(await runPromise(boilEgg(5)), "egg ready");
   assert.ok(Date.now() - t0 >= 30 && Date.now() - t0 < 1_000);
 });
 
 test("a nearer virtual clock wins over the driver's real one", async () => {
-  const r = await Kyoot.runPromise(boilEgg(10_000).pipe(Clock.virtual));
+  const r = await runPromise(boilEgg(10_000).pipe(Clock.virtual));
   assert.deepEqual(r, ["egg ready", 70_000]);
 });
 
 test("a forked fiber gets the real clock, and interrupt cancels its sleep", async () => {
-  const r = await Kyoot.runPromise(
+  const r = await runPromise(
     Kyoot.gen(function* () {
       const fiber = yield* Async.fork(Clock.sleep(10_000));
       yield* fiber.interrupt;

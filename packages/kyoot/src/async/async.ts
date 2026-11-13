@@ -1,18 +1,18 @@
-import {
-  effect,
-  inherit,
-  InterruptedError,
-  makeHandler,
-  makeOp,
-  succeed,
-  type Payload,
-} from "../core.ts";
-import { fail, fromResult } from "./fail.ts";
+import { effect, gen, makeHandler, makeOp, succeed, type Payload } from "../core.ts";
+import { forEach, value } from "../effects/emit.ts";
+import { fail, fromResult } from "../effects/fail.ts";
+import type { AnyKyoot, Kyoot, Snapshot } from "../model.ts";
+import { Result, type Err } from "../result.ts";
+import type { FailRow, MergeAll, Only, Row } from "../types.ts";
 import { sleep } from "./clock.ts";
-import { Result } from "../result.ts";
-import type { AnyKyoot, Kyoot } from "../model.ts";
-import type { AsyncOp, AsyncRuntime, FiberHandle, Served } from "../runtime.ts";
-import type { FailRow, MergeAll, Row } from "../types.ts";
+import {
+  InterruptedError,
+  runFiber,
+  type AsyncOp,
+  type AsyncRuntime,
+  type FiberHandle,
+  type Served,
+} from "./runtime.ts";
 
 type AsyncRow = { async: AsyncOp };
 
@@ -104,16 +104,34 @@ type FailOf<S> = Payload<S, "fail">;
 
 type Leftover<S extends Row> = Omit<S, Served | "fail">;
 
+export type InterruptedCause = { readonly _tag: "Interrupted" };
+
+export type Exit<E, A> = Result<E, A> | Err<InterruptedCause>;
+
+const interrupted: Err<InterruptedCause> = { ok: false, cause: { _tag: "Interrupted" } };
+
 export interface Fiber<A, E = never> {
   readonly join: Kyoot<A, MergeAll<AsyncRow | FailRow<E>>>;
-  readonly await: Kyoot<Result<E, A>, AsyncRow>;
+  readonly await: Kyoot<Exit<E, A>, AsyncRow>;
   readonly interrupt: Kyoot<void, AsyncRow>;
 }
 
 interface Spawned<A, E> {
-  readonly promise: Promise<Result<E, A>>;
+  readonly promise: Promise<Exit<E, A>>;
   readonly interrupt: () => void;
 }
+
+const inherit = (k: AnyKyoot, snapshots: readonly Snapshot[] = []): AnyKyoot => {
+  for (const { key, hooks, state } of snapshots) {
+    const fork = hooks.fork;
+    if (fork === false) continue;
+    k =
+      typeof fork === "function"
+        ? fork(k)
+        : makeHandler(key, k, { initial: state, onOp: hooks.onOp, tail: hooks.tail } as never);
+  }
+  return k;
+};
 
 const spawn = <A, E>(rt: AsyncRuntime, k: AnyKyoot): Spawned<A, E> => {
   let exit: Result<E, A> | undefined;
@@ -135,16 +153,21 @@ const spawn = <A, E>(rt: AsyncRuntime, k: AnyKyoot): Spawned<A, E> => {
             "a handler copied into a fiber returned a value instead of resuming; give it fork: false",
           ),
         ),
-      (e: unknown) => (e instanceof InterruptedError ? Result.interrupted() : Result.defect(e)),
+      (e: unknown) => (e instanceof InterruptedError ? interrupted : Result.defect(e)),
     ),
     interrupt: h.interrupt,
   };
 };
 
+const land = <A, E>(exit: Exit<E, A>): Result<E, A> => {
+  if (!exit.ok && exit.cause._tag === "Interrupted") throw new InterruptedError();
+  return exit as Result<E, A>;
+};
+
 const fiber = <A, E>(h: Spawned<A, E>): Fiber<A, E> => {
   const result = asyncOp(() => h.promise);
   return {
-    join: result.flatMap(fromResult) as never,
+    join: asyncOp(() => h.promise.then(land)).flatMap(fromResult) as never,
     await: result,
     interrupt: asyncOp(async () => h.interrupt()),
   };
@@ -167,7 +190,9 @@ export const race = <A, B, S1 extends Row, S2 extends Row>(
 > =>
   spawning((rt) => {
     const fibers = [spawn<A | B, unknown>(rt, a), spawn<A | B, unknown>(rt, b)];
-    return Promise.race(fibers.map((f) => f.promise)).finally(() => settle(fibers));
+    return Promise.race(fibers.map((f) => f.promise))
+      .finally(() => settle(fibers))
+      .then(land);
   }).flatMap(fromResult) as never;
 
 export const all = <A, S extends Row = {}>(
@@ -183,7 +208,7 @@ export const all = <A, S extends Row = {}>(
     const results: A[] = new Array(ks.length);
     const fibers: Spawned<A, unknown>[] = [];
     let next = 0;
-    let stopped: Result<unknown, A[]> | undefined;
+    let stopped: Exit<unknown, A[]> | undefined;
     const worker = async () => {
       while (stopped === undefined && next < ks.length) {
         const i = next++;
@@ -203,7 +228,7 @@ export const all = <A, S extends Row = {}>(
     await Promise.all(Array.from({ length: workers }, worker));
     if (stopped === undefined) return Result.ok(results);
     await settle(fibers);
-    return stopped;
+    return land(stopped);
   }).flatMap(fromResult) as never;
 
 export class Timeout {
@@ -219,3 +244,63 @@ export const timeout = <A, S extends Row>(ms: number, k: Kyoot<A, S>) =>
     k,
     sleep(ms).flatMap(() => fail(new Timeout(ms))),
   );
+
+export const fromAsyncIterable = <E>(items: AsyncIterable<E>) =>
+  gen(function* () {
+    const it = items[Symbol.asyncIterator]();
+    while (true) {
+      const r = yield* next(it);
+      if (r.done) return;
+      yield* value(r.value);
+    }
+  });
+
+export const toAsyncIterable = <S extends Row & { emit?: unknown }>(
+  k: Kyoot<unknown, S> & Only<S, "emit" | Served>,
+  options: { readonly buffer?: number } = {},
+): AsyncIterable<S["emit"]> => ({
+  [Symbol.asyncIterator]() {
+    const capacity = Math.max(1, options.buffer ?? 16);
+    const buffer: S["emit"][] = [];
+    let finished = false;
+    let failed = false;
+    let failure: unknown;
+    let wake = () => {};
+    let drain = () => {};
+    const fiber = runFiber(
+      k.pipe(
+        forEach((e) => {
+          buffer.push(e);
+          if (buffer.length < capacity) {
+            wake();
+            return;
+          }
+          const parked = new Promise<void>((r) => (drain = r));
+          wake();
+          return fromPromise(() => parked);
+        }),
+      ),
+    );
+    fiber.promise.then(
+      () => ((finished = true), wake()),
+      (e: unknown) => ((failed = true), (failure = e), (finished = true), wake()),
+    );
+    return {
+      async next() {
+        while (buffer.length === 0 && !finished) await new Promise<void>((r) => (wake = r));
+        if (buffer.length > 0) {
+          const value = buffer.shift()!;
+          drain();
+          return { value, done: false };
+        }
+        if (failed) throw failure;
+        return { value: undefined, done: true };
+      },
+      async return() {
+        fiber.interrupt();
+        await fiber.promise.catch(() => {});
+        return { value: undefined, done: true };
+      },
+    };
+  },
+});

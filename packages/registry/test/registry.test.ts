@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Async, Kyoot, Resource, Sync } from "kyoot";
+import { Kyoot, Resource, Sync } from "kyoot";
 import * as Registry from "@kyoot/registry";
 import { Cache, Db, deferred, lifecycle, log, provider, Trigger, X, Y } from "./helpers.ts";
+import { Async, runPromise } from "kyoot/async";
 
 test("a component activates when its dependencies appear", async () => {
   const { events, database, server } = log();
-  await Kyoot.runPromise(
+  await runPromise(
     Kyoot.gen(function* () {
       const registry = yield* Registry.make();
       const srv = yield* registry.use(server);
@@ -21,7 +22,7 @@ test("a component activates when its dependencies appear", async () => {
 
 test("withdrawing a provider tears down dependents first", async () => {
   const { events, database, server } = log();
-  await Kyoot.runPromise(
+  await runPromise(
     Kyoot.gen(function* () {
       const registry = yield* Registry.make();
       const db = yield* registry.use(database("pg"));
@@ -36,7 +37,7 @@ test("withdrawing a provider tears down dependents first", async () => {
 
 test("hot swap: a replacement provider reactivates dependents on the new value", async () => {
   const { events, database, server } = log();
-  await Kyoot.runPromise(
+  await runPromise(
     Kyoot.gen(function* () {
       const registry = yield* Registry.make();
       const old = yield* registry.use(database("pg-1"));
@@ -60,7 +61,7 @@ test("hot swap: a replacement provider reactivates dependents on the new value",
 
 test("a root binding counts as a provider", async () => {
   const { events, server } = log();
-  await Kyoot.runPromise(
+  await runPromise(
     Kyoot.gen(function* () {
       const registry = yield* Registry.make();
       yield* registry.use(server);
@@ -81,7 +82,7 @@ test("a component whose setup throws is inactive with the error, and others keep
         throw boom;
       }).pipe(Sync.run),
   });
-  await Kyoot.runPromise(
+  await runPromise(
     Kyoot.gen(function* () {
       const registry = yield* Registry.make();
       yield* registry.use(database("pg"));
@@ -108,7 +109,7 @@ test("dispose unloads in reverse order", async () => {
         yield* ctx.set(Cache, { size: 1 });
       }),
   });
-  await Kyoot.runPromise(
+  await runPromise(
     Kyoot.gen(function* () {
       const registry = yield* Registry.make();
       yield* registry.use(database("pg"));
@@ -135,7 +136,7 @@ test("a dependency chain stops and starts in dependency order", async () => {
     run: () => lifecycle(events, "C"),
   });
 
-  await Kyoot.runPromise(
+  await runPromise(
     Kyoot.gen(function* () {
       const registry = yield* Registry.make();
       const firstA = yield* registry.use(a);
@@ -162,7 +163,7 @@ test("a diamond dependent changes state once for each missing edge", async () =>
     run: () => lifecycle(events, "D"),
   });
 
-  await Kyoot.runPromise(
+  await runPromise(
     Kyoot.gen(function* () {
       const registry = yield* Registry.make();
       const hx = yield* registry.use(px);
@@ -190,7 +191,7 @@ test("a component waits until all injected tags are present", async () => {
     run: () => lifecycle(events, "both"),
   });
 
-  await Kyoot.runPromise(
+  await runPromise(
     Kyoot.gen(function* () {
       const registry = yield* Registry.make();
       yield* registry.use(provider(events, "X", X, { name: "x" }));
@@ -223,7 +224,7 @@ test("a target flip during setup releases partial resources", async () => {
       }),
   });
 
-  await Kyoot.runPromise(
+  await runPromise(
     Kyoot.gen(function* () {
       const registry = yield* Registry.make();
       const handle = yield* registry.use(slow);
@@ -260,7 +261,7 @@ test("failed setup releases resources, preserves peers, and retries after a targ
     run: () => lifecycle(events, "peer"),
   });
 
-  await Kyoot.runPromise(
+  await runPromise(
     Kyoot.gen(function* () {
       const registry = yield* Registry.make();
       yield* registry.use(provider(events, "X", X, { name: "x" }));
@@ -305,7 +306,7 @@ test("use waits for setup to land", async () => {
       }),
   });
 
-  await Kyoot.runPromise(
+  await runPromise(
     Kyoot.gen(function* () {
       const registry = yield* Registry.make();
       yield* Async.fork(registry.use(neverLands).map(() => (returned = true)));
@@ -325,7 +326,7 @@ test("a root binding is withdrawn when its resource scope ends", async () => {
     run: () => lifecycle(events, "consumer"),
   });
 
-  await Kyoot.runPromise(
+  await runPromise(
     Kyoot.gen(function* () {
       const registry = yield* Registry.make();
       const handle = yield* registry.use(consumer);
@@ -359,7 +360,7 @@ test("dispose waits for an in-flight setup and leaves no resources", async () =>
       }),
   });
 
-  await Kyoot.runPromise(
+  await runPromise(
     Kyoot.gen(function* () {
       const registry = yield* Registry.make();
       const slowHandle = yield* registry.use(slow);
@@ -381,7 +382,7 @@ test("remove is idempotent and does not orphan another component", async () => {
   const a = Registry.component({ inject: {}, run: () => lifecycle(events, "A") });
   const b = Registry.component({ inject: {}, run: () => lifecycle(events, "B") });
 
-  await Kyoot.runPromise(
+  await runPromise(
     Kyoot.gen(function* () {
       const registry = yield* Registry.make();
       const ha = yield* registry.use(a);
@@ -411,7 +412,7 @@ test("interrupting a registry program releases components in reverse order", asy
   });
   const c = Registry.component({ inject: { y: Y }, run: () => lifecycle(events, "C") });
 
-  await Kyoot.runPromise(
+  await runPromise(
     Kyoot.gen(function* () {
       const fiber = yield* Async.fork(
         Kyoot.gen(function* () {
@@ -438,7 +439,7 @@ test("two registries do not share bindings", async () => {
     run: ({ x }) => lifecycle(events, `consumer ${x.name}`),
   });
 
-  await Kyoot.runPromise(
+  await runPromise(
     Kyoot.gen(function* () {
       const first = yield* Registry.make();
       const second = yield* Registry.make();
@@ -464,7 +465,7 @@ test("a duplicate provider fails its setup and leaves the first binding alone", 
     run: ({ x }) => lifecycle(events, `consumer ${x.name}`),
   });
 
-  await Kyoot.runPromise(
+  await runPromise(
     Kyoot.gen(function* () {
       const registry = yield* Registry.make();
       const first = yield* registry.use(provider(events, "P1", X, { name: "one" }));
@@ -506,7 +507,7 @@ test("a binding becomes visible only when its provider lands", async () => {
     run: () => lifecycle(events, "consumer"),
   });
 
-  await Kyoot.runPromise(
+  await runPromise(
     Kyoot.gen(function* () {
       const registry = yield* Registry.make();
       const handle = yield* registry.use(consumer);

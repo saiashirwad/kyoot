@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Clock, Emit, Fail, Kyoot } from "kyoot";
+import { Emit, Fail } from "kyoot";
 import { chatCompletions, Model, ProviderError, type Request } from "@kyoot/ai";
+import { Clock, runPromise } from "kyoot/async";
 
 const options = { url: "https://example.test/chat", model: "test", apiKey: "secret" };
 const request: Request = { messages: [{ role: "user", content: "hello" }] };
@@ -51,7 +52,7 @@ test("chatCompletions streams text, a split tool call, and usage", async () => {
     ]);
 
   try {
-    const [completion, events] = await Kyoot.runPromise(
+    const [completion, events] = await runPromise(
       Model(request).pipe(chatCompletions(options), Emit.collect, Fail.orThrow),
     );
     assert.deepEqual(completion, {
@@ -78,7 +79,7 @@ test("chatCompletions retries 429 with virtual backoff", async () => {
   };
 
   try {
-    const r = await Kyoot.runPromise(
+    const r = await runPromise(
       Model(request).pipe(chatCompletions(options), Emit.discard, Fail.orThrow, Clock.virtual),
     );
     assert.deepEqual(r, [{ text: "ok", toolCalls: [], usage: { input: 0, output: 0 } }, 500]);
@@ -97,7 +98,7 @@ test("chatCompletions does not retry 401", async () => {
   };
 
   try {
-    const [r, elapsed] = await Kyoot.runPromise(
+    const [r, elapsed] = await runPromise(
       Model(request).pipe(chatCompletions(options), Emit.discard, Fail.run, Clock.virtual),
     );
     assert.equal(r.ok, false);

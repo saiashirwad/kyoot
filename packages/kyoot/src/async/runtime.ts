@@ -1,23 +1,15 @@
-import { InterruptedError, node } from "./core.ts";
-import { live } from "./effects/clock.ts";
-import { Machine, type Outcome } from "./machine.ts";
-import type { AnyKyoot, Kyoot, Snapshot } from "./model.ts";
-import type { Only, Row } from "./types.ts";
+import { Machine, type Outcome } from "../machine.ts";
+import type { Kyoot, Snapshot } from "../model.ts";
+import type { Only, Row } from "../types.ts";
+import { live } from "./clock.ts";
 
 export type Served = "async" | "clock";
 
-const unhandledEffect = (edge: string, key: PropertyKey) =>
-  new Error(`${edge} encountered unhandled effect '${String(key)}'`);
-
-export function runSync<A, S extends Row>(k: Kyoot<A, S> & Only<S>): A {
-  const n = node(k);
-  if (n._tag === "pure") return n.a as A;
-  const machine = new Machine();
-  try {
-    if (machine.start(k as AnyKyoot) === "done") return machine.value as A;
-    throw unhandledEffect("runSync", machine.key);
-  } finally {
-    machine.reset();
+export class InterruptedError extends Error {
+  readonly _tag = "InterruptedError";
+  constructor(message = "fiber interrupted") {
+    super(message);
+    this.name = "InterruptedError";
   }
 }
 
@@ -76,7 +68,7 @@ class Fiber<A> implements FiberHandle<A> {
   private reject!: (error: unknown) => void;
   private generation = 0;
   private waiting = false;
-  private interrupted = false;
+  private exit: { readonly error: unknown } | undefined;
 
   constructor(k: Kyoot<A, any>, parent: Fiber<any> | undefined) {
     const { controller } = this;
@@ -110,7 +102,6 @@ class Fiber<A> implements FiberHandle<A> {
   private async close(): Promise<void> {
     this.controller.abort(ABORTED);
     this.parent?.controller.signal.removeEventListener("abort", this.interrupt);
-    this.machine.reset();
     if (this.children !== undefined && this.children.size > 0) {
       await Promise.allSettled(this.children);
     }
@@ -125,18 +116,28 @@ class Fiber<A> implements FiberHandle<A> {
       how === "resume"
         ? machine.resume(payload, STEP_BUDGET)
         : how === "raise"
-          ? machine.raise(payload, STEP_BUDGET)
+          ? this.raise(payload)
           : machine.continue(STEP_BUDGET),
     );
   }
 
+  private cancel(error: unknown): Outcome {
+    this.exit = { error };
+    return this.machine.cancel(STEP_BUDGET);
+  }
+
+  private raise(error: unknown): Outcome {
+    return error instanceof InterruptedError
+      ? this.cancel(error)
+      : this.machine.raise(error, STEP_BUDGET);
+  }
+
   private onAbort(): void {
-    if (!this.waiting || this.interrupted) return;
-    this.interrupted = true;
+    if (!this.waiting || this.exit !== undefined) return;
     this.waiting = false;
     this.reactions = reactionsFor(this);
     this.generation++;
-    this.step(() => this.machine.raise(new InterruptedError(), STEP_BUDGET));
+    this.step(() => this.cancel(new InterruptedError()));
   }
 
   private wait(): void {
@@ -149,7 +150,8 @@ class Fiber<A> implements FiberHandle<A> {
     let outcome = initial;
     while (true) {
       if (outcome === "done") {
-        this.resolve(machine.value as A);
+        if (this.exit === undefined) this.resolve(machine.value as A);
+        else this.reject(this.exit.error);
         return;
       }
 
@@ -161,17 +163,16 @@ class Fiber<A> implements FiberHandle<A> {
 
       const { key, payload } = machine;
       if (key !== "async") {
-        this.reject(unhandledEffect("fiber", key));
-        return;
-      }
-
-      if (controller.signal.aborted && !this.interrupted) {
-        this.interrupted = true;
-        outcome = machine.raise(new InterruptedError(), STEP_BUDGET);
+        outcome = this.cancel(new Error(`fiber encountered unhandled effect '${String(key)}'`));
         continue;
       }
 
-      const signal = this.interrupted ? NEVER : controller.signal;
+      if (controller.signal.aborted && this.exit === undefined) {
+        outcome = this.cancel(new InterruptedError());
+        continue;
+      }
+
+      const signal = this.exit === undefined ? controller.signal : NEVER;
       const op = payload as AsyncOp;
       let work: Promise<unknown>;
       try {
@@ -181,7 +182,7 @@ class Fiber<A> implements FiberHandle<A> {
             : { ...rt, signal, handlers: op.inherits ? machine.snapshot() : undefined },
         );
       } catch (error) {
-        outcome = machine.raise(error, STEP_BUDGET);
+        outcome = this.raise(error);
         continue;
       }
 

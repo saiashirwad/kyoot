@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Async, effect, Fail, Kyoot, Resource, Sync } from "../src/index.ts";
+import { effect, Fail, Kyoot, Resource, Sync } from "../src/index.ts";
+import { Async, runPromise } from "../src/async/index.ts";
 
 const Stop = effect<string, never>()("stop");
 const Hold = effect<undefined, undefined>()("hold");
@@ -233,7 +234,7 @@ test("generator: finally runs when a fiber is interrupted", async () => {
     yield* fiber.interrupt;
     return yield* fiber.await;
   });
-  const r = await Kyoot.runPromise(prog);
+  const r = await runPromise(prog);
   assert.equal(!r.ok && r.cause._tag, "Interrupted");
   assert.deepEqual(events, ["finally"]);
 });
@@ -422,7 +423,7 @@ test("generator: a token saved past a closed continuation cannot restore it", ()
   assert.deepEqual(events, ["finally"]);
 });
 
-test("generator: a frame queued inside a dropped continuation closes too", () => {
+test("generator: a dropped continuation releases its resources when the machine stops", () => {
   const events: string[] = [];
   const held = Kyoot.gen(function* () {
     try {
@@ -452,7 +453,7 @@ test("generator: a frame queued inside a dropped continuation closes too", () =>
     () => Kyoot.runSync(prog as never),
     (e: unknown) => e instanceof Error && e.message.includes("unhandled effect 'missing'"),
   );
-  assert.deepEqual(events, ["outer"]);
+  assert.deepEqual(events, ["release", "outer"]);
 });
 
 test("generator: an abort during cleanup replaces the error a finally raised", () => {

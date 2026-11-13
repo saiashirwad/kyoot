@@ -1,4 +1,5 @@
-import { Async, Clock, effect, Emit, Fail, Kyoot, Log, Retry } from "../src/index.ts";
+import { effect, Emit, Fail, Kyoot, Log } from "../src/index.ts";
+import { Async, Clock, Retry, runPromise } from "../src/async/index.ts";
 
 interface Prompt {
   readonly messages: readonly string[];
@@ -56,5 +57,5 @@ const program = agent("why is the sky blue?").pipe(
   Fail.run,
 );
 
-const answer = await Async.timeout(5_000, program).pipe(Fail.orThrow, Kyoot.runPromise);
+const answer = await Async.timeout(5_000, program).pipe(Fail.orThrow, runPromise);
 console.log("\n", answer);

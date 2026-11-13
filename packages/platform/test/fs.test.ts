@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { Fail, Kyoot } from "kyoot";
 import { FileSystem, Memory } from "@kyoot/platform";
 import * as Node from "@kyoot/platform/node";
+import { runPromise } from "kyoot/async";
 
 const scenario = (root: string) =>
   Kyoot.gen(function* () {
@@ -38,7 +39,7 @@ test("the same program runs against the in-memory file system", () => {
 test("and against the real one", async () => {
   const root = await fsp.mkdtemp(join(tmpdir(), "kyoot-"));
   try {
-    const result = await Kyoot.runPromise(scenario(root).pipe(Node.fs, Fail.orThrow));
+    const result = await runPromise(scenario(root).pipe(Node.fs, Fail.orThrow));
     assert.deepEqual(result, expected);
     assert.equal(await fsp.readFile(`${root}/a/hi.txt`, "utf8"), "hello world");
   } finally {
@@ -74,7 +75,7 @@ test("memory: recursive mkdir does not replace a file", () => {
 });
 
 test("node: errors carry codes", async () => {
-  const r = await Kyoot.runPromise(FileSystem.readFile("/nope/nope").pipe(Node.fs, Fail.run));
+  const r = await runPromise(FileSystem.readFile("/nope/nope").pipe(Node.fs, Fail.run));
   assert.ok(!r.ok && r.cause._tag === "Fail");
   assert.equal(r.cause.error.code, "NotFound");
   assert.equal(r.cause.error.op, "readFile");
@@ -84,9 +85,7 @@ test("node: exists returns false when a path component is not a directory", asyn
   const root = await fsp.mkdtemp(join(tmpdir(), "kyoot-"));
   try {
     await fsp.writeFile(`${root}/file`, "x");
-    const r = await Kyoot.runPromise(
-      FileSystem.exists(`${root}/file/child`).pipe(Node.fs, Fail.orThrow),
-    );
+    const r = await runPromise(FileSystem.exists(`${root}/file/child`).pipe(Node.fs, Fail.orThrow));
     assert.equal(r, false);
   } finally {
     await fsp.rm(root, { recursive: true });

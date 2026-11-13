@@ -1,6 +1,7 @@
 import { Fail, Kyoot } from "kyoot";
 import { Command, FileSystem } from "@kyoot/platform";
 import * as Node from "@kyoot/platform/node";
+import { runPromise } from "kyoot/async";
 
 const linesPerPackage = Kyoot.gen(function* () {
   const { stdout } = yield* Command.run("git", ["ls-files", "--", "*.ts"]);
@@ -13,4 +14,4 @@ const linesPerPackage = Kyoot.gen(function* () {
   return counts;
 });
 
-console.log(await linesPerPackage.pipe(Node.provide, Fail.orThrow, Kyoot.runPromise));
+console.log(await linesPerPackage.pipe(Node.provide, Fail.orThrow, runPromise));

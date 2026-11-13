@@ -1,4 +1,5 @@
-import { Async, Fail, Kyoot } from "../src/index.ts";
+import { Fail, Kyoot } from "../src/index.ts";
+import { Async, runPromise } from "../src/async/index.ts";
 
 class NotFound {
   readonly _tag = "NotFound";
@@ -26,4 +27,4 @@ const main = Kyoot.gen(function* () {
   return { winner, starters, ditto };
 }).pipe(Fail.run);
 
-console.log(await Kyoot.runPromise(main));
+console.log(await runPromise(main));

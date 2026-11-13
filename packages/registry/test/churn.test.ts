@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { Kyoot, Resource } from "kyoot";
 import * as Registry from "@kyoot/registry";
 import { lifecycle, provider, X } from "./helpers.ts";
+import { runPromise } from "kyoot/async";
 
 test("rapid provider churn keeps activations balanced", async () => {
   const events: string[] = [];
@@ -11,7 +12,7 @@ test("rapid provider churn keeps activations balanced", async () => {
     run: () => lifecycle(events, "dependent"),
   });
 
-  await Kyoot.runPromise(
+  await runPromise(
     Kyoot.gen(function* () {
       const registry = yield* Registry.make();
       const handle = yield* registry.use(dependent);
@@ -37,7 +38,7 @@ test("synchronous root finalizers do not lose notify transitions", async () => {
     run: () => lifecycle(events, "consumer"),
   });
 
-  await Kyoot.runPromise(
+  await runPromise(
     Kyoot.gen(function* () {
       const registry = yield* Registry.make();
       const handle = yield* registry.use(consumer);

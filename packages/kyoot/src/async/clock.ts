@@ -1,7 +1,7 @@
-import { effect, makeHandler, makeOp, withState } from "../core.ts";
+import { effect, makeHandler, makeOp, withState, type Resume } from "../core.ts";
 import type { Kyoot } from "../model.ts";
 import type { AsyncRuntime } from "./runtime.ts";
-import type { Row } from "../types.ts";
+import type { Op, Row } from "../types.ts";
 
 const clock = effect<number, void>()("clock");
 
@@ -11,10 +11,10 @@ export const handle = clock.handle;
 
 export const intercept = clock.intercept;
 
-export const virtual = <A, S extends Row & { clock?: number }>(k: Kyoot<A, S>) =>
+export const virtual = <A, S extends Row & { clock?: Op<number, void> }>(k: Kyoot<A, S>) =>
   makeHandler("clock", k, {
     initial: 0,
-    onOp: (ms, resume, now) => resume(undefined, now + ms),
+    onOp: (ms: number, resume: Resume<void, number>, now) => resume(undefined, now + ms),
     onReturn: withState,
   });
 

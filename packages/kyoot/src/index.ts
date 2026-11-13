@@ -19,7 +19,17 @@ export type { Done, Pending, Step } from "./step.ts";
 export type { Pipeable } from "./pipe.ts";
 export { Result } from "./result.ts";
 export type { Cause, DefectCause, Err, FailCause, Ok } from "./result.ts";
-export type { Merge, MergeAll, Only, Row, Simplify, Unhandled } from "./types.ts";
+export type {
+  Answer,
+  Merge,
+  MergeAll,
+  Only,
+  Op,
+  Payload,
+  Row,
+  Simplify,
+  Unhandled,
+} from "./types.ts";
 export type { AnyKyoot, Fork, RowsOf } from "./model.ts";
 
 export * as Emit from "./effects/emit.ts";

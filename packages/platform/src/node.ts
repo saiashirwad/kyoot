@@ -96,6 +96,6 @@ export const command = Command.handle({
     ),
 });
 
-export const provide = <A, S extends Row & { fs?: FileSystem.Op; command?: Command.Op }>(
+export const provide = <A, S extends Row & Partial<FileSystem.FsRow & Command.CommandRow>>(
   k: K<A, S>,
 ) => k.pipe(fs, command);

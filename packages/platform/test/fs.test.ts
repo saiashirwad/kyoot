@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { Fail, Kyoot } from "kyoot";
+import type { Op } from "kyoot";
 import { FileSystem, Memory } from "@kyoot/platform";
 import * as Node from "@kyoot/platform/node";
 import { runPromise } from "kyoot/async";
@@ -49,7 +50,7 @@ test("and against the real one", async () => {
 
 const seed = { "/d/inner.txt": "1", "/f.txt": "x" };
 
-const code = (k: Kyoot<unknown, { fs: FileSystem.Op; fail: FileSystem.FsError }>) => {
+const code = (k: Kyoot<unknown, FileSystem.FsRow & { fail: Op<FileSystem.FsError, never> }>) => {
   const r = Kyoot.runSync(k.pipe(Memory.fs(seed), Fail.run));
   return r.ok ? "ok" : r.cause._tag === "Fail" ? r.cause.error.code : "defect";
 };

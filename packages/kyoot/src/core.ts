@@ -1,6 +1,6 @@
 import type { AnyKyoot, Fork, HandlerHooks, Kyoot, OnOp, RowsOf, ValueOf } from "./model.ts";
 import type { Pipeable } from "./pipe.ts";
-import type { MergeAll, Only, Row, Simplify } from "./types.ts";
+import type { Answer, MergeAll, Only, Op, Payload, Row, Simplify } from "./types.ts";
 
 export type RuntimeNode =
   | { readonly _tag: "pure"; readonly a: unknown }
@@ -107,8 +107,8 @@ export const gen = <A, Y extends AnyKyoot>(
 
 export const op =
   <A>() =>
-  <const K extends string, P>(key: K, payload: P): Kyoot<A, { [k in K]: P }> =>
-    makeOp(key, payload) as Kyoot<A, { [k in K]: P }>;
+  <const K extends string, P>(key: K, payload: P): Kyoot<A, { [k in K]: Op<P, A> }> =>
+    makeOp(key, payload) as Kyoot<A, { [k in K]: Op<P, A> }>;
 
 export const catchDefect = <A, S extends Row, B, S2 extends Row>(
   k: Kyoot<A, S>,
@@ -128,37 +128,40 @@ export interface Resume<A, St, C extends Row = Row> {
   ): Kyoot<never, {}>;
 }
 
-type Performed<K extends string, V, A, C extends Row> = Kyoot<A, Simplify<{ [k in K]: V } & C>>;
+type Performed<K extends string, P, A, C extends Row> = Kyoot<
+  A,
+  Simplify<{ [k in K]: Op<P, A> } & C>
+>;
 
 export interface Cell<St> {
   readonly create: () => St;
   readonly fork?: Fork;
 }
 
-type Interceptor<K extends string, P, V, A, C extends Row, St, Ret> = (
+type Interceptor<K extends string, P, A, C extends Row, St, Ret> = (
   payload: P,
-  next: (payload: P) => Performed<K, V, A, C>,
+  next: (payload: P) => Performed<K, P, A, C>,
   state: St,
 ) => Ret;
 
-type Interception<K extends string, V, Ret> = <B, S extends Row & { [k in K]?: V }>(
+type Interception<K extends string, P, A, Ret> = <B, S extends Row & { [k in K]?: Op<P, A> }>(
   k: Kyoot<B, S>,
 ) => Kyoot<B, MergeAll<Omit<S, K> | RowsOf<Ret>>>;
 
-export interface Intercept<K extends string, P, A, C extends Row = {}, V = P> {
+export interface Intercept<K extends string, P, A, C extends Row = {}> {
   <Ret extends Kyoot<A, any>>(
-    f: Interceptor<K, P, V, A, C, undefined, Ret>,
-  ): Interception<K, V, Ret>;
+    f: Interceptor<K, P, A, C, undefined, Ret>,
+  ): Interception<K, P, A, Ret>;
   <St, Ret extends Kyoot<A, any>>(
     cell: Cell<St>,
-    f: Interceptor<K, P, V, A, C, St, Ret>,
-  ): Interception<K, V, Ret>;
+    f: Interceptor<K, P, A, C, St, Ret>,
+  ): Interception<K, P, A, Ret>;
 }
 
-export const makeIntercept = <K extends string, P, A, C extends Row = {}, V = P>(
+export const makeIntercept = <K extends string, P, A, C extends Row = {}>(
   key: K,
-): Intercept<K, P, A, C, V> => {
-  type F = Interceptor<K, P, V, A, C, any, AnyKyoot>;
+): Intercept<K, P, A, C> => {
+  type F = Interceptor<K, P, A, C, any, AnyKyoot>;
   const nexts: Array<(p: P) => never> = [];
   const nextPast = (past: number) => (nexts[past] ??= (p: P) => makeOp(key, p, past) as never);
   return (cellOrF: Cell<unknown> | F, maybeF?: F) => {
@@ -182,7 +185,7 @@ export interface OpHooks<P, A, St, C extends Row, ROp extends AnyKyoot> extends 
 }
 
 export interface TailHooks<P, A, St> extends State<St> {
-  tail: (payload: P, state: St) => A;
+  tail: (payload: P, state: St) => NoInfer<A>;
 }
 
 export type Hooks<P, A, St, C extends Row, ROp extends AnyKyoot> =
@@ -192,19 +195,18 @@ export type Hooks<P, A, St, C extends Row, ROp extends AnyKyoot> =
 type Nothing = Kyoot<never, {}>;
 
 export const effect =
-  <P, A, C extends Row = {}, V = P>() =>
+  <P, A, C extends Row = {}>() =>
   <const K extends string>(key: K) => {
-    const perform = (payload: P) => makeOp(key, payload) as Performed<K, V, A, C>;
+    const perform = (payload: P) => makeOp(key, payload) as Performed<K, P, A, C>;
     const handle =
       <St = undefined, ROp extends AnyKyoot = Nothing>(hooks: Hooks<P, A, St, C, ROp>) =>
-      <B, S extends Row & { [k in K]?: V }>(k: Kyoot<B, S>) =>
-        makeHandler(key, k, hooks);
-    return Object.assign(perform, { key, handle, intercept: makeIntercept<K, P, A, C, V>(key) });
+      <B, S extends Row & { [k in K]?: Op<P, A> }>(k: Kyoot<B, S>) =>
+        makeHandler<K, B, S, St, P, A, C, ROp>(key, k, hooks);
+    return Object.assign(perform, { key, handle, intercept: makeIntercept<K, P, A, C>(key) });
   };
 
-export type Payload<S, K extends PropertyKey> = K extends keyof S
-  ? Exclude<S[K], undefined>
-  : never;
+const handler = (key: PropertyKey, self: AnyKyoot, hooks: HandlerHooks): AnyKyoot =>
+  new KyootImpl("handler", self, key, hooks);
 
 export function makeHandler<
   K extends PropertyKey,
@@ -212,38 +214,39 @@ export function makeHandler<
   S extends Row,
   St = undefined,
   P = Payload<S, K>,
+  R = Answer<S, K>,
   C extends Row = Row,
   ROp extends AnyKyoot = Nothing,
   RReturn extends AnyKyoot = Kyoot<A, {}>,
 >(
   effectKey: K,
   self: Kyoot<A, S>,
-  hooks: Hooks<P, any, St, C, ROp> & {
+  hooks: Hooks<P, R, St, C, ROp> & {
     onReturn?: (a: A, state: St) => RReturn;
   },
 ): Kyoot<ValueOf<RReturn> | ValueOf<ROp>, MergeAll<Omit<S, K> | RowsOf<ROp> | RowsOf<RReturn>>> {
-  return new KyootImpl("handler", self, effectKey, hooks as unknown as HandlerHooks) as never;
+  return handler(effectKey, self, hooks as unknown as HandlerHooks) as never;
 }
 
 export const collect =
   <const K extends string>(key: K) =>
-  <A, S extends Row & { [k in K]?: unknown }>(
+  <A, S extends Row & { [k in K]?: Op<unknown, void> }>(
     k: Kyoot<A, S>,
   ): Kyoot<readonly [A, Array<Payload<S, K>>], MergeAll<Omit<S, K>>> =>
-    makeHandler(key, k, {
-      create: () => [] as unknown[],
+    handler(key, k, {
+      create: () => [],
       tail: (payload, payloads) => void payloads.push(payload),
       onReturn: withState,
     }) as never;
 
 export const forEach =
   <const K extends string, P, R>(key: K, f: (payload: P) => R) =>
-  <A, S extends Row & { [k in K]?: P }>(
+  <A, S extends Row & { [k in K]?: Op<P, void> }>(
     k: Kyoot<A, S>,
   ): Kyoot<A, MergeAll<Omit<S, K> | RowsOf<R>>> =>
-    makeHandler(key, k, {
+    handler(key, k, {
       onOp: (payload, resume) => {
-        const r = f(payload as P);
+        const r = f(payload);
         return isKyoot(r) ? r.flatMap(() => resume(undefined)) : resume(undefined);
       },
     }) as never;

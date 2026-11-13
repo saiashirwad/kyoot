@@ -1,5 +1,5 @@
 import { effect } from "kyoot";
-import type { Kyoot } from "kyoot";
+import type { Kyoot, Op as RowOp } from "kyoot";
 
 export type Op =
   | { readonly kind: "readFile"; readonly path: string }
@@ -53,14 +53,16 @@ type Answer = {
   rename: void;
 };
 
-const fs = effect<Op, unknown, { fail: FsError }>()("fs");
+export type FsRow = { fs: RowOp<Op, unknown> };
+
+const fs = effect<Op, unknown, { fail: RowOp<FsError, never> }>()("fs");
 
 export const handle = fs.handle;
 
 export const intercept = fs.intercept;
 
 const perform = <O extends Op>(op: O) =>
-  fs(op) as Kyoot<Answer[O["kind"]], { fs: Op; fail: FsError }>;
+  fs(op) as Kyoot<Answer[O["kind"]], FsRow & { fail: RowOp<FsError, never> }>;
 
 export const readFile = (path: string) => perform({ kind: "readFile", path });
 

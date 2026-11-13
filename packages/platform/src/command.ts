@@ -1,4 +1,5 @@
 import { effect } from "kyoot";
+import type { Op as RowOp } from "kyoot";
 
 export interface Options {
   readonly cwd?: string;
@@ -27,7 +28,9 @@ export class CommandError {
   }
 }
 
-const command = effect<Op, Output, { fail: CommandError }>()("command");
+export type CommandRow = { command: RowOp<Op, Output> };
+
+const command = effect<Op, Output, { fail: RowOp<CommandError, never> }>()("command");
 
 export const handle = command.handle;
 

@@ -1,7 +1,7 @@
 import { Kyoot, Resource } from "kyoot";
-import type { Env, Kyoot as K, Only, Row } from "kyoot";
+import type { Env, Kyoot as K, Only, Op, Row } from "kyoot";
 import { Async, InterruptedError, runFiber } from "kyoot/async";
-import type { AsyncOp, FiberHandle } from "kyoot/async";
+import type { AsyncRow, FiberHandle } from "kyoot/async";
 
 type Tag<E> = Env.Tag<string, E>;
 type AnyTag = Tag<any>;
@@ -13,7 +13,7 @@ export type Resolve<I extends Inject> = {
 };
 
 export interface Ctx {
-  set<E>(tag: Tag<E>, impl: E): K<void, { resource: Resource.ResourceOp }>;
+  set<E>(tag: Tag<E>, impl: E): K<void, { resource: Op<Resource.ResourceOp, unknown> }>;
 }
 
 export interface Component<I extends Inject = Inject> {
@@ -29,7 +29,7 @@ export const component = <I extends Inject, S extends Row>(spec: {
 export interface Handle {
   readonly active: boolean;
   readonly error: unknown;
-  remove(): K<void, { async: AsyncOp }>;
+  remove(): K<void, AsyncRow>;
 }
 
 interface Entry {
@@ -55,7 +55,7 @@ export class Registry implements Ctx {
   private readonly bindings = new Map<AnyTag, { impl: unknown; owner: Entry }>();
   private readonly entries: Entry[] = [];
 
-  use(component: Component<any>): K<Handle, { async: AsyncOp }> {
+  use(component: Component<any>): K<Handle, AsyncRow> {
     const entry: Entry = { component, target: false, active: false, landed: false };
     return Async.fromPromise(async () => {
       this.entries.push(entry);
@@ -81,14 +81,14 @@ export class Registry implements Ctx {
     return this.bind(root, tag, impl);
   }
 
-  dispose(): K<void, { async: AsyncOp }> {
+  dispose(): K<void, AsyncRow> {
     return Async.fromPromise(async () => {
       for (const entry of [...this.entries].reverse()) await this.retarget(entry, false);
       this.entries.length = 0;
     });
   }
 
-  settled(): K<void, { async: AsyncOp }> {
+  settled(): K<void, AsyncRow> {
     return Async.fromPromise(async () => {
       await Promise.all(this.entries.map((e) => e.inertia));
     });

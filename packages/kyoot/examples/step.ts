@@ -1,6 +1,6 @@
 import { effect, Kyoot } from "../src/index.ts";
 
-export type Event =
+type Event =
   | { readonly type: "add"; readonly sku: string }
   | { readonly type: "pay" }
   | { readonly type: "paid" }
@@ -29,7 +29,7 @@ const cancellable = Recv.handle({
     recv.flatMap((event) => (event.type === "cancel" ? Kyoot.succeed("cancelled") : resume(event))),
 });
 
-export const checkout = (log: string[]) =>
+const checkout = (log: string[]) =>
   Kyoot.gen(function* () {
     try {
       return yield* paying(yield* shopping);

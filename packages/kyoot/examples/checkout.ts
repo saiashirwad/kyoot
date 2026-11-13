@@ -27,12 +27,12 @@ export interface Order {
 
 export type OrderEvent = { type: "reserved"; sku: string };
 
-export interface Reserve {
+interface Reserve {
   readonly sku: string;
   readonly qty: number;
 }
 
-export interface Charge {
+interface Charge {
   readonly totalCents: number;
   readonly card: string;
 }
@@ -74,7 +74,5 @@ if (import.meta.main) {
     Fail.run,
     Kyoot.runSync,
   );
-  if (result.ok) {
-  }
   console.log(result);
 }

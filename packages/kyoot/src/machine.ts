@@ -46,14 +46,25 @@ class GenFrame implements Frame {
   }
 }
 
+// Handlers and masks are pushed once and never re-pushed, so `stack[f.index] === f` says whether f is live.
+// Everything a live frame's `prev` reaches is live too: popping it would have popped f first.
 class HandlerFrame implements Frame {
   readonly key: PropertyKey;
   readonly hooks: HandlerHooks;
+  readonly index: number;
+  readonly prev: HandlerFrame | undefined;
   state: unknown;
 
-  constructor(key: PropertyKey, hooks: HandlerHooks) {
+  constructor(
+    key: PropertyKey,
+    hooks: HandlerHooks,
+    index: number,
+    prev: HandlerFrame | undefined,
+  ) {
     this.key = key;
     this.hooks = hooks;
+    this.index = index;
+    this.prev = prev;
     this.state = hooks.create === undefined ? hooks.initial : hooks.create();
   }
 
@@ -65,21 +76,21 @@ class HandlerFrame implements Frame {
 
 class Mask implements Frame {
   readonly handler: HandlerFrame;
-  readonly below: number;
   readonly index: number;
+  readonly prev: Mask | undefined;
 
-  constructor(handler: HandlerFrame, below: number, index: number) {
+  constructor(handler: HandlerFrame, index: number, prev: Mask | undefined) {
     this.handler = handler;
-    this.below = below;
     this.index = index;
+    this.prev = prev;
   }
 
   value(answer: unknown, m: Machine): AnyKyoot {
-    return m.cancelTo(this.below, succeed(answer));
+    return m.cancelTo(this.handler.index, succeed(answer));
   }
 
   error(e: unknown, m: Machine): AnyKyoot {
-    return m.cancelTo(this.below, raise(e));
+    return m.cancelTo(this.handler.index, raise(e));
   }
 }
 
@@ -145,6 +156,8 @@ const resumer = (mask: Mask): RuntimeResume => {
 
 export class Machine {
   private readonly stack: Entry[] = [];
+  private handlers: Map<PropertyKey, HandlerFrame> | undefined;
+  private mask: Mask | undefined;
   private current!: AnyKyoot;
   private remaining = Infinity;
 
@@ -194,7 +207,7 @@ export class Machine {
     let skip = this.skip;
     for (let i = stack.length - 1; i >= 0; i--) {
       const entry = stack[i];
-      if (entry instanceof Mask) i = entry.below;
+      if (entry instanceof Mask) i = entry.handler.index;
       else if (!(entry instanceof HandlerFrame)) continue;
       else if (skip > 0 && entry.key === key) skip--;
       else out.push({ key: entry.key, hooks: entry.hooks, state: entry.state });
@@ -255,10 +268,13 @@ export class Machine {
             this.current = next;
             break;
           }
-          case "handler":
-            this.stack.push(new HandlerFrame(n.b, n.c));
+          case "handler": {
+            const frame = new HandlerFrame(n.b, n.c, this.stack.length, this.top(n.b));
+            (this.handlers ??= new Map()).set(n.b, frame);
+            this.stack.push(frame);
             this.current = n.a;
             break;
+          }
           case "catch":
             this.stack.push(new CatchFrame(n.b));
             this.current = n.a;
@@ -291,6 +307,8 @@ export class Machine {
         this.value = v;
         // Dropping the backing store keeps V8 from pretenuring it: 25% on a 100-map runSync.
         stack.length = 0;
+        this.handlers = undefined;
+        this.mask = undefined;
         return undefined;
       }
       if (typeof entry === "function") {
@@ -321,25 +339,41 @@ export class Machine {
     throw error;
   }
 
+  private top(key: PropertyKey): HandlerFrame | undefined {
+    const handlers = this.handlers;
+    if (handlers === undefined) return undefined;
+    const stack = this.stack;
+    const first = handlers.get(key);
+    let h = first;
+    while (h !== undefined && stack[h.index] !== h) h = h.prev;
+    if (h !== first) {
+      if (h === undefined) handlers.delete(key);
+      else handlers.set(key, h);
+    }
+    return h;
+  }
+
+  // Masks nest or are disjoint, and a mask hides [handler.index, index]. Walking handlers and masks
+  // downward together, a mask whose handler sits above the handler can't hide anything lower.
   private perform(key: PropertyKey, payload: unknown, skip: number): AnyKyoot | undefined {
     const stack = this.stack;
-    const skip0 = skip;
-    for (let i = stack.length - 1; i >= 0; i--) {
-      const entry = stack[i];
-      if (entry instanceof Mask) {
-        i = entry.below;
-        continue;
-      }
-      if (!(entry instanceof HandlerFrame) || entry.key !== key) continue;
+    const past = skip;
+    let m = this.mask;
+    while (m !== undefined && stack[m.index] !== m) m = m.prev;
+    this.mask = m;
+    for (let h = this.top(key); h !== undefined; h = h.prev) {
+      while (m !== undefined && m.handler.index > h.index) m = m.prev;
+      if (m !== undefined && h.index < m.index) continue;
       if (skip > 0) {
         skip--;
         continue;
       }
-      const { tail, onOp } = entry.hooks;
-      if (tail !== undefined) return succeed(tail(payload, entry.state));
-      const mask = new Mask(entry, i, stack.length);
+      const { tail, onOp } = h.hooks;
+      if (tail !== undefined) return succeed(tail(payload, h.state));
+      const mask = new Mask(h, stack.length, this.mask);
+      this.mask = mask;
       stack.push(mask);
-      return onOp!(payload, resumer(mask), entry.state, skip0 + 1);
+      return onOp!(payload, resumer(mask), h.state, past + 1);
     }
     return undefined;
   }

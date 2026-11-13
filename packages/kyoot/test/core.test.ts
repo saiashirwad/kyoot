@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { catchDefect, makeHandler, makeOp, succeed } from "../src/core.ts";
+import { catchDefect, makeHandler, makeOp, op, succeed } from "../src/core.ts";
 import { effect, Emit, Env, Fail, Kyoot, Log, Random, Resource, Sync, Var } from "../src/index.ts";
+import type { Op } from "../src/index.ts";
 import { Async, Clock, runPromise } from "../src/async/index.ts";
 
 const Count = Var.tag<number>()("Count");
@@ -144,8 +145,8 @@ test("resuming ends the handler's program: code after a resume never runs", () =
   const k = makeHandler(
     "myfx",
     Kyoot.gen(function* () {
-      const v = yield* makeOp("myfx", undefined);
-      return (v as number) * 10;
+      const v = yield* op<number>()("myfx", undefined);
+      return v * 10;
     }),
     {
       onOp: (_p, resume) => {
@@ -263,7 +264,9 @@ test("a handler that resumes zero times short-circuits", () => {
 });
 
 test("an op escaping a yielded handler node keeps the outer continuation", () => {
-  const inner = makeHandler("inner", makeOp("outer", undefined), { onOp: () => succeed("nope") });
+  const inner = makeHandler("inner", op<string>()("outer", undefined), {
+    onOp: () => succeed("nope"),
+  });
   const prog = Kyoot.gen(function* () {
     const v = yield* inner;
     return `${v} continued`;
@@ -295,7 +298,7 @@ test("a throw inside onOp is a defect raised where the handler is installed", ()
 });
 
 test("resume.with continues the program at the op, where its own handlers see it", () => {
-  const Fetch = effect<string, string, { fail: string }>()("fetch");
+  const Fetch = effect<string, string, { fail: Op<string, never> }>()("fetch");
   const program = Fetch("a").pipe(Fail.catchAll((e: string) => Kyoot.succeed(`caught ${e}`)));
   const failing = Fetch.handle({ onOp: (url, resume) => resume.with(Fail.fail(`no ${url}`)) });
   assert.equal(Kyoot.runSync(program.pipe(failing)), "caught no a");

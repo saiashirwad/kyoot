@@ -105,6 +105,7 @@ test("step: cleanup that performs an effect suspends the cancel for the driver t
   const cleanup = pending(pending(Kyoot.step(program)).cancel());
   assert.deepEqual([cleanup.key, cleanup.payload], ["tidy", "socket"]);
   assert.deepEqual(events, []);
+  assert.ok(cleanup.key === "tidy");
   assert.deepEqual(cleanup.resume(undefined), { done: true, value: undefined });
   assert.deepEqual(events, ["tidied"]);
 });

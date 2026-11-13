@@ -1,9 +1,9 @@
-import { effect, gen, makeHandler, makeOp, succeed, type Payload } from "../core.ts";
+import { effect, gen, makeHandler, makeOp, succeed } from "../core.ts";
 import { forEach, value } from "../effects/emit.ts";
 import { fail, fromResult } from "../effects/fail.ts";
 import type { AnyKyoot, Kyoot, Snapshot } from "../model.ts";
 import { Result, type Err } from "../result.ts";
-import type { FailRow, MergeAll, Only, Row } from "../types.ts";
+import type { FailRow, MergeAll, Only, Op, Payload, Row } from "../types.ts";
 import { sleep } from "./clock.ts";
 import {
   InterruptedError,
@@ -14,7 +14,7 @@ import {
   type Served,
 } from "./runtime.ts";
 
-type AsyncRow = { async: AsyncOp };
+export type AsyncRow = { async: Op<AsyncOp, unknown> };
 
 const asyncEffect = effect<AsyncOp, unknown>()("async");
 
@@ -255,13 +255,13 @@ export const fromAsyncIterable = <E>(items: AsyncIterable<E>) =>
     }
   });
 
-export const toAsyncIterable = <S extends Row & { emit?: unknown }>(
+export const toAsyncIterable = <S extends Row & { emit?: Op<unknown, void> }>(
   k: Kyoot<unknown, S> & Only<S, "emit" | Served>,
   options: { readonly buffer?: number } = {},
-): AsyncIterable<S["emit"]> => ({
+): AsyncIterable<Payload<S, "emit">> => ({
   [Symbol.asyncIterator]() {
     const capacity = Math.max(1, options.buffer ?? 16);
-    const buffer: S["emit"][] = [];
+    const buffer: Payload<S, "emit">[] = [];
     let finished = false;
     let failed = false;
     let failure: unknown;
@@ -270,7 +270,7 @@ export const toAsyncIterable = <S extends Row & { emit?: unknown }>(
     const fiber = runFiber(
       k.pipe(
         forEach((e) => {
-          buffer.push(e);
+          buffer.push(e as Payload<S, "emit">);
           if (buffer.length < capacity) {
             wake();
             return;

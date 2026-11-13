@@ -7,9 +7,10 @@ import {
   makeIntercept,
   op,
   unit,
+  type Resume,
 } from "../core.ts";
 import type { Kyoot, RowsOf } from "../model.ts";
-import type { MergeAll, Row } from "../types.ts";
+import type { MergeAll, Op, Payload, Row } from "../types.ts";
 
 type Finalizer = () => unknown;
 
@@ -20,7 +21,10 @@ export interface ResourceOp<S extends Row = {}> {
 }
 
 export const acquire = <R, C>(open: () => R, close: (r: R) => C) =>
-  op<R>()("resource", { acquire: open, release: close } as ResourceOp<RowsOf<C>>);
+  op<unknown>()("resource", { acquire: open, release: close } as ResourceOp<RowsOf<C>>) as Kyoot<
+    R,
+    { resource: Op<ResourceOp<RowsOf<C>>, unknown> }
+  >;
 
 export const intercept = <S extends Row = {}>() =>
   makeIntercept<"resource", ResourceOp<S>, unknown>("resource");
@@ -44,14 +48,14 @@ const finalize = (finalizers: readonly Finalizer[]) =>
 
 type ReleaseRow<R> = R extends ResourceOp<infer S> ? S : never;
 
-export const run = <A, S extends Row & { resource?: ResourceOp<any> }>(
+export const run = <A, S extends Row & { resource?: Op<ResourceOp<any>, unknown> }>(
   k: Kyoot<A, S>,
-): Kyoot<A, MergeAll<Omit<S, "resource"> | ReleaseRow<S["resource"]>>> =>
+): Kyoot<A, MergeAll<Omit<S, "resource"> | ReleaseRow<Payload<S, "resource">>>> =>
   gen(function* () {
     const finalizers: Finalizer[] = [];
     const scope = makeHandler("resource", k, {
       fork: run,
-      onOp: (res, resume) => {
+      onOp: (res: ResourceOp<any>, resume: Resume<unknown, undefined>) => {
         const r = res.acquire();
         finalizers.push(() => res.release(r));
         return resume(r);

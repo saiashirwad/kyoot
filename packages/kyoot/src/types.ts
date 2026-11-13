@@ -1,8 +1,27 @@
-export type Row = Record<string, unknown>;
+export interface Op<out P, in A> {
+  readonly payload: P;
+  readonly resume: (answer: A) => void;
+}
+
+export type Row = Record<string, Op<unknown, never>>;
+
+type At<U, K extends PropertyKey> = U extends unknown
+  ? K extends keyof U
+    ? NonNullable<U[K]>
+    : never
+  : never;
+
+type PayloadOf<O> = O extends Op<infer P, never> ? P : never;
+
+type AnswerOf<O> = [O] extends [never] ? never : [O] extends [Op<unknown, infer A>] ? A : never;
+
+export type Payload<S, K extends PropertyKey> = PayloadOf<At<S, K>>;
+
+export type Answer<S, K extends PropertyKey> = AnswerOf<At<S, K>>;
 
 export type Merge<S1 extends Row, S2 extends Row> = MergeAll<S1 | S2>;
 
-export type FailRow<E> = [E] extends [never] ? {} : { fail: E };
+export type FailRow<E> = [E] extends [never] ? {} : { fail: Op<E, never> };
 
 export type Unhandled<K> = { readonly "unhandled effects": K };
 
@@ -13,8 +32,8 @@ export type Simplify<T> = { [K in keyof T]: T[K] } & {};
 
 type AllKeys<U> = U extends unknown ? keyof U : never;
 
-export type MergeAll<U> = [U] extends [never]
+export type MergeAll<U extends Row> = [U] extends [never]
   ? {}
   : {
-      [K in AllKeys<U>]: U extends unknown ? (K extends keyof U ? U[K] : never) : never;
+      [K in AllKeys<U>]: Op<Payload<U, K>, Answer<U, K>>;
     };

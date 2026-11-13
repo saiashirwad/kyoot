@@ -1,26 +1,23 @@
 import { node } from "./core.ts";
 import { Machine, type Outcome } from "./machine.ts";
 import type { AnyKyoot, Kyoot } from "./model.ts";
-import type { Only, Row } from "./types.ts";
+import type { Answer, Only, Payload, Row } from "./types.ts";
 
 export interface Done<A> {
   readonly done: true;
   readonly value: A;
 }
 
-interface Controls<A, S extends Row> extends Disposable {
+interface PendingAt<A, S extends Row, K extends keyof S> extends Disposable {
   readonly done: false;
-  resume(value: unknown): Step<A, S>;
+  readonly key: K;
+  readonly payload: Payload<S, K>;
+  resume(value: Answer<S, K>): Step<A, S>;
   raise(error: unknown): Step<A, S>;
   cancel(): Step<undefined, S>;
 }
 
-export type Pending<A, S extends Row> = {
-  [K in keyof S]: Controls<A, S> & {
-    readonly key: K;
-    readonly payload: Exclude<S[K], undefined>;
-  };
-}[keyof S];
+export type Pending<A, S extends Row> = { [K in keyof S]: PendingAt<A, S, K> }[keyof S];
 
 export type Step<A, S extends Row = {}> = Done<A> | Pending<A, S>;
 

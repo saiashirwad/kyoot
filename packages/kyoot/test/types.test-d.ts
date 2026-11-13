@@ -4,6 +4,7 @@ import {
   ensuring,
   Env,
   Fail,
+  forEach,
   Kyoot,
   makeHandler,
   op,
@@ -11,7 +12,7 @@ import {
   Sync,
   Var,
 } from "../src/index.ts";
-import type { Kyoot as KyootT, Result, RowsOf } from "../src/index.ts";
+import type { Kyoot as KyootT, Op, Payload, Result, RowsOf } from "../src/index.ts";
 
 type Expect<T extends true> = T;
 type Equal<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
@@ -36,10 +37,10 @@ const mixed = Kyoot.gen(function* () {
 });
 type MixedRows = RowsOf<typeof mixed>;
 type _mixedKeys = Expect<Equal<keyof MixedRows, "fail" | "async" | "clock" | "sync">>;
-type _mixedFail = Expect<Equal<MixedRows["fail"], FetchFailed>>;
-type _mixedAsync = Expect<Equal<MixedRows["async"], AsyncOp>>;
-type _mixedSync = Expect<Equal<MixedRows["sync"], () => unknown>>;
-type _mixedClock = Expect<Equal<MixedRows["clock"], number>>;
+type _mixedFail = Expect<Equal<MixedRows["fail"], Op<FetchFailed, never>>>;
+type _mixedAsync = Expect<Equal<MixedRows["async"], Op<AsyncOp, unknown>>>;
+type _mixedSync = Expect<Equal<MixedRows["sync"], Op<() => unknown, unknown>>>;
+type _mixedClock = Expect<Equal<MixedRows["clock"], Op<number, void>>>;
 type _mixedValue = Expect<Equal<typeof mixed extends KyootT<infer A, any> ? A : never, string>>;
 
 // @ts-expect-error runSync rejects clock rows; runPromise serves them
@@ -73,7 +74,7 @@ type _batchedValue = Expect<Equal<typeof batched extends KyootT<infer A, any> ? 
 
 const timed = Async.timeout(100, Clock.sleep(1));
 type _timedKeys = Expect<Equal<keyof RowsOf<typeof timed>, "async" | "fail">>;
-type _timedFail = Expect<Equal<RowsOf<typeof timed>["fail"], Async.Timeout>>;
+type _timedFail = Expect<Equal<Payload<RowsOf<typeof timed>, "fail">, Async.Timeout>>;
 
 const greeted = Kyoot.gen(function* () {
   const g = yield* Greeter;
@@ -103,13 +104,13 @@ const e1: readonly [number, string[]] = Kyoot.runSync(emitted);
 
 const logOp = op<void>()("log", "hello");
 type _logKeys = Expect<Equal<keyof RowsOf<typeof logOp>, "log">>;
-type _logPayload = Expect<Equal<RowsOf<typeof logOp>["log"], string>>;
+type _logPayload = Expect<Equal<RowsOf<typeof logOp>["log"], Op<string, void>>>;
 // @ts-expect-error runSync names the unhandled custom effect: Unhandled<"log">
 Kyoot.runSync(logOp);
 
 const Ask = effect<{ q: string }, number>()("ask");
 const asked = Ask({ q: "n?" }).map((n) => n + 1);
-type _askRow = Expect<Equal<RowsOf<typeof asked>, { ask: { q: string } }>>;
+type _askRow = Expect<Equal<RowsOf<typeof asked>, { ask: Op<{ q: string }, number> }>>;
 const answered: number = asked.pipe(
   Ask.handle({ onOp: ({ q }, resume) => resume(q.length) }),
   Kyoot.runSync,
@@ -131,7 +132,7 @@ const retried = Kyoot.gen(function* () {
   return 1;
 }).pipe(Retry.run({ times: 3, delay: 10 }));
 type _retryKeys = Expect<Equal<keyof RowsOf<typeof retried>, "fail" | "clock">>;
-type _retryFail = Expect<Equal<RowsOf<typeof retried>["fail"], FetchFailed>>;
+type _retryFail = Expect<Equal<Payload<RowsOf<typeof retried>, "fail">, FetchFailed>>;
 type _retryValue = Expect<Equal<ValueOf<typeof retried>, number>>;
 
 const pureMapped = Async.fromPromise(() => Promise.resolve()).map((_) => 1);
@@ -149,7 +150,7 @@ type _forkKeys = Expect<Equal<keyof RowsOf<typeof forked>, "async">>;
 
 const flatMapped = Kyoot.succeed(1).flatMap((n) => Fail.fail(String(n)));
 type _flatKeys = Expect<Equal<keyof RowsOf<typeof flatMapped>, "fail">>;
-type _flatFail = Expect<Equal<RowsOf<typeof flatMapped>["fail"], string>>;
+type _flatFail = Expect<Equal<RowsOf<typeof flatMapped>["fail"], Op<string, never>>>;
 
 import type { DefectCause, Err, FailCause, Ok } from "../src/index.ts";
 import { Async, Clock, Retry, runPromise } from "../src/async/index.ts";
@@ -192,15 +193,15 @@ const twoFails = Kyoot.gen(function* () {
   return 1;
 });
 const oneLeft = twoFails.pipe(Fail.catchTag("One", () => Kyoot.succeed("r" as const)));
-type _oneLeftFail = Expect<Equal<RowsOf<typeof oneLeft>["fail"], Tagged2>>;
+type _oneLeftFail = Expect<Equal<RowsOf<typeof oneLeft>["fail"], Op<Tagged2, never>>>;
 type _oneLeftValue = Expect<Equal<ValueOf<typeof oneLeft>, number | "r">>;
 const noneLeft = oneLeft.pipe(Fail.catchTag("Two", () => Kyoot.succeed(0)));
 type _noneLeftKeys = Expect<Equal<keyof RowsOf<typeof noneLeft>, never>>;
 
 const tokens = Emit.fromIterable(["a", "b"]);
-type _tokensRow = Expect<Equal<RowsOf<typeof tokens>, { emit: string }>>;
+type _tokensRow = Expect<Equal<RowsOf<typeof tokens>, { emit: Op<string, void> }>>;
 const mapped = tokens.pipe(Emit.map((t: string) => t.length));
-type _mappedEmit = Expect<Equal<RowsOf<typeof mapped>["emit"], number>>;
+type _mappedEmit = Expect<Equal<RowsOf<typeof mapped>["emit"], Op<number, void>>>;
 const consumed = mapped.pipe(Emit.forEach((n: number) => Clock.sleep(n)));
 type _consumedKeys = Expect<Equal<keyof RowsOf<typeof consumed>, "clock">>;
 const iter: AsyncIterable<number> = Async.toAsyncIterable(mapped);
@@ -226,7 +227,7 @@ const forkedNeedy = Async.fork(needsGreeter);
 type _forkNeedyKeys = Expect<Equal<keyof RowsOf<typeof forkedNeedy>, "async" | "env/greeter">>;
 type NeedyFiber = ValueOf<typeof forkedNeedy>;
 type _joinKeys = Expect<Equal<keyof RowsOf<NeedyFiber["join"]>, "async" | "fail">>;
-type _joinFail = Expect<Equal<RowsOf<NeedyFiber["join"]>["fail"], FetchFailed>>;
+type _joinFail = Expect<Equal<Payload<RowsOf<NeedyFiber["join"]>, "fail">, FetchFailed>>;
 type _joinValue = Expect<Equal<ValueOf<NeedyFiber["join"]>, number>>;
 type _awaitValue = Expect<Equal<ValueOf<NeedyFiber["await"]>, Exit<FetchFailed, number>>>;
 
@@ -241,7 +242,7 @@ const j1: Promise<Result<FetchFailed, number>> = runPromise(joined);
 
 const raced = Async.race(needsGreeter, Fail.fail("other" as const));
 type _raceKeys = Expect<Equal<keyof RowsOf<typeof raced>, "async" | "env/greeter" | "fail">>;
-type _raceFail = Expect<Equal<RowsOf<typeof raced>["fail"], FetchFailed | "other">>;
+type _raceFail = Expect<Equal<RowsOf<typeof raced>["fail"], Op<FetchFailed | "other", never>>>;
 const allOf = Async.all([needsGreeter, needsGreeter]);
 type _allKeys = Expect<Equal<keyof RowsOf<typeof allOf>, "async" | "env/greeter" | "fail">>;
 type _allValue = Expect<Equal<ValueOf<typeof allOf>, number[]>>;
@@ -259,7 +260,7 @@ Ask2.handle({
 Ask2.handle({ fork: "none", onOp: (_q, resume) => resume(1) });
 
 const Config = Env.tag<{ url: string }>()("config");
-const Db = Env.tag<{ query(sql: string): KyootT<string, { async: AsyncOp }> }>()("db");
+const Db = Env.tag<{ query(sql: string): KyootT<string, { async: Op<AsyncOp, unknown> }> }>()("db");
 const makeDb = Kyoot.gen(function* () {
   const { url } = yield* Config;
   yield* Resource.acquire(
@@ -284,7 +285,7 @@ type _backwardsRow = Expect<
 class Declined {
   readonly _tag = "Declined";
 }
-const Pay = effect<number, string, { fail: Declined }>()("pay");
+const Pay = effect<number, string, { fail: Op<Declined, never> }>()("pay");
 type _payRow = Expect<Equal<keyof RowsOf<ReturnType<typeof Pay>>, "pay" | "fail">>;
 Pay.handle({ onOp: (_, resume) => resume.with(Fail.fail(new Declined())) });
 Pay.handle({ onOp: (_, resume) => resume.with(Kyoot.succeed("ok")) });
@@ -305,22 +306,68 @@ const stepped = Kyoot.step(
 );
 if (!stepped.done) {
   type _stepKeys = Expect<Equal<typeof stepped.key, "recv" | "fail">>;
-  if (stepped.key === "recv") {
-    type _stepPayload = Expect<Equal<typeof stepped.payload, { readonly from: string }>>;
-  } else {
-    type _stepFail = Expect<Equal<typeof stepped.payload, FetchFailed>>;
-  }
-  const after = stepped.resume(1);
-  if (after.done) {
-    type _stepValue = Expect<Equal<typeof after.value, number>>;
-    // @ts-expect-error a finished step has nothing to resume
-    after.resume(2);
+  // @ts-expect-error a step that may be a failure has no answer until its key is known
+  stepped.resume(1);
+  switch (stepped.key) {
+    case "recv": {
+      type _stepPayload = Expect<Equal<typeof stepped.payload, { readonly from: string }>>;
+      type _stepAnswer = Expect<Equal<Parameters<typeof stepped.resume>[0], number>>;
+      // @ts-expect-error resume is typed to the answer of the pending key
+      stepped.resume("one");
+      const after = stepped.resume(1);
+      if (after.done) {
+        type _stepValue = Expect<Equal<typeof after.value, number>>;
+        // @ts-expect-error a finished step has nothing to resume
+        after.resume(2);
+      }
+      break;
+    }
+    case "fail": {
+      type _stepFail = Expect<Equal<typeof stepped.payload, FetchFailed>>;
+      // @ts-expect-error a failure cannot be resumed
+      stepped.resume(undefined);
+      break;
+    }
+    default: {
+      const _exhaustive: never = stepped;
+    }
   }
   const cancelled = stepped.cancel();
   type _cancelValue = Expect<
     Equal<Extract<typeof cancelled, { readonly done: true }>["value"], undefined>
   >;
 }
+
+const askStep = Kyoot.step(asked);
+if (!askStep.done) {
+  type _askPayload = Expect<Equal<typeof askStep.payload, { q: string }>>;
+  askStep.resume(1);
+  // @ts-expect-error a pending ask is answered with a number
+  askStep.resume("one");
+}
+
+const rawAnswered = makeHandler("ask", asked, { onOp: ({ q }, resume) => resume(q.length) });
+type _rawAnsweredRow = Expect<Equal<keyof RowsOf<typeof rawAnswered>, never>>;
+const rawTail: number = Kyoot.runSync(makeHandler("ask", asked, { tail: ({ q }) => q.length }));
+// @ts-expect-error makeHandler types resume from the row
+makeHandler("ask", asked, { onOp: (_p, resume) => resume("no") });
+// @ts-expect-error makeHandler types a tail answer from the row
+makeHandler("ask", asked, { tail: () => "no" });
+
+declare const first: boolean;
+const twoAsks = Kyoot.gen(function* () {
+  if (first) return yield* op<1 | 2>()("pick", "low" as const);
+  return yield* op<2 | 3>()("pick", "high" as const);
+});
+type _twoAsksRow = Expect<Equal<RowsOf<typeof twoAsks>, { pick: Op<"low" | "high", 2> }>>;
+
+const loose: KyootT<number, { fail: Op<FetchFailed | Declined, never> }> = Kyoot.succeed(1);
+// @ts-expect-error a row cannot hold a bare payload
+type _bareRow = KyootT<number, { fail: FetchFailed }>;
+
+// @ts-expect-error forEach answers undefined, so it cannot serve an effect that expects a number
+asked.pipe(forEach("ask", (_: { q: string }) => {}));
+
 const handledStep = Kyoot.step(Kyoot.succeed(1));
 type _handledStep = Expect<
   Equal<typeof handledStep, { readonly done: true; readonly value: number }>

@@ -70,12 +70,12 @@ export const fs = FileSystem.handle({
     ),
 });
 
-const exec = (op: Command.Op) =>
+const exec = (op: Command.Op, signal: AbortSignal) =>
   new Promise<Command.Output>((resolve, reject) => {
     const child = execFile(
       op.command,
       op.args,
-      { cwd: op.cwd, env: op.env && { ...process.env, ...op.env } },
+      { cwd: op.cwd, env: op.env && { ...process.env, ...op.env }, signal },
       (err, stdout, stderr) => {
         const code = err === null ? 0 : err.code;
         if (typeof code === "number") resolve({ code, stdout, stderr });
@@ -90,7 +90,7 @@ export const command = Command.handle({
     Fail.resumeOrFail(
       resume,
       Async.tryPromise(
-        () => exec(op),
+        (signal) => exec(op, signal),
         (e) => new Command.CommandError(op.command, (e as Error).message),
       ),
     ),

@@ -77,19 +77,6 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
 
-  packages/registry:
-    dependencies:
-      kyoot:
-        specifier: workspace:*
-        version: link:../kyoot
-    devDependencies:
-      '@types/node':
-        specifier: ^26.1.2
-        version: 26.1.2
-      typescript:
-        specifier: ^7.0.2
-        version: 7.0.2
-
 packages:
 
   '@msgpackr-extract/msgpackr-extract-darwin-arm64@3.0.4':

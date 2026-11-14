@@ -32,7 +32,6 @@ Kyoot.runSync(program.pipe(Config.provide({ id: "hi", name: "what" }), Greeting.
 | [`kyoot`](packages/kyoot)              | Effects, handlers, and built-in effects; fibers in `kyoot/async` |
 | [`@kyoot/ai`](packages/ai)             | Language models, tools, and providers                            |
 | [`@kyoot/platform`](packages/platform) | File system and process effects                                  |
-| [`@kyoot/registry`](packages/registry) | Loading and hot swapping components at runtime                   |
 
 ## Try it
 

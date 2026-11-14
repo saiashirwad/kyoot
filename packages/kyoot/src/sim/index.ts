@@ -31,7 +31,6 @@ export { delay, Delayed, fail, Failed, format, run, showExit, showTime } from ".
 export { explore, shrink, showShrink } from "./explore.ts";
 export type { Check, Cost, Explored, Shrunk } from "./explore.ts";
 export type {
-  IoContext,
   RunOptions,
   SimExit,
   SimResult,

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { catchDefect, makeHandler, makeOp, op, succeed } from "../src/core.ts";
-import { effect, Kyoot } from "../src/index.ts";
+import { answerAll, effect, handleAll, Kyoot } from "../src/index.ts";
 import * as Emit from "../src/effects/emit.ts";
 import * as Env from "../src/effects/env.ts";
 import * as Fail from "../src/effects/fail.ts";
@@ -476,4 +476,33 @@ test("resume.with computes the answer at the op, so a throw lands where the op w
   assert.equal(Kyoot.runSync(program.pipe(parse)), -1);
   assert.deepEqual(events, ["bad number: not a number"]);
   assert.equal(Kyoot.runSync(Parse("42").pipe(parse)), 42);
+});
+
+test("handleAll handles a group of effects over shared state", () => {
+  const Get = effect<void, number>()("g");
+  const Put = effect<number, void>()("p");
+  const run = (answered: boolean) => {
+    let total = 0;
+    const handlers = { get: () => total, put: (n: number) => void (total += n) };
+    const program = Kyoot.gen(function* () {
+      yield* Put(2);
+      yield* Put(3);
+      return yield* Get(undefined);
+    });
+    return Kyoot.runSync(
+      program.pipe(
+        answered
+          ? answerAll({ get: Get, put: Put }, handlers)
+          : handleAll(
+              { get: Get, put: Put },
+              {
+                get: (_, resume) => resume(handlers.get()),
+                put: (n, resume) => resume(handlers.put(n)),
+              },
+            ),
+      ),
+    );
+  };
+  assert.equal(run(true), 5);
+  assert.equal(run(false), 5);
 });

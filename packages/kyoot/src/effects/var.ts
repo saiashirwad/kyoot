@@ -1,5 +1,5 @@
-import { effect, gen, answering, type Intercept } from "../core.ts";
-import type { AnyKyoot, Kyoot } from "../model.ts";
+import { answerAll, effect, gen, type Intercept } from "../core.ts";
+import type { Kyoot } from "../model.ts";
 import type { MergeAll, Op, Row } from "../types.ts";
 
 export type GetRow<Id extends string, V> = { [K in `var/${Id}/get`]: Op<void, V> };
@@ -22,11 +22,8 @@ export interface Tag<Id extends string, V> {
     initial: V,
   ): <A, S extends Row & Partial<VarRow<Id, V>>>(
     k: Kyoot<A, S>,
-  ) => Kyoot<readonly [A, V], MergeAll<Omit<S, keyof VarRow<Id, V>>>>;
+  ) => Kyoot<readonly [A, V], MergeAll<MergeAll<Omit<S, keyof VarRow<Id, V>>>>>;
 }
-
-const install = (k: AnyKyoot, handlers: Array<(k: never) => unknown>): AnyKyoot =>
-  handlers.reduce((acc, h) => h(acc as never) as AnyKyoot, k);
 
 export const tag =
   <V>() =>
@@ -43,16 +40,19 @@ export const tag =
       run: (initial) => (k) =>
         gen(function* () {
           let value = initial;
-          const a = yield* install(k as never, [
-            answering(get.key, () => value),
-            answering(set.key, (v: V) => {
-              value = v;
-            }),
-            answering(update.key, (f: (value: V) => V) => {
-              value = f(value);
-            }),
-          ]);
+          const a = yield* answerAll(
+            { get, set, update },
+            {
+              get: () => value,
+              set: (v) => {
+                value = v;
+              },
+              update: (f) => {
+                value = f(value);
+              },
+            },
+          )(k);
           return [a, value] as const;
-        }) as never,
+        }),
     };
   };

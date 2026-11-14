@@ -48,9 +48,6 @@ export interface WorldContext {
   random(): number;
 }
 
-/** @deprecated renamed to WorldContext */
-export type IoContext = WorldContext;
-
 // Keys the scheduler answers itself. "fail" ends a fiber with a typed failure, and "async" (promise
 // interop) can't run in a simulation at all.
 type Reserved = ConcurrencyKey | "random" | "fail" | "async";

@@ -1,5 +1,5 @@
-import { effect } from "kyoot";
-import type { Kyoot, MergeAll, Op as RowOp, Resume, RowsOf, Row } from "kyoot";
+import { effect, handleAll, interceptAll } from "kyoot";
+import type { Handlers, Interceptors, Op as RowOp } from "kyoot";
 
 export type Code =
   | "NotFound"
@@ -86,49 +86,12 @@ export const ops = {
   rename: op<"rename">()("fs/rename"),
 };
 
-const names = Object.keys(ops) as Name[];
-
-// Wraps k in one handler per operation. Typed at the call sites above, so the plumbing is loose.
-const anyOp = (n: Name): any => ops[n];
-const apply = (k: unknown, wrap: (n: Name) => any) =>
-  names.reduce<any>((acc, n) => wrap(n)?.(acc) ?? acc, k) as never;
-
-export type Handlers = {
-  [N in Name]: (payload: Payload[N], resume: Resume<Answer[N], Failing>) => Kyoot<any, any>;
-};
-
-type ValueOf<R> = R extends Kyoot<infer A, any> ? A : never;
-
 // Handle every operation at once; one call, so the handlers can share state.
-export const handle =
-  <H extends Handlers>(handlers: H) =>
-  <B, S extends Row & Partial<FsRow>>(
-    k: Kyoot<B, S>,
-  ): Kyoot<
-    B | ValueOf<ReturnType<H[Name]>>,
-    MergeAll<Omit<S, keyof FsRow> | RowsOf<ReturnType<H[Name]>>>
-  > =>
-    apply(k, (n) => anyOp(n).handle(handlers[n]));
-
-type Next<N extends Name> = Parameters<Parameters<(typeof ops)[N]["intercept"]>[0]>[1];
-
-export type Interceptors = {
-  [N in Name]?: (payload: Payload[N], next: Next<N>) => Kyoot<Answer[N], any>;
-};
+export const handle = <H extends Handlers<typeof ops>>(handlers: H) => handleAll(ops, handlers);
 
 // Intercept only the operations given; the rest pass through untouched.
-export const intercept =
-  <H extends Interceptors>(interceptors: H) =>
-  <B, S extends Row & Partial<FsRow>>(
-    k: Kyoot<B, S>,
-  ): Kyoot<
-    B,
-    MergeAll<
-      | Omit<S, `fs/${keyof H & Name}`>
-      | RowsOf<ReturnType<Extract<H[keyof H], (...args: any) => any>>>
-    >
-  > =>
-    apply(k, (n) => interceptors[n] && anyOp(n).intercept(interceptors[n]));
+export const intercept = <H extends Interceptors<typeof ops>>(interceptors: H) =>
+  interceptAll(ops, interceptors);
 
 export const readFile = (path: string) => ops.readFile({ path });
 

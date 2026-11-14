@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { effect, Emit, Env, Fail, Kyoot, Log, Random, Resource, Var } from "../src/index.ts";
+import { effect, Kyoot } from "../src/index.ts";
+import * as Emit from "../src/effects/emit.ts";
+import * as Env from "../src/effects/env.ts";
+import * as Fail from "../src/effects/fail.ts";
+import * as Log from "../src/effects/log.ts";
+import * as Random from "../src/effects/random.ts";
+import * as Resource from "../src/effects/resource.ts";
+import * as Var from "../src/effects/var.ts";
 import { Async, Clock, InterruptedError, runPromise } from "../src/async/index.ts";
 const nap = (ms: number) => Clock.sleep(ms).pipe(Clock.live);
 

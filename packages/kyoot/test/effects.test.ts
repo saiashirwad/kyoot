@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Emit, Env, Kyoot, Sync, Var } from "../src/index.ts";
+import { Kyoot } from "../src/index.ts";
+import * as Emit from "../src/effects/emit.ts";
+import * as Env from "../src/effects/env.ts";
+import * as Sync from "../src/effects/sync.ts";
+import * as Var from "../src/effects/var.ts";
 
 const Count = Var.tag<number>()("Count");
 const Retries = Var.tag<number>()("Retries");

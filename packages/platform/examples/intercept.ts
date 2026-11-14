@@ -1,5 +1,7 @@
 import { posix } from "node:path";
-import { Fail, Kyoot, Log } from "kyoot";
+import { Kyoot } from "kyoot";
+import * as Fail from "kyoot/fail";
+import * as Log from "kyoot/log";
 import { FileSystem, Memory } from "@kyoot/platform";
 
 const audit = FileSystem.intercept((op, next) =>

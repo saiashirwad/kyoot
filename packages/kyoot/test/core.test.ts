@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { catchDefect, makeHandler, makeOp, op, succeed } from "../src/core.ts";
-import { effect, Emit, Env, Fail, Kyoot, Log, Random, Resource, Sync, Var } from "../src/index.ts";
+import { effect, Kyoot } from "../src/index.ts";
+import * as Emit from "../src/effects/emit.ts";
+import * as Env from "../src/effects/env.ts";
+import * as Fail from "../src/effects/fail.ts";
+import * as Log from "../src/effects/log.ts";
+import * as Random from "../src/effects/random.ts";
+import * as Resource from "../src/effects/resource.ts";
+import * as Sync from "../src/effects/sync.ts";
+import * as Var from "../src/effects/var.ts";
 import type { Op, Row } from "../src/index.ts";
 import { Async, Clock, runPromise } from "../src/async/index.ts";
 

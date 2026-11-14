@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Emit, Fail } from "kyoot";
+import * as Emit from "kyoot/emit";
+import * as Fail from "kyoot/fail";
 import { chatCompletions, Model, ProviderError, type Request } from "@kyoot/ai";
 import { Clock, runPromise } from "kyoot/async";
 

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { effect, Emit, Fail, Kyoot } from "kyoot";
+import { effect, Kyoot } from "kyoot";
+import * as Emit from "kyoot/emit";
+import * as Fail from "kyoot/fail";
 import type { Op } from "kyoot";
 import { z } from "zod";
 import {

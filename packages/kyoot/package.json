@@ -6,6 +6,14 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./fail": "./src/effects/fail.ts",
+    "./emit": "./src/effects/emit.ts",
+    "./env": "./src/effects/env.ts",
+    "./log": "./src/effects/log.ts",
+    "./random": "./src/effects/random.ts",
+    "./resource": "./src/effects/resource.ts",
+    "./sync": "./src/effects/sync.ts",
+    "./var": "./src/effects/var.ts",
     "./async": "./src/async/index.ts"
   },
   "scripts": {

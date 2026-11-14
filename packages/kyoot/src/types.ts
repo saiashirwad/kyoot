@@ -19,8 +19,6 @@ export type Payload<S, K extends PropertyKey> = PayloadOf<At<S, K>>;
 
 export type Answer<S, K extends PropertyKey> = AnswerOf<At<S, K>>;
 
-export type FailRow<E> = [E] extends [never] ? {} : { fail: Op<E, never> };
-
 type Unhandled<K> = { readonly "unhandled effects": K };
 
 export type Only<S extends Row, Allow extends PropertyKey = never> =

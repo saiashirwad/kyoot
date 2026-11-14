@@ -1,9 +1,8 @@
 import { gen, makeHandler, makeIntercept, makeOp, succeed } from "../core.ts";
 import { forEach, value } from "../effects/emit.ts";
-import { fail, fromResult } from "../effects/fail.ts";
+import { fail, fromResult, Result, type Err, type FailRow } from "../effects/fail.ts";
 import type { AnyKyoot, Kyoot } from "../model.ts";
-import { Result, type Err } from "../result.ts";
-import type { FailRow, MergeAll, Only, Op, Payload, Row } from "../types.ts";
+import type { MergeAll, Only, Op, Payload, Row } from "../types.ts";
 import { live, sleep } from "./clock.ts";
 import {
   InterruptedError,

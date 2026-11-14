@@ -23,12 +23,12 @@ const reachable = (entry: string) => {
   return seen;
 };
 
-test("the core entry point reaches no file in the async layer and no package", () => {
+test("the core entry point reaches no effect, no async file and no package", () => {
   const core = reachable(resolve(src, "index.ts"));
   const files = [...core.keys()].map((file) => relative(src, file));
-  assert.ok(files.includes("machine.ts") && files.includes("effects/fail.ts"));
+  assert.ok(files.includes("machine.ts") && files.includes("step.ts"));
   assert.deepEqual(
-    files.filter((file) => file.startsWith("async/")),
+    files.filter((file) => file.startsWith("async/") || file.startsWith("effects/")),
     [],
   );
   assert.deepEqual(

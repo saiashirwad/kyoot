@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { effect, Fail, Kyoot, Resource, Sync } from "../src/index.ts";
+import { effect, Kyoot } from "../src/index.ts";
+import * as Fail from "../src/effects/fail.ts";
+import * as Resource from "../src/effects/resource.ts";
+import * as Sync from "../src/effects/sync.ts";
 import { Async, runPromise } from "../src/async/index.ts";
 
 const Stop = effect<string, never>()("stop");

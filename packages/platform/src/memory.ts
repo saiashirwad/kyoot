@@ -1,5 +1,6 @@
 import { posix } from "node:path";
-import { Fail, Kyoot } from "kyoot";
+import { Kyoot } from "kyoot";
+import * as Fail from "kyoot/fail";
 import type { Kyoot as K, Row } from "kyoot";
 import { FsError, handle, type Code, type FsRow, type Op } from "./fs.ts";
 

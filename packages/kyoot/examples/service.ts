@@ -1,4 +1,7 @@
-import { effect, Emit, Fail, Kyoot, Log } from "../src/index.ts";
+import { effect, Kyoot } from "../src/index.ts";
+import * as Emit from "../src/effects/emit.ts";
+import * as Fail from "../src/effects/fail.ts";
+import * as Log from "../src/effects/log.ts";
 import { Async, Clock, Retry, runPromise } from "../src/async/index.ts";
 
 interface Prompt {

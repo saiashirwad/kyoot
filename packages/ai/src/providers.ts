@@ -1,4 +1,5 @@
-import { Fail, Kyoot } from "kyoot";
+import { Kyoot } from "kyoot";
+import * as Fail from "kyoot/fail";
 import { Model, type Message, type Request, type ToolCall } from "./model.ts";
 import { events } from "./sse.ts";
 import * as Events from "./events.ts";

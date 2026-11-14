@@ -1,4 +1,5 @@
-import { Fail, Kyoot } from "../src/index.ts";
+import { Kyoot } from "../src/index.ts";
+import * as Fail from "../src/effects/fail.ts";
 import { Async, runPromise } from "../src/async/index.ts";
 
 class NotFound {

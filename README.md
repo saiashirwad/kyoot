@@ -7,7 +7,8 @@ A program's type tracks its unhandled effects. You supply handlers with `.pipe()
 Here, the program needs a config and a greeting. Providing just the config leaves the greeting unhandled:
 
 ```ts
-import { Env, Kyoot } from "kyoot";
+import { Kyoot } from "kyoot";
+import * as Env from "kyoot/env";
 
 const Config = Env.tag<{ id: string; name: string }>()("Config");
 const Greeting = Env.tag<string>()("greeting");

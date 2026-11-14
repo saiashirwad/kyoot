@@ -1,7 +1,12 @@
 import { catchDefect, makeHandler, makeIntercept, op, succeed, type Resume } from "../core.ts";
 import type { AnyKyoot, Kyoot } from "../model.ts";
-import { Result } from "../result.ts";
-import type { FailRow, MergeAll, Op, Payload, Row } from "../types.ts";
+import type { MergeAll, Op, Payload, Row } from "../types.ts";
+import { Result } from "./result.ts";
+
+export { Result } from "./result.ts";
+export type { Cause, DefectCause, Err, FailCause, Ok } from "./result.ts";
+
+export type FailRow<E> = [E] extends [never] ? {} : { fail: Op<E, never> };
 
 export const fail = <E>(e: E) => op<never>()("fail", e);
 

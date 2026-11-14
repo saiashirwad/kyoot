@@ -1,4 +1,5 @@
-import { Fail, Kyoot } from "kyoot";
+import { Kyoot } from "kyoot";
+import * as Fail from "kyoot/fail";
 import { Command, FileSystem } from "@kyoot/platform";
 import * as Node from "@kyoot/platform/node";
 import { runPromise } from "kyoot/async";

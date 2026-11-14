@@ -1,4 +1,5 @@
-import { Env, Kyoot } from "../src/index.ts";
+import { Kyoot } from "../src/index.ts";
+import * as Env from "../src/effects/env.ts";
 
 const Config = Env.tag<{ id: string; name: string }>()("Config");
 const Greeting = Env.tag<string>()("greeting");

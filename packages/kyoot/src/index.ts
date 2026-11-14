@@ -6,18 +6,8 @@ import type { Row } from "./types.ts";
 export { catchDefect, effect, ensuring } from "./core.ts";
 export type { Handle, Intercept, Resume } from "./core.ts";
 export type { Done, Pending, Step } from "./step.ts";
-export { Result } from "./result.ts";
 export type { Answer, MergeAll, Only, Op, Payload, Row } from "./types.ts";
 export type { RowsOf } from "./model.ts";
-
-export * as Emit from "./effects/emit.ts";
-export * as Env from "./effects/env.ts";
-export * as Fail from "./effects/fail.ts";
-export * as Log from "./effects/log.ts";
-export * as Random from "./effects/random.ts";
-export * as Resource from "./effects/resource.ts";
-export * as Sync from "./effects/sync.ts";
-export * as Var from "./effects/var.ts";
 
 export type Kyoot<A, S extends Row = {}> = KyootType<A, S>;
 export const Kyoot = { succeed, gen, runSync, step };

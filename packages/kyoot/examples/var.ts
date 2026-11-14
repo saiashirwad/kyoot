@@ -1,4 +1,5 @@
-import { Kyoot, Var } from "../src/index.ts";
+import { Kyoot } from "../src/index.ts";
+import * as Var from "../src/effects/var.ts";
 
 const Count = Var.tag<number>()("Count");
 const Name = Var.tag<string>()("Name");

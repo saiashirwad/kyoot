@@ -8,7 +8,9 @@ import {
   Payments,
 } from "../examples/checkout.ts";
 import type { Order, OrderEvent } from "../examples/checkout.ts";
-import { Emit, Fail, Kyoot } from "../src/index.ts";
+import { Kyoot } from "../src/index.ts";
+import * as Emit from "../src/effects/emit.ts";
+import * as Fail from "../src/effects/fail.ts";
 import { runPromise } from "../src/async/index.ts";
 
 const order: Order = {

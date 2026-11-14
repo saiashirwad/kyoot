@@ -1,4 +1,6 @@
-import { effect, Fail, Kyoot, Sync } from "../src/index.ts";
+import { effect, Kyoot } from "../src/index.ts";
+import * as Fail from "../src/effects/fail.ts";
+import * as Sync from "../src/effects/sync.ts";
 
 class NotFound {
   readonly _tag = "NotFound";

@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Env, Fail, Kyoot, Resource } from "../src/index.ts";
+import { Kyoot } from "../src/index.ts";
+import * as Env from "../src/effects/env.ts";
+import * as Fail from "../src/effects/fail.ts";
+import * as Resource from "../src/effects/resource.ts";
 
 const Config = Env.tag<{ url: string }>()("config");
 const Db = Env.tag<{ query(sql: string): string }>()("db");

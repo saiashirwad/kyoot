@@ -1,4 +1,9 @@
-import { Emit, Fail, Kyoot, Log, Random, Var } from "kyoot";
+import { Kyoot } from "kyoot";
+import * as Emit from "kyoot/emit";
+import * as Fail from "kyoot/fail";
+import * as Log from "kyoot/log";
+import * as Random from "kyoot/random";
+import * as Var from "kyoot/var";
 import { AI, Deepseek, Events, Mode } from "@kyoot/ai";
 import { z } from "zod";
 import { Async, Clock, runPromise } from "kyoot/async";

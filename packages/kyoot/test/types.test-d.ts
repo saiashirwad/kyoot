@@ -1,5 +1,11 @@
-import { effect, Emit, ensuring, Env, Fail, Kyoot, Resource, Sync, Var } from "../src/index.ts";
-import type { Kyoot as KyootT, Op, Payload, Result, Resume, RowsOf } from "../src/index.ts";
+import { effect, ensuring, Kyoot } from "../src/index.ts";
+import * as Emit from "../src/effects/emit.ts";
+import * as Env from "../src/effects/env.ts";
+import * as Fail from "../src/effects/fail.ts";
+import * as Resource from "../src/effects/resource.ts";
+import * as Sync from "../src/effects/sync.ts";
+import * as Var from "../src/effects/var.ts";
+import type { Kyoot as KyootT, Op, Payload, Resume, RowsOf } from "../src/index.ts";
 import { op } from "../src/core.ts";
 
 type Expect<T extends true> = T;
@@ -78,7 +84,7 @@ const handled = Kyoot.gen(function* () {
   yield* Fail.fail(new FetchFailed());
   return 1;
 }).pipe(Fail.run);
-const f1: Result<FetchFailed, number> = Kyoot.runSync(handled);
+const f1: Fail.Result<FetchFailed, number> = Kyoot.runSync(handled);
 
 const counted = Kyoot.gen(function* () {
   yield* Total.update((t) => t + 1);
@@ -142,13 +148,15 @@ const flatMapped = Kyoot.succeed(1).flatMap((n) => Fail.fail(String(n)));
 type _flatKeys = Expect<Equal<keyof RowsOf<typeof flatMapped>, "fail">>;
 type _flatFail = Expect<Equal<RowsOf<typeof flatMapped>["fail"], Op<string, never>>>;
 
-import type { DefectCause, Err, FailCause, Ok } from "../src/result.ts";
 import { Async, Clock, Retry, runPromise } from "../src/async/index.ts";
 import type { AsyncOp, Exit } from "../src/async/index.ts";
 type ValueOf<K> = K extends KyootT<infer A, any> ? A : never;
 
 type _failRunValue = Expect<
-  Equal<ValueOf<typeof handled>, Ok<number> | Err<FailCause<FetchFailed>> | Err<DefectCause>>
+  Equal<
+    ValueOf<typeof handled>,
+    Fail.Ok<number> | Fail.Err<Fail.FailCause<FetchFailed>> | Fail.Err<Fail.DefectCause>
+  >
 >;
 type _failRunKeys = Expect<Equal<keyof RowsOf<typeof handled>, never>>;
 
@@ -232,7 +240,7 @@ const joined = Kyoot.gen(function* () {
   const fiber = yield* Async.fork(ready);
   return yield* fiber.join;
 }).pipe(Fail.run);
-const j1: Promise<Result<FetchFailed, number>> = runPromise(joined);
+const j1: Promise<Fail.Result<FetchFailed, number>> = runPromise(joined);
 
 const raced = Async.race(ready, Fail.fail("other" as const));
 type _raceKeys = Expect<Equal<keyof RowsOf<typeof raced>, "async" | "fail">>;

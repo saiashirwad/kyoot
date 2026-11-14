@@ -1,4 +1,4 @@
-import { effect, isKyoot, type Intercept } from "../core.ts";
+import { effect, isKyoot, answering, type Intercept } from "../core.ts";
 import type { Kyoot } from "../model.ts";
 import type { MergeAll, Op, Row } from "../types.ts";
 
@@ -33,7 +33,7 @@ export const tag =
       [Symbol.iterator]: () => get[Symbol.iterator](),
       intercept: env.intercept,
       provide: (impl: E | Kyoot<E, Row>) => {
-        const withValue = (e: E) => env.handle((_, resume) => resume(e));
+        const withValue = (e: E) => answering(env.key, () => e);
         if (!isKyoot(impl)) return withValue(impl as E);
         return (k: Kyoot<unknown, Row>) => impl.flatMap((e) => withValue(e)(k));
       },

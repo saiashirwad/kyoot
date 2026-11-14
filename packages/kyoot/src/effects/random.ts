@@ -1,4 +1,4 @@
-import { effect } from "../core.ts";
+import { effect, answering } from "../core.ts";
 
 const random = effect<void, number>()("random");
 
@@ -14,7 +14,7 @@ export const intercept = random.intercept;
 
 export const int = (max: number) => next().map((x) => Math.floor(x * max));
 
-export const live = random.handle((_, resume) => resume(Math.random()));
+export const live = answering("random", (_: void) => Math.random());
 
 const step = (seed: number) => {
   let t = (seed + 0x6d2b79f5) | 0;

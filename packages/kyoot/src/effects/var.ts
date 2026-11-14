@@ -1,4 +1,4 @@
-import { effect, gen, type Intercept } from "../core.ts";
+import { effect, gen, answering, type Intercept } from "../core.ts";
 import type { Kyoot } from "../model.ts";
 import type { MergeAll, Op, Row } from "../types.ts";
 
@@ -37,16 +37,16 @@ export const tag =
         gen(function* () {
           let value = initial;
           const a = yield* k.pipe(
-            v.handle((op, resume) => {
+            answering(v.key, (op: VarOp<V>) => {
               switch (op.kind) {
                 case "get":
-                  return resume(value);
+                  return value;
                 case "set":
                   value = op.value;
-                  return resume(undefined);
+                  return undefined;
                 case "update":
                   value = op.f(value);
-                  return resume(undefined);
+                  return undefined;
               }
             }),
           );

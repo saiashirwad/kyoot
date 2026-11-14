@@ -52,12 +52,14 @@ class HandlerFrame implements Frame {
   readonly value?: undefined;
   readonly key: PropertyKey;
   readonly onOp: OnOp;
+  readonly answer: OnOp["answer"];
   readonly index: number;
   readonly prev: HandlerFrame | undefined;
 
   constructor(key: PropertyKey, onOp: OnOp, index: number, prev: HandlerFrame | undefined) {
     this.key = key;
     this.onOp = onOp;
+    this.answer = onOp.answer;
     this.index = index;
     this.prev = prev;
   }
@@ -335,6 +337,7 @@ export class Machine {
         skip--;
         continue;
       }
+      if (h.answer !== undefined) return succeed(h.answer(payload));
       const mask = new Mask(h, stack.length, this.mask);
       this.mask = mask;
       stack.push(mask);

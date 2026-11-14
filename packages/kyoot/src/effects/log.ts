@@ -1,4 +1,4 @@
-import { collect as collecting, effect } from "../core.ts";
+import { collect as collecting, effect, answering } from "../core.ts";
 
 export type Level = "debug" | "info" | "warn" | "error";
 
@@ -22,11 +22,10 @@ export const info = at("info");
 export const warn = at("warn");
 export const error = at("error");
 
-export const print = log.handle(({ level, message }, resume) => {
+export const print = answering("log", ({ level, message }: Entry): void => {
   console[level === "debug" ? "log" : level](message);
-  return resume(undefined);
 });
 
 export const collect = collecting("log");
 
-export const discard = log.handle((_, resume) => resume(undefined));
+export const discard = answering("log", (_: Entry): void => {});

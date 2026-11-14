@@ -6,7 +6,9 @@ export type RuntimeResume = ((value: any) => AnyKyoot) & {
   with: (program: AnyKyoot) => AnyKyoot;
 };
 
-export type OnOp = (payload: any, resume: RuntimeResume, past: number) => AnyKyoot;
+export type OnOp = ((payload: any, resume: RuntimeResume, past: number) => AnyKyoot) & {
+  answer?: (payload: any) => unknown;
+};
 
 interface Pipeable {
   pipe<A>(this: A): A;

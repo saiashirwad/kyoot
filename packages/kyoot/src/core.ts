@@ -125,6 +125,18 @@ export type Intercept<K extends string, P, A, C extends Row = {}> = <Ret extends
 export const makeHandler = (key: PropertyKey, self: AnyKyoot, onOp: OnOp): AnyKyoot =>
   new KyootImpl("handler", self, key, onOp);
 
+// A handler that always resumes at once with answer(payload); the machine skips the mask and resumer.
+export const answering =
+  <const K extends string, P, A>(
+    key: K,
+    answer: (payload: P) => A,
+  ): Handle<K, P, A, Kyoot<never>> =>
+  (k) => {
+    const onOp: OnOp = (payload, resume) => resume(answer(payload));
+    onOp.answer = answer;
+    return makeHandler(key, k, onOp) as never;
+  };
+
 export const makeIntercept = <K extends string, P, A, C extends Row = {}>(
   key: K,
 ): Intercept<K, P, A, C> => {

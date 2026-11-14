@@ -19,15 +19,19 @@ const confine = (dir: string) => {
     const resolved = posix.resolve(path);
     return resolved === root || resolved.startsWith(root === "/" ? "/" : `${root}/`);
   };
-  return FileSystem.intercept((op, next) => {
-    const denied = !inside(op.path)
-      ? op.path
-      : op.kind === "rename" && !inside(op.to)
-        ? op.to
-        : null;
-    return denied === null
-      ? next(op)
-      : Fail.fail(new FileSystem.FsError(op.kind, denied, "PermissionDenied", `not under ${root}`));
+  const deny = (op: FileSystem.Name, path: string) =>
+    Fail.fail(new FileSystem.FsError(op, path, "PermissionDenied", `not under ${root}`));
+  return FileSystem.intercept({
+    readFile: (p, next) => (inside(p.path) ? next(p) : deny("readFile", p.path)),
+    writeFile: (p, next) => (inside(p.path) ? next(p) : deny("writeFile", p.path)),
+    appendFile: (p, next) => (inside(p.path) ? next(p) : deny("appendFile", p.path)),
+    readDir: (p, next) => (inside(p.path) ? next(p) : deny("readDir", p.path)),
+    stat: (p, next) => (inside(p.path) ? next(p) : deny("stat", p.path)),
+    exists: (p, next) => (inside(p.path) ? next(p) : deny("exists", p.path)),
+    mkdir: (p, next) => (inside(p.path) ? next(p) : deny("mkdir", p.path)),
+    remove: (p, next) => (inside(p.path) ? next(p) : deny("remove", p.path)),
+    rename: (p, next) =>
+      !inside(p.path) ? deny("rename", p.path) : !inside(p.to) ? deny("rename", p.to) : next(p),
   });
 };
 
@@ -42,12 +46,14 @@ test("a failure lands at the op, where the program's own catch sees it", async (
 });
 
 test("handlers between the program and the file system see every op", () => {
-  const audit = FileSystem.intercept((op, next) =>
-    Log.info(`${op.kind} ${op.path}`).flatMap(() => next(op)),
-  );
-  const dryRun = FileSystem.intercept((op, next) =>
-    op.kind === "writeFile" ? Log.warn(`skipped ${op.path}`) : next(op),
-  );
+  const audit = FileSystem.intercept({
+    writeFile: (p, next) => Log.info(`writeFile ${p.path}`).flatMap(() => next(p)),
+    readDir: (p, next) => Log.info(`readDir ${p.path}`).flatMap(() => next(p)),
+    readFile: (p, next) => Log.info(`readFile ${p.path}`).flatMap(() => next(p)),
+  });
+  const dryRun = FileSystem.intercept({
+    writeFile: (p) => Log.warn(`skipped ${p.path}`),
+  });
   const program = Kyoot.gen(function* () {
     yield* FileSystem.writeFile("/work/new.txt", "x");
     const listing = yield* FileSystem.readDir("/work");

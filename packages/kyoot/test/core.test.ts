@@ -422,24 +422,15 @@ test("Var intercept validates a set; the failure lands at the set", () => {
   assert.deepEqual([v, refused, final], [5, "refused", 5]);
 });
 
-test("Resource intercept sees each acquire", () => {
+test("Resource intercept sees each registration", () => {
   const opened: unknown[] = [];
-  const audit = Resource.intercept()((op, next) =>
-    next({
-      ...op,
-      acquire: () => {
-        const r = op.acquire();
-        opened.push(r);
-        return r;
-      },
-    }),
-  );
-  const program = Resource.acquire(
-    () => "conn",
-    () => {},
-  );
+  const audit = Resource.intercept()((op, next) => {
+    opened.push("registered");
+    return next(op);
+  });
+  const program = Resource.acquire(Kyoot.succeed("conn"), () => {});
   assert.equal(program.pipe(audit, Resource.run, Kyoot.runSync), "conn");
-  assert.deepEqual(opened, ["conn"]);
+  assert.deepEqual(opened, ["registered"]);
 });
 
 test("Async intercept sees promise ops; fork and join are effects of their own", async () => {

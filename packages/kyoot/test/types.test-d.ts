@@ -214,15 +214,15 @@ const consumed = mapped.pipe(Emit.forEach((n: number) => Clock.sleep(n)));
 type _consumedKeys = Expect<Equal<keyof RowsOf<typeof consumed>, "clock/sleep">>;
 const iter: AsyncIterable<number> = Async.toAsyncIterable(mapped);
 
-const scoped = Resource.acquire(
-  () => 1,
-  () => Clock.sleep(1),
-).pipe(Resource.run);
+const scoped = Resource.acquire(Kyoot.succeed(1), () => Clock.sleep(1)).pipe(Resource.run);
 type _scopedKeys = Expect<Equal<keyof RowsOf<typeof scoped>, "clock/sleep">>;
-const plainScoped = Resource.acquire(
-  () => 1,
-  () => {},
-).pipe(Resource.run);
+const asyncOpened = Resource.acquire(
+  Async.fromPromise(async () => 1),
+  () => Clock.sleep(1),
+);
+type _asyncOpenedKeys = Expect<Equal<keyof RowsOf<typeof asyncOpened>, "async" | "resource">>;
+type _asyncOpenedValue = Expect<Equal<ValueOf<typeof asyncOpened>, number>>;
+const plainScoped = Resource.acquire(Kyoot.succeed(1), () => {}).pipe(Resource.run);
 type _plainScopedKeys = Expect<Equal<keyof RowsOf<typeof plainScoped>, never>>;
 
 const needsGreeter = Kyoot.gen(function* () {
@@ -285,10 +285,7 @@ const Config = Env.tag<{ url: string }>()("config");
 const Db = Env.tag<{ query(sql: string): KyootT<string, { async: Op<AsyncOp, unknown> }> }>()("db");
 const makeDb = Kyoot.gen(function* () {
   const { url } = yield* Config;
-  yield* Resource.acquire(
-    () => url,
-    () => undefined,
-  );
+  yield* Resource.acquire(Kyoot.succeed(url), () => undefined);
   return { query: (sql: string) => Async.fromPromise(async () => sql) };
 });
 

@@ -152,10 +152,7 @@ test("generator: finally still runs on normal completion and on a thrown error",
 test("generator: finally runs before an outer Resource releases", () => {
   const events: string[] = [];
   const prog = Kyoot.gen(function* () {
-    yield* Resource.acquire(
-      () => "conn",
-      () => events.push("release"),
-    );
+    yield* Resource.acquire(Kyoot.succeed("conn"), () => events.push("release"));
     try {
       yield* Fail.fail("stop");
     } finally {
@@ -190,10 +187,7 @@ test("generator: a finally that throws is a defect, raised after the rest of the
     throw boom;
   };
   const prog = Kyoot.gen(function* () {
-    yield* Resource.acquire(
-      () => "conn",
-      () => events.push("release"),
-    );
+    yield* Resource.acquire(Kyoot.succeed("conn"), () => events.push("release"));
     try {
       yield* Fail.fail("stop");
     } finally {
@@ -281,10 +275,7 @@ test("generator: frames queued behind a cleanup program close when the machine s
   const events: string[] = [];
   const inner = Kyoot.gen(function* () {
     try {
-      yield* Resource.acquire(
-        () => 1,
-        () => Missing(undefined),
-      );
+      yield* Resource.acquire(Kyoot.succeed(1), () => Missing(undefined));
       yield* Stop("now");
     } finally {
       events.push("inner");
@@ -369,10 +360,7 @@ test("generator: the outer error also wins when the machine stops with a stack",
 test("generator: a handler that discards the resume token still drops the continuation", () => {
   const events: string[] = [];
   const prog = Kyoot.gen(function* () {
-    yield* Resource.acquire(
-      () => 1,
-      () => events.push("release"),
-    );
+    yield* Resource.acquire(Kyoot.succeed(1), () => events.push("release"));
     try {
       yield* Hold(undefined);
     } finally {
@@ -423,10 +411,7 @@ test("generator: a dropped continuation releases its resources when the machine 
   const held = Kyoot.gen(function* () {
     try {
       yield* Kyoot.gen(function* () {
-        yield* Resource.acquire(
-          () => 1,
-          () => events.push("release"),
-        );
+        yield* Resource.acquire(Kyoot.succeed(1), () => events.push("release"));
         yield* Hold(undefined);
       }).pipe(Resource.run);
     } finally {
@@ -434,10 +419,7 @@ test("generator: a dropped continuation releases its resources when the machine 
     }
   });
   const answer = Kyoot.gen(function* () {
-    yield* Resource.acquire(
-      () => 2,
-      () => Missing(undefined),
-    );
+    yield* Resource.acquire(Kyoot.succeed(2), () => Missing(undefined));
     yield* Stop("now");
   }).pipe(Resource.run);
   const prog = held.pipe(
@@ -458,16 +440,10 @@ test("generator: an abort during cleanup replaces the error a finally raised", (
     throw boom;
   };
   const prog = Kyoot.gen(function* () {
-    yield* Resource.acquire(
-      () => "outer",
-      () => Cleanup(undefined),
-    );
+    yield* Resource.acquire(Kyoot.succeed("outer"), () => Cleanup(undefined));
     try {
       yield* Kyoot.gen(function* () {
-        yield* Resource.acquire(
-          () => "inner",
-          () => events.push("inner release"),
-        );
+        yield* Resource.acquire(Kyoot.succeed("inner"), () => events.push("inner release"));
         yield* Stop("now");
       }).pipe(Resource.run);
     } finally {

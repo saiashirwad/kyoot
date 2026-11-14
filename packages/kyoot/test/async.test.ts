@@ -155,10 +155,7 @@ test("interrupt: finalizers run and await reports Interrupted", async () => {
   const prog = Kyoot.gen(function* () {
     const fiber = yield* Async.fork(
       Kyoot.gen(function* () {
-        yield* Resource.acquire(
-          () => "conn",
-          () => events.push("release"),
-        );
+        yield* Resource.acquire(Kyoot.succeed("conn"), () => events.push("release"));
         yield* nap(10_000);
         return "unreachable";
       }).pipe(Resource.run),
@@ -178,10 +175,7 @@ test("structured concurrency: a completed parent interrupts its children", async
     Kyoot.gen(function* () {
       yield* Async.fork(
         Kyoot.gen(function* () {
-          yield* Resource.acquire(
-            () => "conn",
-            () => events.push("release"),
-          );
+          yield* Resource.acquire(Kyoot.succeed("conn"), () => events.push("release"));
           yield* nap(10_000);
         }).pipe(Resource.run),
       );
@@ -201,14 +195,12 @@ for (const timing of ["before", "after"] as const) {
       const staleError = new Error("stale");
 
       const child = Kyoot.gen(function* () {
-        yield* Resource.acquire(
-          () => "resource",
-          () =>
-            Async.fromPromise(() => {
-              events.push("cleanup start");
-              cleanupStarted.resolve(undefined);
-              return cleanup.promise.then(() => void events.push("cleanup end"));
-            }),
+        yield* Resource.acquire(Kyoot.succeed("resource"), () =>
+          Async.fromPromise(() => {
+            events.push("cleanup start");
+            cleanupStarted.resolve(undefined);
+            return cleanup.promise.then(() => void events.push("cleanup end"));
+          }),
         );
         return yield* Async.fromPromise(() => {
           originalStarted.resolve(undefined);
@@ -286,10 +278,7 @@ test("all: first failure interrupts the rest and runs their finalizers", async (
   const events: string[] = [];
   const boom = new Error("boom");
   const slow = Kyoot.gen(function* () {
-    yield* Resource.acquire(
-      () => "conn",
-      () => events.push("release"),
-    );
+    yield* Resource.acquire(Kyoot.succeed("conn"), () => events.push("release"));
     yield* nap(10_000);
     return "unreachable";
   }).pipe(Resource.run);
@@ -304,10 +293,7 @@ test("all: interrupting the parent interrupts every branch", async () => {
   const events: string[] = [];
   const branch = (tag: string) =>
     Kyoot.gen(function* () {
-      yield* Resource.acquire(
-        () => tag,
-        () => events.push(`release ${tag}`),
-      );
+      yield* Resource.acquire(Kyoot.succeed(tag), () => events.push(`release ${tag}`));
       yield* nap(10_000);
     }).pipe(Resource.run);
   const prog = Kyoot.gen(function* () {
@@ -325,10 +311,7 @@ test("all: interrupting the parent interrupts every branch", async () => {
 test("race interrupts the loser and runs its finalizers", async () => {
   const events: string[] = [];
   const slow = Kyoot.gen(function* () {
-    yield* Resource.acquire(
-      () => "slow",
-      () => events.push("release slow"),
-    );
+    yield* Resource.acquire(Kyoot.succeed("slow"), () => events.push("release slow"));
     yield* nap(10_000);
     return "slow";
   }).pipe(Resource.run);
@@ -341,10 +324,7 @@ test("race interrupts the loser and runs its finalizers", async () => {
 test("timeout interrupts the branch and runs its finalizers", async () => {
   const events: string[] = [];
   const slow = Kyoot.gen(function* () {
-    yield* Resource.acquire(
-      () => "conn",
-      () => events.push("release"),
-    );
+    yield* Resource.acquire(Kyoot.succeed("conn"), () => events.push("release"));
     yield* nap(10_000);
     return "unreachable";
   }).pipe(Resource.run);
@@ -400,9 +380,8 @@ test("joining an interrupted fiber is an interruption, not a defect a handler ca
 test("runPromise on an unhandled effect runs the program's cleanup before it rejects", async () => {
   const events: string[] = [];
   const prog = Kyoot.gen(function* () {
-    yield* Resource.acquire(
-      () => "conn",
-      () => nap(1).map(() => void events.push("release")),
+    yield* Resource.acquire(Kyoot.succeed("conn"), () =>
+      nap(1).map(() => void events.push("release")),
     );
     yield* Fail.fail("still pending");
   }).pipe(Resource.run);
@@ -544,10 +523,7 @@ test("race: a failing branch that finishes first fails the race, typed", async (
 test("all: a typed failure in one branch fails the whole, and the rest are interrupted", async () => {
   const events: string[] = [];
   const slow = Kyoot.gen(function* () {
-    yield* Resource.acquire(
-      () => "conn",
-      () => events.push("release"),
-    );
+    yield* Resource.acquire(Kyoot.succeed("conn"), () => events.push("release"));
     yield* nap(10_000);
     return 1;
   }).pipe(Resource.run);
@@ -560,16 +536,10 @@ test("all: a typed failure in one branch fails the whole, and the rest are inter
 test("fork: Resource.run inside the fiber gives it a scope of its own", async () => {
   const events: string[] = [];
   const prog = Kyoot.gen(function* () {
-    yield* Resource.acquire(
-      () => "parent",
-      () => events.push("release parent"),
-    );
+    yield* Resource.acquire(Kyoot.succeed("parent"), () => events.push("release parent"));
     const fiber = yield* Async.fork(
       Kyoot.gen(function* () {
-        yield* Resource.acquire(
-          () => "child",
-          () => events.push("release child"),
-        );
+        yield* Resource.acquire(Kyoot.succeed("child"), () => events.push("release child"));
         yield* nap(1);
       }).pipe(Resource.run),
     );
@@ -608,10 +578,7 @@ test("fork: a typed failure still ends the fiber's own scope", async () => {
   const prog = Kyoot.gen(function* () {
     const fiber = yield* Async.fork(
       Kyoot.gen(function* () {
-        yield* Resource.acquire(
-          () => "conn",
-          () => events.push("release"),
-        );
+        yield* Resource.acquire(Kyoot.succeed("conn"), () => events.push("release"));
         return yield* Fail.fail("bad" as const);
       }).pipe(Resource.run),
     );

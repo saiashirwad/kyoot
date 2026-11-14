@@ -359,7 +359,7 @@ test("Clock, Log, and Random intercept: scale time, redact, fix the dice", () =>
 test("Clock.intercept caps real sleeps under runPromise", async () => {
   const capped = Clock.intercept((ms, next) => next(Math.min(ms, 1)));
   const start = Date.now();
-  await runPromise(Clock.sleep(10_000).pipe(capped));
+  await runPromise(Clock.sleep(10_000).pipe(capped, Clock.live));
   assert.ok(Date.now() - start < 1000);
 });
 
@@ -434,22 +434,15 @@ test("Resource intercept sees each acquire", () => {
   assert.deepEqual(opened, ["conn"]);
 });
 
-test("Async intercept sees every async op; a fiber forked through it keeps the frames inside", async () => {
+test("Async intercept sees every async op, fork and join included", async () => {
   let ops = 0;
   const count = Async.intercept((op, next) => (ops++, next(op)));
   const program = Kyoot.gen(function* () {
-    const fiber = yield* Async.fork(Log.info("from fiber").map(() => 1));
-    const v = yield* fiber.join;
-    yield* Log.info("from parent");
-    return v;
+    const fiber = yield* Async.fork(Kyoot.succeed(1));
+    return yield* fiber.join;
   });
-  const [v, logs] = await runPromise(program.pipe(Log.collect, count));
-  assert.equal(v, 1);
-  assert.deepEqual(
-    logs.map((l) => l.message),
-    ["from fiber", "from parent"],
-  );
-  assert.ok(ops >= 2, `fork and join were intercepted (${ops})`);
+  assert.equal(await runPromise(program.pipe(count)), 1);
+  assert.equal(ops, 2);
 });
 
 test("resume.with computes the answer at the op, so a throw lands where the op was performed", () => {

@@ -52,15 +52,10 @@ export const run = <A, S extends Row & { resource?: Op<ResourceOp<any>, unknown>
 ): Kyoot<A, MergeAll<Omit<S, "resource"> | ReleaseRow<Payload<S, "resource">>>> =>
   gen(function* () {
     const finalizers: Finalizer[] = [];
-    const scope = makeHandler(
-      "resource",
-      k,
-      (res: ResourceOp, resume) => {
-        const r = res.acquire();
-        finalizers.push(() => res.release(r));
-        return resume(r);
-      },
-      run,
-    );
+    const scope = makeHandler("resource", k, (res: ResourceOp, resume) => {
+      const r = res.acquire();
+      finalizers.push(() => res.release(r));
+      return resume(r);
+    });
     return yield* ensuring(scope, finalize(finalizers));
   }) as never;

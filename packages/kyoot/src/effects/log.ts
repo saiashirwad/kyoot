@@ -13,6 +13,8 @@ const at = (level: Level) => (message: string) => log({ level, message });
 
 export const handle = log.handle;
 
+export const handleWith = log.handleWith;
+
 export const intercept = log.intercept;
 
 export const debug = at("debug");

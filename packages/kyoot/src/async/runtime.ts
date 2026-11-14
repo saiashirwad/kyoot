@@ -1,9 +1,6 @@
 import { Machine, type Outcome } from "../machine.ts";
-import type { Kyoot, Snapshot } from "../model.ts";
+import type { Kyoot } from "../model.ts";
 import type { Only, Row } from "../types.ts";
-import { live } from "./clock.ts";
-
-export type Served = "async" | "clock";
 
 export class InterruptedError extends Error {
   readonly _tag = "InterruptedError";
@@ -20,13 +17,11 @@ export interface FiberHandle<A = unknown> {
 
 export interface AsyncRuntime {
   readonly signal: AbortSignal;
-  readonly handlers?: readonly Snapshot[];
   spawn<A>(k: Kyoot<A, any>): FiberHandle<A>;
 }
 
 export interface AsyncOp {
   execute(rt: AsyncRuntime): Promise<unknown>;
-  readonly inherits?: boolean;
 }
 
 const STEP_BUDGET = 4096;
@@ -176,11 +171,7 @@ class Fiber<A> implements FiberHandle<A> {
       const op = payload as AsyncOp;
       let work: Promise<unknown>;
       try {
-        work = op.execute(
-          signal === rt.signal && !op.inherits
-            ? rt
-            : { ...rt, signal, handlers: op.inherits ? machine.snapshot() : undefined },
-        );
+        work = op.execute(signal === rt.signal ? rt : { ...rt, signal });
       } catch (error) {
         outcome = this.raise(error);
         continue;
@@ -193,10 +184,10 @@ class Fiber<A> implements FiberHandle<A> {
   }
 }
 
-export function runPromise<A, S extends Row>(k: Kyoot<A, S> & Only<S, Served>): Promise<A> {
-  return runFiber<A>(k).promise;
+export function runPromise<A, S extends Row>(k: Kyoot<A, S> & Only<S, "async">): Promise<A> {
+  return runFiber<A, S>(k).promise;
 }
 
-export function runFiber<A>(k: Kyoot<A, any>): FiberHandle<A> {
-  return new Fiber(live(k), undefined);
+export function runFiber<A, S extends Row>(k: Kyoot<A, S> & Only<S, "async">): FiberHandle<A> {
+  return new Fiber(k, undefined);
 }

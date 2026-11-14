@@ -15,7 +15,7 @@ type FailHandled<A, S extends Row, B, S2 extends Row> = Kyoot<
 const handleFail = <A, S extends Row, B, S2 extends Row>(
   k: Kyoot<A, S>,
   onFail: (e: any) => Kyoot<B, S2>,
-) => makeHandler("fail", k, onFail, false) as FailHandled<A, S, B, S2>;
+) => makeHandler("fail", k, onFail) as FailHandled<A, S, B, S2>;
 
 export const run = <A, S extends Row & { fail?: Op<unknown, never> }>(k: Kyoot<A, S>) =>
   catchDefect(

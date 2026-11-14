@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { effect, Emit, Fail, Kyoot } from "kyoot";
-import type { Kyoot as K, Op, Row } from "kyoot";
+import type { Op } from "kyoot";
 import { z } from "zod";
 import {
   AI,
@@ -39,18 +39,14 @@ const say = (text: string, usage?: Completion["usage"]): Completion => ({
   usage,
 });
 
-const scripted =
-  (script: readonly Completion[], seen: Request[] = []) =>
-  <A, S extends Row & { "ai/model"?: Op<Request, Completion> }>(k: K<A, S>) =>
-    Kyoot.gen(function* () {
-      let i = 0;
-      return yield* k.pipe(
-        Model.handle((req, resume) => {
-          seen.push(req);
-          return resume(script[Math.min(i++, script.length - 1)]!);
-        }),
-      );
-    });
+const scripted = (script: readonly Completion[], seen: Request[] = []) =>
+  Model.handleWith(() => {
+    let i = 0;
+    return (req, resume) => {
+      seen.push(req);
+      return resume(script[Math.min(i++, script.length - 1)]!);
+    };
+  });
 
 test("ask: runs tool calls as effects and feeds results back", () => {
   const seen: Request[] = [];
@@ -159,17 +155,13 @@ test("events: text from the provider, calls and results from the loop", () => {
   const events: Events.Event[] = [];
   Kyoot.runSync(
     AI.ask("2+2?", { tools: [calc] }).pipe(
-      (k) =>
-        Kyoot.gen(function* () {
-          let i = 0;
-          return yield* k.pipe(
-            Model.handle((_req, resume) =>
-              Emit.value<Events.Event>({ type: "text", text: "hm" }).flatMap(() =>
-                resume(i++ === 0 ? call("calc", { expression: "2+2" }) : say("4")),
-              ),
-            ),
+      Model.handleWith(() => {
+        let i = 0;
+        return (_req, resume) =>
+          Emit.value<Events.Event>({ type: "text", text: "hm" }).flatMap(() =>
+            resume(i++ === 0 ? call("calc", { expression: "2+2" }) : say("4")),
           );
-        }),
+      }),
       evaluate,
       Emit.forEach((e: Events.Event) => events.push(e)),
       Fail.orThrow,

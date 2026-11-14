@@ -1,5 +1,4 @@
 import { effect, Emit, Fail, Kyoot, Var } from "../src/index.ts";
-import type { Op, Row } from "../src/index.ts";
 
 export class OutOfStock {
   readonly _tag = "OutOfStock";
@@ -56,20 +55,16 @@ export const checkout = (order: Order, card: string) =>
     return { orderId: order.id, chargeId, totalCents };
   }).pipe(Total.run(0));
 
-export const inMemoryInventory =
-  (stock: Record<string, number>) =>
-  <A, S extends Row & { inventory?: Op<Reserve, boolean> }>(k: Kyoot<A, S>) =>
-    Kyoot.gen(function* () {
-      const left = new Map(Object.entries(stock));
-      return yield* k.pipe(
-        Inventory.handle(({ sku, qty }, resume) => {
-          const have = left.get(sku) ?? 0;
-          if (have < qty) return resume(false);
-          left.set(sku, have - qty);
-          return resume(true);
-        }),
-      );
-    });
+export const inMemoryInventory = (stock: Record<string, number>) =>
+  Inventory.handleWith(() => {
+    const left = new Map(Object.entries(stock));
+    return ({ sku, qty }, resume) => {
+      const have = left.get(sku) ?? 0;
+      if (have < qty) return resume(false);
+      left.set(sku, have - qty);
+      return resume(true);
+    };
+  });
 
 if (import.meta.main) {
   const result = checkout(

@@ -9,6 +9,8 @@ export const sleep = (ms: number) => clock(ms);
 
 export const handle = clock.handle;
 
+export const handleWith = clock.handleWith;
+
 export const intercept = clock.intercept;
 
 export const virtual = <A, S extends Row & { clock?: Op<number, void> }>(

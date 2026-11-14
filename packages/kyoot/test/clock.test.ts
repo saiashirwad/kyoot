@@ -20,21 +20,21 @@ test("Clock.virtual: time is per run, not shared", () => {
   assert.deepEqual(Kyoot.runSync(prog.pipe(Clock.virtual)), ["x", 1_000]);
 });
 
-test("runPromise serves the clock with real time", async () => {
+test("Clock.live: sleeps for real time under runPromise", async () => {
   const t0 = Date.now();
-  assert.equal(await runPromise(boilEgg(5)), "egg ready");
+  assert.equal(await runPromise(boilEgg(5).pipe(Clock.live)), "egg ready");
   assert.ok(Date.now() - t0 >= 30 && Date.now() - t0 < 1_000);
 });
 
-test("a nearer virtual clock wins over the driver's real one", async () => {
-  const r = await runPromise(boilEgg(10_000).pipe(Clock.virtual));
+test("a nearer virtual clock wins over an outer live one", async () => {
+  const r = await runPromise(boilEgg(10_000).pipe(Clock.virtual, Clock.live));
   assert.deepEqual(r, ["egg ready", 70_000]);
 });
 
-test("a forked fiber gets the real clock, and interrupt cancels its sleep", async () => {
+test("a forked fiber installs its own clock, and interrupt cancels its sleep", async () => {
   const r = await runPromise(
     Kyoot.gen(function* () {
-      const fiber = yield* Async.fork(Clock.sleep(10_000));
+      const fiber = yield* Async.fork(Clock.sleep(10_000).pipe(Clock.live));
       yield* fiber.interrupt;
       return yield* fiber.await;
     }),

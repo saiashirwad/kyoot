@@ -8,16 +8,6 @@ export type RuntimeResume = ((value: any) => AnyKyoot) & {
 
 export type OnOp = (payload: any, resume: RuntimeResume, past: number) => AnyKyoot;
 
-export interface HandlerHooks {
-  readonly fork?: false | ((k: AnyKyoot) => AnyKyoot);
-  readonly onOp: OnOp;
-}
-
-export interface Snapshot {
-  readonly key: PropertyKey;
-  readonly hooks: HandlerHooks;
-}
-
 interface Pipeable {
   pipe<A>(this: A): A;
   pipe<A, B>(this: A, ab: (a: A) => B): B;

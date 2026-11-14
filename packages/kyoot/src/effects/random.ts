@@ -1,6 +1,4 @@
-import { effect, gen } from "../core.ts";
-import type { Kyoot } from "../model.ts";
-import type { MergeAll, Op, Row } from "../types.ts";
+import { effect } from "../core.ts";
 
 const random = effect<void, number>()("random");
 
@@ -9,6 +7,8 @@ const nextOp = random(undefined);
 export const next = () => nextOp;
 
 export const handle = random.handle;
+
+export const handleWith = random.handleWith;
 
 export const intercept = random.intercept;
 
@@ -23,18 +23,12 @@ const step = (seed: number) => {
   return [((t ^ (t >>> 14)) >>> 0) / 4294967296, seed + 0x6d2b79f5] as const;
 };
 
-export const seeded =
-  (seed: number) =>
-  <A, S extends Row & { random?: Op<void, number> }>(
-    k: Kyoot<A, S>,
-  ): Kyoot<A, MergeAll<Omit<S, "random">>> =>
-    gen(function* () {
-      let s = seed;
-      return yield* k.pipe(
-        random.handle((_, resume) => {
-          const [x, s2] = step(s);
-          s = s2;
-          return resume(x);
-        }),
-      );
-    }) as never;
+export const seeded = (seed: number) =>
+  random.handleWith(() => {
+    let s = seed;
+    return (_, resume) => {
+      const [x, s2] = step(s);
+      s = s2;
+      return resume(x);
+    };
+  });

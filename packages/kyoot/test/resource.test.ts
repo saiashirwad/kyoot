@@ -71,10 +71,12 @@ test("Resource: release runs on defect", () => {
   assert.deepEqual(events, ["release"]);
 });
 
+const nap = (ms: number) => Clock.sleep(ms).pipe(Clock.live);
+
 const slowClose = (events: string[], name: string) =>
   Resource.acquire(
     () => events.push(`open ${name}`),
-    () => Clock.sleep(5).map(() => void events.push(`close ${name}`)),
+    () => nap(5).map(() => void events.push(`close ${name}`)),
   );
 
 test("Resource: a finalizer may be a program (runs on success)", async () => {
@@ -106,10 +108,10 @@ test("Resource: program finalizers run to completion on interrupt", async () => 
       const fiber = yield* Async.fork(
         Kyoot.gen(function* () {
           yield* slowClose(events, "a");
-          yield* Clock.sleep(10_000);
+          yield* nap(10_000);
         }).pipe(Resource.run),
       );
-      yield* Clock.sleep(5);
+      yield* nap(5);
       yield* fiber.interrupt;
       return yield* fiber.await;
     }),

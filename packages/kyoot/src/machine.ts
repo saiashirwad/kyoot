@@ -1,5 +1,5 @@
 import { KyootImpl, node, raise, succeed, unit } from "./core.ts";
-import type { AnyKyoot, HandlerHooks, RuntimeResume, Snapshot } from "./model.ts";
+import type { AnyKyoot, OnOp, RuntimeResume } from "./model.ts";
 
 export type Outcome = "done" | "suspended" | "yielded";
 
@@ -51,18 +51,13 @@ class GenFrame implements Frame {
 class HandlerFrame implements Frame {
   readonly value?: undefined;
   readonly key: PropertyKey;
-  readonly hooks: HandlerHooks;
+  readonly onOp: OnOp;
   readonly index: number;
   readonly prev: HandlerFrame | undefined;
 
-  constructor(
-    key: PropertyKey,
-    hooks: HandlerHooks,
-    index: number,
-    prev: HandlerFrame | undefined,
-  ) {
+  constructor(key: PropertyKey, onOp: OnOp, index: number, prev: HandlerFrame | undefined) {
     this.key = key;
-    this.hooks = hooks;
+    this.onOp = onOp;
     this.index = index;
     this.prev = prev;
   }
@@ -154,7 +149,6 @@ export class Machine {
   value: unknown;
   key: PropertyKey = "";
   payload: unknown;
-  private skip = 0;
 
   start(program: AnyKyoot, budget = Infinity): Outcome {
     this.current = program;
@@ -188,21 +182,6 @@ export class Machine {
     if (this.remaining <= 0) return false;
     this.remaining--;
     return true;
-  }
-
-  snapshot(): Snapshot[] {
-    const out: Snapshot[] = [];
-    const stack = this.stack;
-    const key = this.key;
-    let skip = this.skip;
-    for (let i = stack.length - 1; i >= 0; i--) {
-      const entry = stack[i];
-      if (entry instanceof Mask) i = entry.handler.index;
-      else if (!(entry instanceof HandlerFrame)) continue;
-      else if (skip > 0 && entry.key === key) skip--;
-      else out.push({ key: entry.key, hooks: entry.hooks });
-    }
-    return out;
   }
 
   cancelTo(index: number, then: AnyKyoot): AnyKyoot {
@@ -252,7 +231,6 @@ export class Machine {
             if (next === undefined) {
               this.key = n.a;
               this.payload = n.b;
-              this.skip = n.c;
               return "suspended";
             }
             this.current = next;
@@ -360,7 +338,7 @@ export class Machine {
       const mask = new Mask(h, stack.length, this.mask);
       this.mask = mask;
       stack.push(mask);
-      return h.hooks.onOp(payload, resumer(mask), past + 1);
+      return h.onOp(payload, resumer(mask), past + 1);
     }
     return undefined;
   }

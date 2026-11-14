@@ -53,7 +53,7 @@ test("chatCompletions streams text, a split tool call, and usage", async () => {
 
   try {
     const [completion, events] = await runPromise(
-      Model(request).pipe(chatCompletions(options), Emit.collect, Fail.orThrow),
+      Model(request).pipe(chatCompletions(options), Emit.collect, Fail.orThrow, Clock.live),
     );
     assert.deepEqual(completion, {
       text: "Hello there",
@@ -122,7 +122,7 @@ test("chatCompletions fails a stream that ends without [DONE]", async () => {
     response([event({ choices: [{ delta: { content: "partial" } }] })]);
   try {
     const result = await runPromise(
-      Model(request).pipe(chatCompletions(options), Emit.discard, Fail.run),
+      Model(request).pipe(chatCompletions(options), Emit.discard, Fail.run, Clock.live),
     );
     assert.ok(
       !result.ok && result.cause._tag === "Fail" && result.cause.error instanceof ProviderError,

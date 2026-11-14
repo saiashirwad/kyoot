@@ -2,7 +2,7 @@
 
 An experimental effects system for TypeScript, inspired by [Kyo](https://github.com/getkyo/kyo). The API may change.
 
-A program's type tracks its unhandled effects. You supply handlers with `.pipe()`. Each handler removes the effects it handles and may introduce effects of its own. `runSync` requires all effects to be handled. `runPromise`, from `kyoot/async`, also accepts `Async` and `Clock`, which its runtime handles for you. TypeScript checks these requirements when you call either runner.
+A program's type tracks its unhandled effects. You supply handlers with `.pipe()`. Each handler removes the effects it handles and may introduce effects of its own. `runSync` requires all effects to be handled. `runPromise`, from `kyoot/async`, also accepts `Async`, which its runtime handles for you; pipe `Clock.live` for real sleeps. A forked fiber inherits no handlers, so install what it needs inside the forked program. TypeScript checks these requirements when you call either runner or `Async.fork`.
 
 Here, the program needs a config and a greeting. Providing just the config leaves the greeting unhandled:
 

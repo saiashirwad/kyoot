@@ -108,16 +108,16 @@ test("cancel mid-stack: cleanup sees only the handlers still below it", () => {
   assert.deepEqual(seen, ["inner cleanup@inner", "outer cleanup@outer"]);
 });
 
-test("a fiber forked from handler code inherits only the handlers below the mask", async () => {
+test("a fiber forked from handler code is handled by its own handlers", async () => {
   const program = Poke().pipe(
     answer("masked"),
     Poke.handle((_, resume) =>
       Kyoot.gen(function* () {
-        const fiber = yield* Async.fork(Ask("fiber"));
+        const fiber = yield* Async.fork(Ask("fiber").pipe(answer("fiber")));
         return yield* resume(yield* fiber.join);
       }),
     ),
     answer("outer"),
   );
-  assert.equal(await runPromise(program), "fiber@outer");
+  assert.equal(await runPromise(program), "fiber@fiber");
 });

@@ -4,7 +4,7 @@ import { runSync, step } from "./step.ts";
 import type { Row } from "./types.ts";
 
 export { catchDefect, effect, ensuring } from "./core.ts";
-export type { Intercept, Resume } from "./core.ts";
+export type { Handle, Intercept, Resume } from "./core.ts";
 export type { Done, Pending, Step } from "./step.ts";
 export { Result } from "./result.ts";
 export type { Answer, MergeAll, Only, Op, Payload, Row } from "./types.ts";

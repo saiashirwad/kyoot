@@ -3,7 +3,6 @@ import * as Emit from "../src/effects/emit.ts";
 import * as Env from "../src/effects/env.ts";
 import * as Fail from "../src/effects/fail.ts";
 import * as Resource from "../src/effects/resource.ts";
-import * as Sync from "../src/effects/sync.ts";
 import * as Var from "../src/effects/var.ts";
 import type { Kyoot as KyootT, Op, Payload, Resume, RowsOf } from "../src/index.ts";
 import { op } from "../src/core.ts";
@@ -26,14 +25,13 @@ const mixed = Kyoot.gen(function* () {
   yield* Fail.fail(new FetchFailed());
   yield* Async.fromPromise(() => Promise.resolve(1));
   yield* Clock.sleep(1);
-  yield* Sync.defer(() => 1);
+  yield* Kyoot.sync(() => 1);
   return "done";
 });
 type MixedRows = RowsOf<typeof mixed>;
-type _mixedKeys = Expect<Equal<keyof MixedRows, "fail" | "async" | "clock/sleep" | "sync">>;
+type _mixedKeys = Expect<Equal<keyof MixedRows, "fail" | "async" | "clock/sleep">>;
 type _mixedFail = Expect<Equal<MixedRows["fail"], Op<FetchFailed, never>>>;
 type _mixedAsync = Expect<Equal<MixedRows["async"], Op<AsyncOp, unknown>>>;
-type _mixedSync = Expect<Equal<MixedRows["sync"], Op<() => unknown, unknown>>>;
 type _mixedClock = Expect<Equal<MixedRows["clock/sleep"], Op<number, void>>>;
 type _mixedValue = Expect<Equal<typeof mixed extends KyootT<infer A, any> ? A : never, string>>;
 
@@ -46,10 +44,9 @@ const slept: Promise<void> = runPromise(Clock.sleep(1).pipe(Clock.live));
 // @ts-expect-error runSync names every unhandled key: Unhandled<"fail" | "async" | "clock/sleep" | "sync">
 Kyoot.runSync(mixed);
 
-const syncProg = Sync.defer(() => 1);
-// @ts-expect-error runSync requires an empty row
-Kyoot.runSync(syncProg);
-const s1: number = Kyoot.runSync(syncProg.pipe(Sync.run));
+const syncProg = Kyoot.sync(() => 1);
+type _syncRow = Expect<Equal<keyof RowsOf<typeof syncProg>, never>>;
+const s1: number = Kyoot.runSync(syncProg);
 
 const p1: Promise<number> = runPromise(Async.fromPromise(() => Promise.resolve(1)));
 
@@ -179,9 +176,10 @@ const recovered = Kyoot.gen(function* () {
 type _catchAllValue = Expect<Equal<ValueOf<typeof recovered>, number | "fallback">>;
 type _catchAllKeys = Expect<Equal<keyof RowsOf<typeof recovered>, "clock/sleep">>;
 
-const slowSync = Sync.defer(() => 1).pipe((k) =>
+const Probe = effect<undefined, number>()("probe");
+const slowSync = Probe(undefined).pipe((k) =>
   ensuring(
-    k.pipe(Sync.handle((f, resume) => Clock.sleep(1).flatMap(() => resume(f())))),
+    k.pipe(Probe.handle((_, resume) => Clock.sleep(1).flatMap(() => resume(1)))),
     Async.fromPromise(() => Promise.resolve()),
   ),
 );

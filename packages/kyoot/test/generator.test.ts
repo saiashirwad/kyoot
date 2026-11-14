@@ -3,7 +3,6 @@ import { test } from "node:test";
 import { effect, Kyoot } from "../src/index.ts";
 import * as Fail from "../src/effects/fail.ts";
 import * as Resource from "../src/effects/resource.ts";
-import * as Sync from "../src/effects/sync.ts";
 import { Async, runPromise } from "../src/async/index.ts";
 
 const Stop = effect<string, never>()("stop");
@@ -34,12 +33,11 @@ test("generator: catchAll recovers, then the dropped frame closes", () => {
     }
   }).pipe(
     Fail.catchAll(() =>
-      Sync.defer(() => {
+      Kyoot.sync(() => {
         events.push("recover");
         return "recovered";
       }),
     ),
-    Sync.run,
   );
   assert.equal(Kyoot.runSync(prog), "recovered");
   assert.deepEqual(events, ["recover", "finally"]);
@@ -101,7 +99,7 @@ test("generator: a defect closes the frames it unwinds past", () => {
     try {
       yield* Kyoot.gen(function* () {
         try {
-          yield* Sync.defer(() => {
+          yield* Kyoot.sync(() => {
             throw boom;
           });
         } finally {
@@ -111,7 +109,7 @@ test("generator: a defect closes the frames it unwinds past", () => {
     } finally {
       events.push("outer");
     }
-  }).pipe(Sync.run, Fail.run);
+  }).pipe(Fail.run);
   const r = Kyoot.runSync(prog);
   assert.equal(!r.ok && r.cause._tag === "Defect" && r.cause.defect, boom);
   assert.deepEqual(events, ["inner", "outer"]);

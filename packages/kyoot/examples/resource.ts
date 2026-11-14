@@ -4,7 +4,7 @@ import * as Resource from "../src/effects/resource.ts";
 
 const connection = (name: string) =>
   Resource.acquire(
-    Kyoot.succeed(undefined).map(() => {
+    Kyoot.sync(() => {
       console.log(`open ${name}`);
       return { name };
     }),

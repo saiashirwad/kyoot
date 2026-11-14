@@ -5,7 +5,7 @@
 //    `collect`, `discard`; `provide` supplies a service.
 //  - Anything that is not a handler is not named like one (`Retry.retry`, `Mode.system`).
 
-import { gen, succeed } from "./core.ts";
+import { gen, succeed, sync } from "./core.ts";
 import type { Kyoot as KyootType } from "./model.ts";
 import { runSync, step } from "./step.ts";
 import type { Row } from "./types.ts";
@@ -25,4 +25,4 @@ export type { Answer, MergeAll, Only, Op, Payload, Row } from "./types.ts";
 export type { RowsOf } from "./model.ts";
 
 export type Kyoot<A, S extends Row = {}> = KyootType<A, S>;
-export const Kyoot = { succeed, gen, runSync, step };
+export const Kyoot = { succeed, sync, gen, runSync, step };

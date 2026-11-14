@@ -1,6 +1,5 @@
 import { effect, Kyoot } from "../src/index.ts";
 import * as Fail from "../src/effects/fail.ts";
-import * as Sync from "../src/effects/sync.ts";
 
 class NotFound {
   readonly _tag = "NotFound";
@@ -26,12 +25,11 @@ const run = (id: string) =>
   lookup(id).pipe(
     Fail.catchAll((e: NotFound) => Kyoot.succeed(`no user ${e.id}`)),
     Fatal.handle((e) =>
-      Sync.defer(() => {
+      Kyoot.sync(() => {
         console.error(`fatal: ${e.reason}`);
         process.exit(1);
       }),
     ),
-    Sync.run,
     Kyoot.runSync,
   );
 

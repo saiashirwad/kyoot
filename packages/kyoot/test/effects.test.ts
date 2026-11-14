@@ -3,7 +3,6 @@ import { test } from "node:test";
 import { Kyoot } from "../src/index.ts";
 import * as Emit from "../src/effects/emit.ts";
 import * as Env from "../src/effects/env.ts";
-import * as Sync from "../src/effects/sync.ts";
 import * as Var from "../src/effects/var.ts";
 
 const Count = Var.tag<number>()("Count");
@@ -124,28 +123,21 @@ test("Emit.discard drops the stream", () => {
   assert.equal(Kyoot.runSync(prog.pipe(Emit.discard)), "ok");
 });
 
-test("Sync.defer is lazy and Sync.run discharges it", () => {
+test("Kyoot.sync is lazy and runs each time the program runs", () => {
   let calls = 0;
-  const prog = Kyoot.gen(function* () {
-    const a = yield* Sync.defer(() => {
-      calls++;
-      return 3;
-    });
-    return a * 2;
-  });
+  const prog = Kyoot.sync(() => ++calls);
   assert.equal(calls, 0);
-  const r = Kyoot.runSync(prog.pipe(Sync.run));
-  assert.equal(r, 6);
-  assert.equal(calls, 1);
+  assert.equal(Kyoot.runSync(prog), 1);
+  assert.equal(Kyoot.runSync(prog), 2);
 });
 
-test("Sync.defer: a throwing thunk is a defect, not a typed failure", () => {
+test("Kyoot.sync: a throwing thunk is a defect, not a typed failure", () => {
   const boom = new Error("boom");
-  const prog = Sync.defer(() => {
+  const prog = Kyoot.sync(() => {
     throw boom;
   });
   assert.throws(
-    () => Kyoot.runSync(prog.pipe(Sync.run)),
+    () => Kyoot.runSync(prog),
     (e) => e === boom,
   );
 });

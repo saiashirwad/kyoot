@@ -46,7 +46,7 @@ In a simulation a world responder can fail with the program's typed error: retur
 
 ## Conventions
 
-A handler is named for what it does to the effect it discharges. `X.run` is the default (or only) handler and runs the program with X discharged (`Fail.run`, `Var.run`, `Resource.run`, `Sync.run`). Alternatives are named by behaviour, one name per behaviour across effects: `live` (real world), `virtual`, `manual` and `seeded` (controlled), `print` (to the console), `forEach(f)`, `collect`, `discard`; `provide` supplies a service. Non-handlers do not look like handlers (`Retry.retry`).
+A handler is named for what it does to the effect it discharges. `X.run` is the default (or only) handler and runs the program with X discharged (`Fail.run`, `Var.run`, `Resource.run`). Alternatives are named by behaviour, one name per behaviour across effects: `live` (real world), `virtual`, `manual` and `seeded` (controlled), `print` (to the console), `forEach(f)`, `collect`, `discard`; `provide` supplies a service. Non-handlers do not look like handlers (`Retry.retry`).
 
 Each operation of an effect is its own effect with its own key: `Var` has `var/<id>/get`, `var/<id>/set` and `var/<id>/update`, and `Count.intercept.set(...)` touches only sets.
 

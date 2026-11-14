@@ -75,6 +75,9 @@ export const succeed = <A>(value: A): Kyoot<A, {}> => new KyootImpl("pure", valu
 
 export const unit: Kyoot<void, {}> = succeed(undefined);
 
+// Lazy side effect: f runs each time the program runs; a throw is a defect at that point.
+export const sync = <A>(f: () => A): Kyoot<A, {}> => unit.map(f) as never;
+
 export const raise = (error: unknown): Kyoot<never, {}> => new KyootImpl("raise", error);
 
 export const makeOp = (key: PropertyKey, payload: unknown, skip = 0) =>

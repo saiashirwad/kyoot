@@ -3,7 +3,6 @@ import { test } from "node:test";
 import { effect, Kyoot } from "../src/index.ts";
 import * as Fail from "../src/effects/fail.ts";
 import * as Resource from "../src/effects/resource.ts";
-import * as Sync from "../src/effects/sync.ts";
 import { Async, Clock, runPromise } from "../src/async/index.ts";
 import * as Sim from "../src/sim/index.ts";
 
@@ -11,7 +10,7 @@ test("Resource: release runs on success", () => {
   const events: string[] = [];
   const prog = Kyoot.gen(function* () {
     const conn = yield* Resource.acquire(
-      Kyoot.succeed(undefined).map(() => {
+      Kyoot.sync(() => {
         events.push("acquire");
         return "conn";
       }),
@@ -67,7 +66,7 @@ const nap = (ms: number) => Clock.sleep(ms).pipe(Clock.live);
 
 const slowClose = (events: string[], name: string) =>
   Resource.acquire(
-    Kyoot.succeed(undefined).map(() => events.push(`open ${name}`)),
+    Kyoot.sync(() => events.push(`open ${name}`)),
     () => nap(5).map(() => void events.push(`close ${name}`)),
   );
 
@@ -118,7 +117,7 @@ test("a rejected async op is a defect that handlers see", async () => {
   const r = await runPromise(
     Kyoot.gen(function* () {
       yield* Resource.acquire(
-        Kyoot.succeed(undefined).map(() => events.push("open")),
+        Kyoot.sync(() => events.push("open")),
         () => events.push("close"),
       );
       yield* Async.fromPromise(() => Promise.reject(boom));
@@ -133,11 +132,11 @@ test("Resource: an acquire that throws releases what the scope already holds", (
   const boom = new Error("boom");
   const prog = Kyoot.gen(function* () {
     yield* Resource.acquire(
-      Kyoot.succeed(undefined).map(() => events.push("open a")),
+      Kyoot.sync(() => events.push("open a")),
       () => events.push("close a"),
     );
     yield* Resource.acquire(
-      Kyoot.succeed(undefined).map((): never => {
+      Kyoot.sync((): never => {
         throw boom;
       }),
       () => events.push("never"),
@@ -158,7 +157,7 @@ test("Resource inside Fail.run: a failure still releases", () => {
   const events: string[] = [];
   const r = Kyoot.gen(function* () {
     yield* Resource.acquire(
-      Kyoot.succeed(undefined).map(() => events.push("open")),
+      Kyoot.sync(() => events.push("open")),
       () => events.push("close"),
     );
     yield* Fail.fail(new Boom());
@@ -171,15 +170,14 @@ test("Resource inside catchAll: the recovery runs, then the scope is released", 
   const events: string[] = [];
   const a = Kyoot.gen(function* () {
     yield* Resource.acquire(
-      Kyoot.succeed(undefined).map(() => events.push("open")),
+      Kyoot.sync(() => events.push("open")),
       () => events.push("close"),
     );
     yield* Fail.fail(new Boom());
     return "never";
   }).pipe(
     Resource.run,
-    Fail.catchAll(() => Sync.defer(() => (events.push("recover"), "recovered"))),
-    Sync.run,
+    Fail.catchAll(() => Kyoot.sync(() => (events.push("recover"), "recovered"))),
     Kyoot.runSync,
   );
   assert.equal(a, "recovered");
@@ -190,11 +188,11 @@ test("Resource inside a catchTag that passes the failure on: the outer catch rel
   const events: string[] = [];
   const r = Kyoot.gen(function* () {
     yield* Resource.acquire(
-      Kyoot.succeed(undefined).map(() => events.push("open a")),
+      Kyoot.sync(() => events.push("open a")),
       () => events.push("close a"),
     );
     yield* Resource.acquire(
-      Kyoot.succeed(undefined).map(() => events.push("open b")),
+      Kyoot.sync(() => events.push("open b")),
       () => events.push("close b"),
     );
     yield* Fail.fail(new Boom());
@@ -213,15 +211,14 @@ test("a handler that performs an op and then does not resume releases after its 
   const Stop = effect<string, never>()("stop");
   const r = Kyoot.gen(function* () {
     yield* Resource.acquire(
-      Kyoot.succeed(undefined).map(() => events.push("open")),
+      Kyoot.sync(() => events.push("open")),
       () => events.push("close"),
     );
     yield* Stop("now");
     return "never";
   }).pipe(
     Resource.run,
-    Stop.handle((why) => Sync.defer(() => (events.push(`stopped: ${why}`), "stopped"))),
-    Sync.run,
+    Stop.handle((why) => Kyoot.sync(() => (events.push(`stopped: ${why}`), "stopped"))),
     Kyoot.runSync,
   );
   assert.equal(r, "stopped");
@@ -233,7 +230,7 @@ test("a handler that resumes does not release early", () => {
   const Ask = effect<string, number>()("ask");
   const r = Kyoot.gen(function* () {
     yield* Resource.acquire(
-      Kyoot.succeed(undefined).map(() => events.push("open")),
+      Kyoot.sync(() => events.push("open")),
       () => events.push("close"),
     );
     const n = yield* Ask("n");
@@ -241,8 +238,7 @@ test("a handler that resumes does not release early", () => {
     return n;
   }).pipe(
     Resource.run,
-    Ask.handle((_, resume) => Sync.defer(() => events.push("asked")).flatMap(() => resume(7))),
-    Sync.run,
+    Ask.handle((_, resume) => Kyoot.sync(() => events.push("asked")).flatMap(() => resume(7))),
     Kyoot.runSync,
   );
   assert.equal(r, 7);
@@ -254,7 +250,7 @@ test("a handler that claims a resume token and discards it still releases", () =
   const Ask = effect<string, number>()("ask");
   const r = Kyoot.gen(function* () {
     yield* Resource.acquire(
-      Kyoot.succeed(undefined).map(() => events.push("open")),
+      Kyoot.sync(() => events.push("open")),
       () => events.push("close"),
     );
     yield* Ask("n");
@@ -273,7 +269,7 @@ test("a handler that claims a resume.with token and discards it still releases",
   const Ask = effect<string, number>()("ask");
   const r = Kyoot.gen(function* () {
     yield* Resource.acquire(
-      Kyoot.succeed(undefined).map(() => events.push("open")),
+      Kyoot.sync(() => events.push("open")),
       () => events.push("close"),
     );
     yield* Ask("n");
@@ -292,12 +288,12 @@ test("a discarded resume token releases nested captured resources, innermost fir
   const Ask = effect<string, number>()("ask");
   const r = Kyoot.gen(function* () {
     yield* Resource.acquire(
-      Kyoot.succeed(undefined).map(() => events.push("open outer")),
+      Kyoot.sync(() => events.push("open outer")),
       () => events.push("close outer"),
     );
     yield* Kyoot.gen(function* () {
       yield* Resource.acquire(
-        Kyoot.succeed(undefined).map(() => events.push("open inner")),
+        Kyoot.sync(() => events.push("open inner")),
         () => events.push("close inner"),
       );
       yield* Ask("n");
@@ -317,7 +313,7 @@ test("a discarded resume token releases a captured resource whose finalizer is a
   const Ask = effect<string, number>()("ask");
   const r = await Kyoot.gen(function* () {
     yield* Resource.acquire(
-      Kyoot.succeed(undefined).map(() => events.push("open")),
+      Kyoot.sync(() => events.push("open")),
       () => Async.fromPromise(async () => void events.push("close")),
     );
     yield* Ask("n");
@@ -336,7 +332,7 @@ test("a resume token returned later in the handler's program still resumes", () 
   const Ask = effect<string, number>()("ask");
   const r = Kyoot.gen(function* () {
     yield* Resource.acquire(
-      Kyoot.succeed(undefined).map(() => events.push("open")),
+      Kyoot.sync(() => events.push("open")),
       () => events.push("close"),
     );
     const n = yield* Ask("n");
@@ -346,16 +342,13 @@ test("a resume token returned later in the handler's program still resumes", () 
     Resource.run,
     Ask.handle((_, resume) => {
       const token = resume(7);
-      return Sync.defer(() => events.push("asked")).flatMap(() => token);
+      return Kyoot.sync(() => events.push("asked")).flatMap(() => token);
     }),
-    Sync.run,
     Kyoot.runSync,
   );
   assert.equal(r, 7);
   assert.deepEqual(events, ["open", "asked", "got 7", "close"]);
 });
-
-const lazy = <A>(f: () => A) => Kyoot.succeed(undefined).map(f);
 
 test("Resource: open may be async; its effects are in the row and release still runs", async () => {
   const events: string[] = [];
@@ -379,7 +372,7 @@ test("Resource: an open that fails with a typed error registers nothing", async 
   const r = await runPromise(
     Kyoot.gen(function* () {
       yield* Resource.acquire(
-        lazy(() => events.push("open a")),
+        Kyoot.sync(() => events.push("open a")),
         () => events.push("close a"),
       );
       yield* Resource.acquire(Fail.fail("nope"), () => events.push("never"));
@@ -394,7 +387,7 @@ test("Resource: an open that dies registers nothing", async () => {
   const boom = new Error("boom");
   const prog = Kyoot.gen(function* () {
     yield* Resource.acquire(
-      lazy(() => events.push("open a")),
+      Kyoot.sync(() => events.push("open a")),
       () => events.push("close a"),
     );
     yield* Resource.acquire(
@@ -413,7 +406,7 @@ test("Resource: interrupting an open releases earlier resources and registers no
       const fiber = yield* Async.fork(
         Kyoot.gen(function* () {
           yield* Resource.acquire(
-            lazy(() => events.push("open a")),
+            Kyoot.sync(() => events.push("open a")),
             () => events.push("close a"),
           );
           yield* Resource.acquire(

@@ -8,7 +8,6 @@ import * as Fail from "../src/effects/fail.ts";
 import * as Log from "../src/effects/log.ts";
 import * as Random from "../src/effects/random.ts";
 import * as Resource from "../src/effects/resource.ts";
-import * as Sync from "../src/effects/sync.ts";
 import * as Var from "../src/effects/var.ts";
 import type { Op, Row } from "../src/index.ts";
 import { Async, Clock, runPromise } from "../src/async/index.ts";
@@ -371,17 +370,15 @@ test("Clock.intercept caps real sleeps under runPromise", async () => {
   assert.ok(Date.now() - start < 1000);
 });
 
-test("Emit and Sync intercept: rewrite values, wrap thunks", () => {
+test("Emit intercept rewrites values", () => {
   const double = Emit.intercept<number>()((e, next) => next(e * 2));
-  let thunks = 0;
-  const counted = Sync.intercept((f, next) => (thunks++, next(f)));
   const program = Kyoot.gen(function* () {
     yield* Emit.value(1);
     yield* Emit.value(2);
-    return yield* Sync.defer(() => 40);
+    return yield* Kyoot.sync(() => 40);
   });
-  const [v, emitted] = program.pipe(double, counted, Emit.collect, Sync.run, Kyoot.runSync);
-  assert.deepEqual([v, emitted, thunks], [40, [2, 4], 1]);
+  const [v, emitted] = program.pipe(double, Emit.collect, Kyoot.runSync);
+  assert.deepEqual([v, emitted], [40, [2, 4]]);
 });
 
 test("Fail.intercept sees a failure on its way out and passes it on", () => {
@@ -422,15 +419,21 @@ test("Var intercept validates a set; the failure lands at the set", () => {
   assert.deepEqual([v, refused, final], [5, "refused", 5]);
 });
 
-test("Resource intercept sees each registration", () => {
-  const opened: unknown[] = [];
-  const audit = Resource.intercept()((op, next) => {
-    opened.push("registered");
-    return next(op);
+test("Resource intercept sees each acquisition and can wrap its open", () => {
+  const events: string[] = [];
+  const audit = Resource.intercept()((res, next) => {
+    events.push("acquire");
+    return next({
+      ...res,
+      open: res.open.map((r) => (events.push(`opened ${String(r)}`), r)),
+    });
   });
-  const program = Resource.acquire(Kyoot.succeed("conn"), () => {});
-  assert.equal(program.pipe(audit, Resource.run, Kyoot.runSync), "conn");
-  assert.deepEqual(opened, ["registered"]);
+  const program = Kyoot.gen(function* () {
+    yield* Resource.acquire(Kyoot.succeed("a"), () => events.push("close a"));
+    yield* Resource.acquire(Kyoot.succeed("b"), () => events.push("close b"));
+  });
+  program.pipe(audit, Resource.run, Kyoot.runSync);
+  assert.deepEqual(events, ["acquire", "opened a", "acquire", "opened b", "close b", "close a"]);
 });
 
 test("Async intercept sees promise ops; fork and join are effects of their own", async () => {

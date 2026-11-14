@@ -1,4 +1,4 @@
-import { effect, ensuring, Kyoot } from "../src/index.ts";
+import { answerAll, effect, ensuring, handleAll, Kyoot } from "../src/index.ts";
 import * as Emit from "../src/effects/emit.ts";
 import * as Env from "../src/effects/env.ts";
 import * as Fail from "../src/effects/fail.ts";
@@ -75,7 +75,7 @@ type _timedKeys = Expect<
 >;
 type _timedFail = Expect<Equal<Payload<RowsOf<typeof timed>, "fail">, Async.Timeout>>;
 
-const testClock = Clock.test();
+const testClock = Clock.manual();
 const timedTest = Async.timeout(100, Clock.sleep(1), { provide: (k) => k.pipe(testClock.handler) });
 type _timedTestKeys = Expect<Equal<keyof RowsOf<typeof timedTest>, Spawning | "async" | "fail">>;
 // Without a clock in provide, the driver answers the sleep: it stays in the row.
@@ -138,7 +138,7 @@ const c1: readonly [void, number] = Kyoot.runSync(clockProg);
 const retried = Kyoot.gen(function* () {
   yield* Fail.fail(new FetchFailed());
   return 1;
-}).pipe(Retry.run({ times: 3, delay: 10 }));
+}).pipe(Retry.retry({ times: 3, delay: 10 }));
 type _retryKeys = Expect<Equal<keyof RowsOf<typeof retried>, "fail" | "clock/sleep">>;
 type _retryFail = Expect<Equal<Payload<RowsOf<typeof retried>, "fail">, FetchFailed>>;
 type _retryValue = Expect<Equal<ValueOf<typeof retried>, number>>;
@@ -380,6 +380,56 @@ Echo.handle((_p: number, resume: Resume<number>) => resume(42));
 Echo.handle((_p: number, resume) => resume("x"));
 // @ts-expect-error an annotated resume must match the declaration
 Echo.handle((_p, resume: Resume<number>) => resume(1));
+
+// handleAll / answerAll check each handler against its own declaration.
+const Peek = effect<void, number>()("peek");
+const Poke2 = effect<string, void>()("poke2");
+const group = { peek: Peek, poke: Poke2 };
+const both = Kyoot.gen(function* () {
+  yield* Poke2("x");
+  return yield* Peek(undefined);
+});
+const grouped = both.pipe(
+  handleAll(group, {
+    peek: (_, resume) => resume(1),
+    poke: (s, resume) => resume(s.length === 0 ? undefined : undefined),
+  }),
+);
+type _grouped = Expect<Equal<RowsOf<typeof grouped>, {}>>;
+const answeredAll = both.pipe(answerAll(group, { peek: () => 1, poke: (_s) => {} }));
+type _answeredAll = Expect<Equal<RowsOf<typeof answeredAll>, {}>>;
+// a handler's program adds its row
+const logging = both.pipe(
+  handleAll(group, {
+    peek: (_, resume) => Fail.fail("no" as const),
+    poke: (_, resume) => resume(undefined),
+  }),
+);
+type _logging = Expect<Equal<keyof RowsOf<typeof logging>, "fail">>;
+handleAll(group, {
+  // @ts-expect-error resume is typed from the declaration
+  peek: (_, resume) => resume("one"),
+  poke: (_, resume) => resume(undefined),
+});
+// @ts-expect-error every effect in the group needs a handler
+handleAll(group, { peek: (_, resume) => resume(1) });
+handleAll(group, {
+  // @ts-expect-error annotated params must match the declaration (#50)
+  peek: (_p: string, resume: Resume<string>) => resume("x"),
+  poke: (_, resume) => resume(undefined),
+});
+handleAll(group, {
+  // @ts-expect-error an annotated resume must match the declaration
+  peek: (_p, resume: Resume<string>) => resume("x"),
+  poke: (_, resume) => resume(undefined),
+});
+// @ts-expect-error answerAll answers with the declared type
+answerAll(group, { peek: () => "one", poke: () => {} });
+// @ts-expect-error an annotated payload must match the declaration
+answerAll(group, { peek: () => 1, poke: (_s: number) => {} });
+const Other = effect<void, string>()("peek");
+// @ts-expect-error the program's row must hold the group's effects at their declared types
+Other(undefined).pipe(handleAll(group, { peek: (_, r) => r(1), poke: (_, r) => r(undefined) }));
 
 declare const first: boolean;
 const twoAsks = Kyoot.gen(function* () {

@@ -105,7 +105,7 @@ export const chatCompletions = (options: Options) =>
   Model.handle((req, resume) =>
     complete(options, req)
       .pipe(
-        Retry.run(
+        Retry.retry(
           options.retry ?? {
             times: 3,
             delay: (n) => 500 * 2 ** n,

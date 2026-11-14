@@ -176,6 +176,87 @@ export const effect =
     });
   };
 
+// A declared effect, as effect<P, A, C>()(key) returns it.
+type Declared = {
+  readonly key: string;
+  readonly handle: (...args: never) => unknown;
+  readonly intercept: (...args: never) => unknown;
+} & ((payload: never) => AnyKyoot);
+type Effects = Record<string, Declared>;
+
+// The runtime view of a declared effect, for the loops below.
+type Wrap = (k: AnyKyoot) => AnyKyoot;
+type Loose = {
+  readonly key: string;
+  readonly handle: (onOp: unknown) => Wrap;
+  readonly intercept: (f: unknown) => Wrap;
+};
+
+type PayloadIn<E extends Declared> = Parameters<E>[0];
+type AnswerIn<E extends Declared> = ValueOf<ReturnType<E>>;
+type HandlerIn<E extends Declared> = Parameters<E["handle"]>[0];
+
+// One handler per effect, keyed by the same names; payload, resume and answer come from the declarations.
+export type Handlers<Es extends Effects> = { [N in keyof Es]: HandlerIn<Es[N]> };
+// The row of a group: each effect's key mapped to its operation. Used to check the program's row.
+type RowOf<Es extends Effects> = {
+  [N in keyof Es as Es[N]["key"]]?: Op<PayloadIn<Es[N]>, AnswerIn<Es[N]>>;
+};
+type ReturnOf<F> = F extends (...args: never) => infer R ? Extract<R, AnyKyoot> : never;
+
+// Handles a group of declared effects at once: one handler per effect, keyed by the same names.
+// The handlers share whatever state their closure holds. Each is typed from its declaration.
+export type HandleAll<Es extends Effects, R extends AnyKyoot> = <B, S extends Row & RowOf<Es>>(
+  k: Kyoot<B, S>,
+) => Kyoot<B | ValueOf<R>, MergeAll<Omit<S, Es[keyof Es]["key"]> | RowsOf<R>>>;
+
+export const handleAll =
+  <const Es extends Effects, H extends Handlers<Es>>(
+    effects: Es,
+    handlers: H,
+  ): HandleAll<Es, ReturnOf<H[keyof Es]>> =>
+  (k) =>
+    Object.entries(effects as unknown as Record<string, Loose>).reduce(
+      (acc, [n, e]) => e.handle(handlers[n])(acc),
+      k as AnyKyoot,
+    ) as never;
+
+export type AnswerAll<Es extends Effects> = <B, S extends Row>(
+  k: Kyoot<B, S>,
+) => Kyoot<B, MergeAll<Omit<S, Es[keyof Es]["key"]>>>;
+
+// Interceptors for some of a group's effects, keyed by name; the rest pass through untouched.
+export type Interceptors<Es extends Effects> = {
+  [N in keyof Es]?: Parameters<Es[N]["intercept"]>[0];
+};
+
+export const interceptAll =
+  <const Es extends Effects, H extends Interceptors<Es>>(effects: Es, interceptors: H) =>
+  <B, S extends Row>(
+    k: Kyoot<B, S>,
+  ): Kyoot<
+    B,
+    MergeAll<Omit<S, Es[keyof H & keyof Es]["key"]> | RowsOf<ReturnOf<NonNullable<H[keyof H]>>>>
+  > =>
+    Object.entries(effects as unknown as Record<string, Loose>).reduce(
+      (acc, [n, e]) => (interceptors[n] ? e.intercept(interceptors[n])(acc) : acc),
+      k as AnyKyoot,
+    ) as never;
+
+// handleAll for handlers that always resume at once with a value: each answers from its payload and
+// the machine skips the mask and resumer (see answering). Unlike handleAll it does not check the row
+// of the program, so a generic caller (Var.run) states its own bound.
+export const answerAll =
+  <const Es extends Effects>(
+    effects: Es,
+    answers: { [N in keyof Es]: (payload: PayloadIn<Es[N]>) => AnswerIn<Es[N]> },
+  ): AnswerAll<Es> =>
+  (k) =>
+    Object.entries(effects as unknown as Record<string, Loose>).reduce(
+      (acc, [n, e]) => (answering(e.key, answers[n] as (payload: unknown) => unknown) as Wrap)(acc),
+      k as AnyKyoot,
+    ) as never;
+
 export const collect =
   <const K extends string>(key: K) =>
   <A, S extends Row & { [k in K]?: Op<unknown, void> }>(

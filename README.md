@@ -44,6 +44,12 @@ Handlers don't cross a fork. A fork leaves its program's unhandled effects in th
 
 In a simulation a world responder can fail with the program's typed error: return `Sim.fail(new FsError(...))`. While `Sim.run` (and `explore`/`shrink`) executes, `Date.now`, `performance.now`, `Math.random`, timers, `fetch` and `crypto` randomness throw, because they would break determinism; pass `{ guard: false }` to turn that off. The guard covers the run only, not module-level code or `new Date()`.
 
+## Conventions
+
+A handler is named for what it does to the effect it discharges. `X.run` is the default (or only) handler and runs the program with X discharged (`Fail.run`, `Var.run`, `Resource.run`, `Sync.run`). Alternatives are named by behaviour, one name per behaviour across effects: `live` (real world), `virtual`, `manual` and `seeded` (controlled), `print` (to the console), `forEach(f)`, `collect`, `discard`; `provide` supplies a service. Non-handlers do not look like handlers (`Retry.retry`).
+
+Each operation of an effect is its own effect with its own key: `Var` has `var/<id>/get`, `var/<id>/set` and `var/<id>/update`, and `Count.intercept.set(...)` touches only sets.
+
 ## Try it
 
 Needs Node 22.18+, which runs the TypeScript directly.

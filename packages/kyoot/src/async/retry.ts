@@ -12,7 +12,7 @@ export interface Policy {
 const delayOf = ({ delay = 0 }: Policy, attempt: number) =>
   typeof delay === "function" ? delay(attempt) : delay;
 
-export const run =
+export const retry =
   (policy: Policy) =>
   <A, S extends Row & { fail?: Op<unknown, never> }>(
     k: Kyoot<A, S>,

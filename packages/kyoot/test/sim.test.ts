@@ -232,7 +232,7 @@ test("sim: world responders can delay, throw, and draw seeded randomness", () =>
     }
   });
   const world = () => ({
-    "io/flaky": (_: void, io: Sim.IoContext) => {
+    "io/flaky": (_: void, io: Sim.WorldContext) => {
       if (io.random() < 0.5) throw new Error("connection reset");
       return Sim.delay(250, 42);
     },

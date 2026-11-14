@@ -12,7 +12,6 @@
     "./log": "./src/effects/log.ts",
     "./random": "./src/effects/random.ts",
     "./resource": "./src/effects/resource.ts",
-    "./sync": "./src/effects/sync.ts",
     "./var": "./src/effects/var.ts",
     "./async": "./src/async/index.ts",
     "./sim": "./src/sim/index.ts"

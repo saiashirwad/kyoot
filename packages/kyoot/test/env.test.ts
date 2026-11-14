@@ -39,10 +39,10 @@ test("Env: a resource the program opens is released after the program", () => {
   const events: string[] = [];
   const make = Kyoot.gen(function* () {
     const conn = yield* Resource.acquire(
-      () => {
+      Kyoot.sync(() => {
         events.push("open");
         return { run: (sql: string) => `ran ${sql}` };
-      },
+      }),
       () => events.push("close"),
     );
     return { query: (sql: string) => conn.run(sql) };

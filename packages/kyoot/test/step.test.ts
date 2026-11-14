@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { drive } from "../examples/step.ts";
 import { effect, ensuring, Kyoot } from "../src/index.ts";
-import * as Sync from "../src/effects/sync.ts";
 import * as Var from "../src/effects/var.ts";
 
 const Ask = effect<string, number>()("ask");
@@ -72,7 +71,10 @@ test("step: raise throws at the operation, where the program can catch it", () =
 test("step: an error the program does not catch leaves through the driver", () => {
   const boom = new Error("boom");
   const events: string[] = [];
-  const program = ensuring(Ask("n"), Sync.defer(() => events.push("cleanup")).pipe(Sync.run));
+  const program = ensuring(
+    Ask("n"),
+    Kyoot.sync(() => events.push("cleanup")),
+  );
   assert.throws(
     () => pending(Kyoot.step(program)).raise(boom),
     (e) => e === boom,
@@ -89,7 +91,10 @@ test("step: cancel runs finally blocks and ensuring, innermost first", () => {
       events.push("finally");
     }
   });
-  const program = ensuring(inner, Sync.defer(() => events.push("ensuring")).pipe(Sync.run));
+  const program = ensuring(
+    inner,
+    Kyoot.sync(() => events.push("ensuring")),
+  );
   assert.deepEqual(pending(Kyoot.step(program)).cancel(), { done: true, value: undefined });
   assert.deepEqual(events, ["finally", "ensuring"]);
 });
@@ -150,7 +155,12 @@ test("step: disposing abandons cleanup that waits on an effect, and still closes
 test("step: disposing a used step does nothing", () => {
   const events: string[] = [];
   const first = pending(
-    Kyoot.step(ensuring(Ask("n"), Sync.defer(() => events.push("cleanup")).pipe(Sync.run))),
+    Kyoot.step(
+      ensuring(
+        Ask("n"),
+        Kyoot.sync(() => events.push("cleanup")),
+      ),
+    ),
   );
   assert.deepEqual(first.resume(1), { done: true, value: 1 });
   first[Symbol.dispose]();

@@ -4,10 +4,10 @@ import * as Resource from "../src/effects/resource.ts";
 
 const connection = (name: string) =>
   Resource.acquire(
-    () => {
+    Kyoot.sync(() => {
       console.log(`open ${name}`);
       return { name };
-    },
+    }),
     (conn) => console.log(`close ${conn.name}`),
   );
 

@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Kyoot } from "../src/index.ts";
 import * as Fail from "../src/effects/fail.ts";
-import * as Sync from "../src/effects/sync.ts";
 import { Clock, Retry, runPromise } from "../src/async/index.ts";
 
 class Flaky {
@@ -56,13 +55,12 @@ test("Retry: gives up when `while` rejects the failure", () => {
 test("Retry: defects are not retried", () => {
   let calls = 0;
   const boom = new Error("boom");
-  const prog = Sync.defer(() => {
+  const prog = Kyoot.sync(() => {
     calls++;
     throw boom;
   });
   assert.throws(
-    () =>
-      Kyoot.runSync(prog.pipe(Sync.run, Retry.retry({ times: 3 }), Fail.orThrow, Clock.virtual)),
+    () => Kyoot.runSync(prog.pipe(Retry.retry({ times: 3 }), Fail.orThrow, Clock.virtual)),
     (e) => e === boom,
   );
   assert.equal(calls, 1);

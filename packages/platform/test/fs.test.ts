@@ -92,3 +92,50 @@ test("node: exists returns false when a path component is not a directory", asyn
     await fsp.rm(root, { recursive: true });
   }
 });
+
+for (const destination of ["/d/sub/moved", "/d/sub/../sub/moved"]) {
+  test(`memory: rename refuses a directory descendant ${destination}`, () => {
+    const initial = { "/d/sub/x": "child", "/d/y": "parent" };
+    const [result, files] = Kyoot.runSync(
+      FileSystem.rename("/d", destination).pipe(Fail.run, Memory.fs(initial)),
+    );
+    assert.ok(!result.ok && result.cause._tag === "Fail");
+    assert.deepEqual(files, initial);
+  });
+}
+
+for (const [name, initial] of [
+  ["file over directory", { "/source": "s", "/destination/y": "d" }],
+  ["directory over file", { "/source/x": "s", "/destination": "d" }],
+  ["directory over non-empty directory", { "/source/x": "s", "/destination/y": "d" }],
+] as const) {
+  test(`memory: rename refuses ${name}`, () => {
+    const [result, files] = Kyoot.runSync(
+      FileSystem.rename("/source", "/destination").pipe(Fail.run, Memory.fs(initial)),
+    );
+    assert.ok(!result.ok && result.cause._tag === "Fail");
+    assert.deepEqual(files, initial);
+  });
+}
+
+test("memory: rename to the same path is a no-op", () => {
+  const initial = { "/d/x": "child" };
+  const [, files] = Kyoot.runSync(
+    Kyoot.gen(function* () {
+      yield* FileSystem.rename("/d", "/d/.");
+      yield* FileSystem.rename("/d/x", "/d/../d/x");
+    }).pipe(Fail.orThrow, Memory.fs(initial)),
+  );
+  assert.deepEqual(files, initial);
+});
+
+test("memory: rename replaces an empty directory and a file", () => {
+  const [, files] = Kyoot.runSync(
+    Kyoot.gen(function* () {
+      yield* FileSystem.mkdir("/empty");
+      yield* FileSystem.rename("/dir", "/empty");
+      yield* FileSystem.rename("/a", "/b");
+    }).pipe(Fail.orThrow, Memory.fs({ "/dir/x": "1", "/a": "new", "/b": "old" })),
+  );
+  assert.deepEqual(files, { "/empty/x": "1", "/b": "new" });
+});

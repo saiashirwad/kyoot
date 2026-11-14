@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { effect, Fail, Kyoot, Resource, Sync } from "../src/index.ts";
-import { Async, Clock, runPromise } from "../src/async/index.ts";
+import { Async, Clock, runFiber, runPromise } from "../src/async/index.ts";
 
 test("Resource: release runs on success", () => {
   const events: string[] = [];
@@ -19,6 +19,80 @@ test("Resource: release runs on success", () => {
   assert.equal(Kyoot.runSync(prog.pipe(Resource.run)), "done");
   assert.deepEqual(events, ["acquire", "use conn", "release"]);
 });
+
+test("Resource: a typed release failure does not skip older finalizers", () => {
+  const events: string[] = [];
+  const program = Kyoot.gen(function* () {
+    yield* Resource.acquire(
+      () => "old",
+      () => events.push("old"),
+    );
+    yield* Resource.acquire(
+      () => "new",
+      () => {
+        events.push("new");
+        return Fail.fail("release failed");
+      },
+    );
+    return 7;
+  }).pipe(Resource.run, Fail.run);
+  assert.deepEqual(Kyoot.runSync(program), {
+    ok: false,
+    cause: { _tag: "Fail", error: "release failed" },
+  });
+  assert.deepEqual(events, ["new", "old"]);
+});
+
+test("Resource: the body defect wins over typed release failures", () => {
+  const events: string[] = [];
+  const defect = new Error("body failed");
+  const program = Kyoot.gen(function* () {
+    yield* Resource.acquire(
+      () => "old",
+      () => events.push("old"),
+    );
+    yield* Resource.acquire(
+      () => "new",
+      () => {
+        events.push("new");
+        return Fail.fail("release failed");
+      },
+    );
+    throw defect;
+  }).pipe(Resource.run, Fail.run);
+  assert.deepEqual(Kyoot.runSync(program), { ok: false, cause: { _tag: "Defect", defect } });
+  assert.deepEqual(events, ["new", "old"]);
+});
+
+for (const runner of ["sync", "fiber"] as const) {
+  test(`Resource: ${runner} keeps a boundary error over a release defect`, async () => {
+    const events: string[] = [];
+    const Missing = effect<undefined, void>()("missing");
+    const program = Kyoot.gen(function* () {
+      yield* Resource.acquire(
+        () => "old",
+        () => events.push("old"),
+      );
+      yield* Resource.acquire(
+        () => "new",
+        () => {
+          events.push("new");
+          throw new Error("release defect");
+        },
+      );
+      yield* Missing(undefined);
+    }).pipe(Resource.run);
+    if (runner === "sync") {
+      assert.throws(
+        () => Reflect.apply(Kyoot.runSync, undefined, [program]),
+        /unhandled effect 'missing'/,
+      );
+    } else {
+      await assert.rejects(runFiber(program).promise, /unhandled effect 'missing'/);
+    }
+    assert.deepEqual(events, ["new", "old"]);
+  });
+}
 
 test("Resource: finalizers run in LIFO order", () => {
   const events: string[] = [];

@@ -77,6 +77,11 @@ export function step<A, S extends Row>(k: Kyoot<A, S>): Step<A, S> {
 export function runSync<A, S extends Row>(k: Kyoot<A, S> & Only<S>): A {
   const first = step(k as AnyKyoot) as AnyStep;
   if (first.done) return first.value as A;
-  first[Symbol.dispose]();
-  throw new Error(`runSync encountered unhandled effect '${String(first.key)}'`);
+  const error = new Error(`runSync encountered unhandled effect '${String(first.key)}'`);
+  try {
+    first[Symbol.dispose]();
+  } catch {
+    // The boundary error outranks whatever a cleanup throws on the way out.
+  }
+  throw error;
 }

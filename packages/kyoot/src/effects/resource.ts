@@ -1,16 +1,8 @@
-import {
-  catchDefect,
-  ensuring,
-  gen,
-  isKyoot,
-  makeHandler,
-  makeIntercept,
-  op,
-  unit,
-  type Resume,
-} from "../core.ts";
-import type { Kyoot, RowsOf } from "../model.ts";
+import { ensuring, gen, isKyoot, makeHandler, makeIntercept, op, type Resume } from "../core.ts";
+import type { AnyKyoot, Kyoot, RowsOf } from "../model.ts";
+import { Result } from "../result.ts";
 import type { MergeAll, Op, Payload, Row } from "../types.ts";
+import * as Fail from "./fail.ts";
 
 type Finalizer = () => unknown;
 
@@ -29,21 +21,25 @@ export const acquire = <R, C>(open: () => R, close: (r: R) => C) =>
 export const intercept = <S extends Row = {}>() =>
   makeIntercept<"resource", ResourceOp<S>, unknown>("resource");
 
-const finalize = (finalizers: readonly Finalizer[]) =>
+const finalize = (finalizers: readonly Finalizer[], completed: () => boolean) =>
   gen(function* () {
-    let failed: { defect: unknown } | undefined;
-    const record = (defect: unknown) => ((failed ??= { defect }), unit);
+    let first: Result<unknown, unknown> | undefined;
     for (let i = finalizers.length - 1; i >= 0; i--) {
       let r: unknown;
       try {
         r = finalizers[i]!();
       } catch (defect) {
-        record(defect);
+        first ??= Result.defect(defect);
         continue;
       }
-      if (isKyoot(r)) yield* catchDefect(r, record);
+      if (!isKyoot(r)) continue;
+      const result = yield* Fail.run(r as AnyKyoot);
+      if (!result.ok) first ??= result;
     }
-    if (failed !== undefined) throw failed.defect;
+    // A typed release failure reports only when the body finished; otherwise the body's outcome stands.
+    if (first !== undefined && !first.ok && (first.cause._tag === "Defect" || completed())) {
+      yield* Fail.fromResult(first);
+    }
   });
 
 type ReleaseRow<R> = R extends ResourceOp<infer S> ? S : never;
@@ -53,6 +49,7 @@ export const run = <A, S extends Row & { resource?: Op<ResourceOp<any>, unknown>
 ): Kyoot<A, MergeAll<Omit<S, "resource"> | ReleaseRow<Payload<S, "resource">>>> =>
   gen(function* () {
     const finalizers: Finalizer[] = [];
+    let done = false;
     const scope = makeHandler("resource", k, {
       fork: run,
       onOp: (res: ResourceOp<any>, resume: Resume<unknown, undefined>) => {
@@ -61,5 +58,8 @@ export const run = <A, S extends Row & { resource?: Op<ResourceOp<any>, unknown>
         return resume(r);
       },
     });
-    return yield* ensuring(scope, finalize(finalizers));
+    return yield* ensuring(
+      scope.map((a) => ((done = true), a)),
+      finalize(finalizers, () => done),
+    );
   }) as never;

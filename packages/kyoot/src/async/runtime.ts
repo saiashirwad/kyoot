@@ -89,7 +89,7 @@ class Fiber<A> implements FiberHandle<A> {
     try {
       this.pump(run());
     } catch (error) {
-      this.reject(error);
+      this.reject(this.exit?.error ?? error);
     }
   }
 

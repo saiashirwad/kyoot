@@ -7,6 +7,7 @@ A program's type lists the effects it still needs. Handlers are plain functions;
 - [Example](#example)
 - [Effects and handlers](#effects-and-handlers)
 - [Running a program](#running-a-program)
+- [Driving a program from a host](#driving-a-program-from-a-host)
 - [Built-in effects](#built-in-effects)
 - [Concurrency](#concurrency)
 - [Simulation](#simulation)
@@ -73,13 +74,48 @@ Each declared effect has:
 
 - `Kyoot.runSync(program)` runs a program with no effects left.
 - `runPromise(program)` from `kyoot/async` runs one that also does async work.
-- `Kyoot.step(program)` hands each effect to the caller, which answers it with `resume`. The program itself does no IO, so a browser, server or test can drive it.
+- `Kyoot.step(program)` hands each effect to the caller. See below.
+
+## Driving a program from a host
+
+`Kyoot.step` pauses at each effect the program still needs. The host reads `key` and `payload` and answers with `resume`. The program does no IO itself, so the host decides how each request is answered: from a UI, a server, a queue, or a test script.
+
+Here an AI agent with one tool is driven by a host that owns the model call, the user's approval and the weather lookup:
 
 ```ts
-let step = Kyoot.step(program);
-while (!step.done) step = step.resume("ada"); // step.key === "ask"
-step.value; // "hello ada"
+const Forecast = effect<{ city: string }, string>()("forecast");
+const forecast = needsApproval(
+  Tool("forecast", "Weather for a city", z.object({ city: z.string() }), Forecast),
+);
+
+const agent = AI.ask("Do I need an umbrella in Pune?", { tools: [forecast] }).pipe(
+  Emit.discard,
+  Fail.orThrow,
+);
+
+let step = Kyoot.step(agent);
+while (!step.done) {
+  switch (step.key) {
+    case "ai/model":
+      step = step.resume(await callModel(step.payload));
+      break;
+    case "ai/approve":
+      step = step.resume(await askUser(step.payload));
+      break;
+    case "forecast":
+      step = step.resume(await weather(step.payload.city));
+      break;
+  }
+}
+step.value; // "Yes, it will rain."
 ```
+
+`step.key` is one of the effects in the program's type, and checking it narrows `payload` and what `resume` accepts. A test can drive the same loop with scripted answers and record every request ([`host.ts`](packages/ai/examples/host.ts)).
+
+- The same loop runs a state machine written as plain code: the program waits on a `recv` effect, and each `resume(event)` advances it ([`step.ts`](packages/kyoot/examples/step.ts)).
+- `cancel()` unwinds the program, running `finally` blocks and releasing resources. A step also cleans up when declared with `using`.
+- Each step can be resumed once.
+- A paused step lives in memory. It doesn't survive a process restart.
 
 ## Built-in effects
 

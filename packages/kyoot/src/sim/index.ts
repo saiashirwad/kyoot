@@ -27,7 +27,7 @@ export type {
 } from "../async/effects.ts";
 export { bounded, pct, random, replay } from "./strategy.ts";
 export type { Chooser, Strategy } from "./strategy.ts";
-export { delay, Delayed, format, run, showExit, showTime } from "./scheduler.ts";
+export { delay, Delayed, fail, Failed, format, run, showExit, showTime } from "./scheduler.ts";
 export { explore, shrink, showShrink } from "./explore.ts";
 export type { Check, Cost, Explored, Shrunk } from "./explore.ts";
 export type {

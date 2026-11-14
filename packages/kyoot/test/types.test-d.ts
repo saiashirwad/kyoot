@@ -235,7 +235,10 @@ const needsGreeter = Kyoot.gen(function* () {
 // must answer it for every fiber, so runPromise still asks for a greeter handler.
 const forkedNeedy = Async.fork(needsGreeter);
 type _needyKeys = Expect<
-  Equal<keyof RowsOf<typeof forkedNeedy>, "fiber/fork" | "env/greeter" | "clock/sleep">
+  Equal<
+    keyof RowsOf<typeof forkedNeedy>,
+    "fiber/fork" | "env/greeter" | "fork/env/greeter" | "clock/sleep"
+  >
 >;
 // @ts-expect-error runPromise names what no handler answers: Unhandled<"env/greeter">
 runPromise(forkedNeedy);

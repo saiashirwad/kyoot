@@ -9,7 +9,9 @@ export type {
   ConcurrencyRow,
   Exit,
   Fiber,
+  ForkMarked,
   ForkRequest,
   Interrupted,
+  Unmarked,
 } from "./effects.ts";
 export type { AsyncOp, AsyncRow } from "./promise.ts";

@@ -36,8 +36,8 @@ test("a forked fiber installs its own clock, and interrupt cancels its sleep", a
   const r = await runPromise(
     Kyoot.gen(function* () {
       const fiber = yield* Async.fork(Clock.sleep(10_000).pipe(Clock.live));
-      yield* fiber.interrupt;
-      return yield* fiber.await;
+      yield* Async.interrupt(fiber);
+      return yield* Async.wait(fiber);
     }),
   );
   assert.equal(r.ok, false);
@@ -56,7 +56,7 @@ test("Clock.test: sleeps wait for advance and time is shared with forks", async 
       );
       yield* nap(10);
       seen.push("parent");
-      yield* f.join;
+      yield* Async.join(f);
     }).pipe(Fail.orThrow, clock.handler),
   );
   await clock.advance(10);

@@ -115,7 +115,7 @@ test("a fiber forked from handler code is handled by its own handlers", async ()
     Poke.handle((_, resume) =>
       Kyoot.gen(function* () {
         const fiber = yield* Async.fork(Ask("fiber").pipe(answer("fiber")));
-        return yield* resume(yield* fiber.join);
+        return yield* resume(yield* Async.join(fiber));
       }),
     ),
     answer("outer"),

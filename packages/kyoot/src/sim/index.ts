@@ -1,28 +1,30 @@
-// Deterministic simulation: concurrency as data effects, run by a seeded scheduler.
+// Deterministic simulation: the concurrency effects of kyoot/async, run by a seeded scheduler.
 // import * as Sim from "kyoot/sim"
+// The effects are re-exported here so a test can read Sim.fork / Sim.sleep; they are the same
+// functions as Async.fork / Async.sleep, and the same program runs under runPromise.
 export {
   all,
   fork,
-  FiberInterrupted,
+  fromExit,
   interrupt,
   join,
   now,
+  provide,
+  race,
   sleep,
   timeout,
   Timeout,
   wait,
   yieldNow,
-} from "./effects.ts";
+} from "../async/effects.ts";
 export type {
-  ChildKey,
+  ConcurrencyKey,
+  ConcurrencyRow,
   Exit,
   Fiber,
   ForkRequest,
   Interrupted,
-  IoKey,
-  SimKey,
-  SimRow,
-} from "./effects.ts";
+} from "../async/effects.ts";
 export { bounded, pct, random, replay } from "./strategy.ts";
 export type { Chooser, Strategy } from "./strategy.ts";
 export { delay, Delayed, format, run, showExit, showTime } from "./scheduler.ts";
@@ -33,7 +35,10 @@ export type {
   RunOptions,
   SimExit,
   SimResult,
+  Simulable,
   Stuck,
   TraceEvent,
   World,
+  WorldContext,
+  WorldKeysOf,
 } from "./scheduler.ts";

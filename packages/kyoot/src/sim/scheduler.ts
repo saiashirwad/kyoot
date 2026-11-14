@@ -3,7 +3,7 @@ import type { Err } from "../effects/fail.ts";
 import type { Kyoot } from "../model.ts";
 import { step } from "../step.ts";
 import type { Answer, Only, Payload, Row } from "../types.ts";
-import type { ChildKey, Exit, Fiber, ForkRequest, IoKey } from "./effects.ts";
+import type { ConcurrencyKey, Exit, Fiber, ForkRequest } from "../async/effects.ts";
 import { prng, random, type Strategy } from "./strategy.ts";
 
 export type Stuck =
@@ -30,25 +30,36 @@ export class Delayed<A> {
 
 export const delay = <A>(ms: number, answer: A) => new Delayed(ms, answer);
 
-export interface IoContext {
+export interface WorldContext {
   readonly now: number;
   readonly fiber: string;
   // Seeded, and separate from the scheduler's stream: use it for fault injection.
   random(): number;
 }
 
-type IoKeysOf<S> = Extract<keyof S, IoKey>;
+/** @deprecated renamed to WorldContext */
+export type IoContext = WorldContext;
 
-// One responder per io/ effect. It answers synchronously, may answer later with delay(), or throw to
-// raise the error at the fiber's operation.
+// Keys the scheduler answers itself. "fail" ends a fiber with a typed failure, and "async" (promise
+// interop) can't run in a simulation at all.
+type Reserved = ConcurrencyKey | "random" | "fail" | "async";
+
+export type WorldKeysOf<S> = Exclude<keyof S, Reserved> & string;
+
+// What Sim.run accepts: anything but promise interop. Declare an effect for that I/O instead.
+export type Simulable<S extends Row> = Only<S, Exclude<keyof S, "async">>;
+
+// One responder per effect the program leaves to the outside world, whatever its key (db/get,
+// fs/readFile, ai/model). It answers synchronously, may answer later with delay(), or throw to
+// raise the error at the fiber's operation. In production, ordinary handlers answer the same keys.
 export type World<S> = {
-  readonly [K in IoKeysOf<S>]: (
+  readonly [K in WorldKeysOf<S>]: (
     payload: Payload<S, K>,
-    ctx: IoContext,
+    ctx: WorldContext,
   ) => Answer<S, K> | Delayed<Answer<S, K>>;
 };
 
-type WorldOption<S, W> = [IoKeysOf<S>] extends [never]
+type WorldOption<S, W> = [WorldKeysOf<S>] extends [never]
   ? { readonly world?: () => W }
   : { readonly world: () => W };
 
@@ -131,11 +142,11 @@ const INTERRUPTED: Exit<never, never> = { ok: false, cause: { _tag: "Interrupted
  *   which runs its finally blocks and ensuring cleanups; those may perform effects as usual.
  *
  * Determinism contract: the program may reach time, randomness and I/O only through effects
- * (clock/*, random, io/*). The whole program runs from scratch on every call, so state created
+ * (clock/*, random, and effects the world answers). The whole program runs from scratch on every call, so state created
  * inside it (a variable in a generator, the world from `world()`) is fresh per run.
  */
 export function run<A, S extends Row, W extends World<S> = World<S>>(
-  program: Kyoot<A, S> & Only<S, ChildKey>,
+  program: Kyoot<A, S> & Simulable<S>,
   options: RunOptions<S, W>,
 ): SimResult<A, FailOf<S>, W> {
   const { seed, maxSteps = 100_000, strategy = random() } = options;
@@ -146,7 +157,7 @@ export function run<A, S extends Row, W extends World<S> = World<S>>(
   let last: number | undefined;
   const chance = prng(seed ^ 0x5bd1e995);
   const world = (options.world?.() ?? {}) as W;
-  const responders = world as unknown as Record<string, (p: unknown, ctx: IoContext) => unknown>;
+  const responders = world as unknown as Record<string, unknown>;
   const trace: TraceEvent[] = [];
   const runnable: FiberState[] = [];
   const fibers: FiberState[] = [];
@@ -261,7 +272,7 @@ export function run<A, S extends Row, W extends World<S> = World<S>>(
         return join(f, target, "exit");
       }
       case "fiber/interrupt": {
-        const target = fiberOf(payload as Fiber<unknown, unknown>);
+        const target = payload === undefined ? f : fiberOf(payload as Fiber<unknown, unknown>);
         log(f, `interrupt ${target.handle.name}`);
         if (target === f) {
           requestInterrupt(f);
@@ -272,7 +283,6 @@ export function run<A, S extends Row, W extends World<S> = World<S>>(
       }
       case "fiber/yield":
         return schedule(f, { kind: "resume", value: undefined });
-      case "clock":
       case "clock/sleep": {
         const ms = Math.max(0, payload as number);
         f.status = "sleeping";
@@ -288,27 +298,38 @@ export function run<A, S extends Row, W extends World<S> = World<S>>(
         return schedule(f, { kind: "resume", value: x });
       }
     }
-    const responder = key.startsWith("io/") ? responders[key] : undefined;
-    if (responder === undefined) {
+    if (key === "async") {
+      log(f, "async ✗");
+      const error = new Error(
+        `sim: promise interop (Async.fromPromise) can't run in a simulation (fiber ${f.handle.name}); declare an effect for it and answer it from the world`,
+      );
+      return schedule(f, { kind: "raise", error });
+    }
+    const responder = responders[key];
+    if (typeof responder !== "function") {
       log(f, `unhandled ${key}`);
       const error = new Error(`sim: no handler for effect '${key}' in fiber ${f.handle.name}`);
       return schedule(f, { kind: "raise", error });
     }
     let result: unknown;
     try {
-      result = responder(payload, { now, fiber: f.handle.name, random: chance });
+      result = (responder as (p: unknown, ctx: WorldContext) => unknown)(payload, {
+        now,
+        fiber: f.handle.name,
+        random: chance,
+      });
     } catch (error) {
-      log(f, `${key} ${show(payload)} ✗ ${show(error)}`);
+      log(f, `${key}${showPayload(payload)} ✗ ${show(error)}`);
       return schedule(f, { kind: "raise", error });
     }
     if (result instanceof Delayed) {
-      log(f, `${key} ${show(payload)} → (in ${showTime(result.ms)}) ${show(result.answer)}`);
+      log(f, `${key}${showPayload(payload)} → (in ${showTime(result.ms)}) ${show(result.answer)}`);
       f.status = "sleeping";
       f.until = now + result.ms;
       f.next = { kind: "resume", value: result.answer };
       return;
     }
-    log(f, `${key} ${show(payload)}${result === undefined ? "" : ` → ${show(result)}`}`);
+    log(f, `${key}${showPayload(payload)}${result === undefined ? "" : ` → ${show(result)}`}`);
     schedule(f, { kind: "resume", value: result });
   };
 
@@ -407,6 +428,8 @@ const show = (v: unknown): string => {
   const text = typeof v === "function" ? "<function>" : (JSON.stringify(v) ?? String(v));
   return text.length > 60 ? `${text.slice(0, 57)}...` : text;
 };
+
+const showPayload = (payload: unknown) => (payload === undefined ? "" : ` ${show(payload)}`);
 
 export const showExit = (exit: SimExit<unknown, unknown>): string => {
   if (exit.ok) return exit.value === undefined ? "ok" : `ok ${show(exit.value)}`;

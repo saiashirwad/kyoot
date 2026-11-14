@@ -1,12 +1,12 @@
 import type { Kyoot } from "../model.ts";
-import type { Only, Row } from "../types.ts";
-import type { ChildKey } from "./effects.ts";
+import type { Row } from "../types.ts";
 import {
   run,
   showExit,
   type FailOf,
   type RunOptions,
   type SimResult,
+  type Simulable,
   type World,
 } from "./scheduler.ts";
 import type { Strategy } from "./strategy.ts";
@@ -86,7 +86,7 @@ type ShrinkOptions<S, W> = Omit<RunOptions<S, W>, "seed" | "strategy"> & {
  * has no more preemptions and no more steps. Deterministic: the same input shrinks the same way.
  */
 export function shrink<A, S extends Row, W extends World<S> = World<S>>(
-  program: Kyoot<A, S> & Only<S, ChildKey>,
+  program: Kyoot<A, S> & Simulable<S>,
   failing: SimResult<A, FailOf<S>, W>,
   options: ShrinkOptions<S, W>,
 ): Shrunk<A, FailOf<S>, W> {
@@ -204,7 +204,7 @@ export function shrink<A, S extends Row, W extends World<S> = World<S>>(
  * (`shrunk`), unless `shrink: false`.
  */
 export function explore<A, S extends Row, W extends World<S> = World<S>>(
-  program: Kyoot<A, S> & Only<S, ChildKey>,
+  program: Kyoot<A, S> & Simulable<S>,
   options: Omit<RunOptions<S, W>, "seed"> & {
     readonly seeds: number | Iterable<number>;
     readonly check?: Check<A, FailOf<S>, W>;

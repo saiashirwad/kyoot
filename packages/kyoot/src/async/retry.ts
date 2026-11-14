@@ -16,7 +16,7 @@ export const run =
   (policy: Policy) =>
   <A, S extends Row & { fail?: Op<unknown, never> }>(
     k: Kyoot<A, S>,
-  ): Kyoot<A, MergeAll<S | { clock: Op<number, void> }>> => {
+  ): Kyoot<A, MergeAll<S | { "clock/sleep": Op<number, void> }>> => {
     const attempt = (tries: number): Kyoot<A, any> =>
       k.pipe(
         Fail.catchAll((e: unknown): Kyoot<A, any> =>

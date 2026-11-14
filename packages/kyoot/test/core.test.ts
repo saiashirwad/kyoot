@@ -442,15 +442,15 @@ test("Resource intercept sees each acquire", () => {
   assert.deepEqual(opened, ["conn"]);
 });
 
-test("Async intercept sees every async op, fork and join included", async () => {
+test("Async intercept sees promise ops; fork and join are effects of their own", async () => {
   let ops = 0;
   const count = Async.intercept((op, next) => (ops++, next(op)));
   const program = Kyoot.gen(function* () {
     const fiber = yield* Async.fork(Kyoot.succeed(1));
-    return yield* fiber.join;
+    return (yield* Async.join(fiber)) + (yield* Async.fromPromise(() => Promise.resolve(1)));
   });
-  assert.equal(await runPromise(program.pipe(count)), 1);
-  assert.equal(ops, 2);
+  assert.equal(await runPromise(program.pipe(count)), 2);
+  assert.equal(ops, 1);
 });
 
 test("resume.with computes the answer at the op, so a throw lands where the op was performed", () => {

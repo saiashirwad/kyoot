@@ -14,11 +14,11 @@ export const usage = <A, S extends Row & { "ai/model"?: Op<Request, Completion> 
   Kyoot.gen(function* () {
     const total = { input: 0, output: 0 };
     const a = yield* k.pipe(
-      Model.handle((req, resume) =>
-        Model(req).flatMap((c) => {
+      Model.intercept((req, next) =>
+        next(req).map((c) => {
           total.input += c.usage?.input ?? 0;
           total.output += c.usage?.output ?? 0;
-          return resume(c);
+          return c;
         }),
       ),
     );

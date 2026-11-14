@@ -9,7 +9,6 @@ import {
   AI,
   Approve,
   Events,
-  generate,
   Mode,
   Model,
   needsApproval,
@@ -95,24 +94,12 @@ test("ask: gives up with TooManyRounds", () => {
   assert.ok(!r.ok && r.cause._tag === "Fail" && r.cause.error instanceof TooManyRounds);
 });
 
-test("generate: one shot, returns the new messages", () => {
-  const [value, added] = Kyoot.runSync(
-    generate([{ role: "user", content: "hi" }]).pipe(
-      scripted([say("hey")]),
-      Emit.discard,
-      Fail.orThrow,
-    ),
-  );
-  assert.equal(value, "hey");
-  assert.deepEqual(added, [{ role: "assistant", content: "hey" }]);
-});
-
 test("instances keep history; agents compose as tools with their own model", () => {
-  const critic = AI.make({ prompt: "You critique." });
+  const critic = AI.chat({ prompt: "You critique." });
   const consult = Tool("critic", "ask the critic", z.object({ draft: z.string() }), ({ draft }) =>
     critic.ask(draft).pipe(scripted([say("too long")])),
   );
-  const writer = AI.make({ tools: [consult] });
+  const writer = AI.chat({ tools: [consult] });
   const seen: Request[] = [];
   const [answer, usage] = Kyoot.runSync(
     Kyoot.gen(function* () {

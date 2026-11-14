@@ -16,7 +16,7 @@ const motions = [
 ];
 
 const debater = (name: string, stance: string) =>
-  AI.make({
+  AI.chat({
     prompt: `You are ${name}, debating ${stance} the motion. Two punchy sentences per turn. Rebut your opponent and never concede.`,
   });
 

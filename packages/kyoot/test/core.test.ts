@@ -408,8 +408,8 @@ test("Var intercept validates a set; the failure lands at the set", () => {
   class Negative {
     readonly _tag = "Negative";
   }
-  const guard = Balance.intercept((op, next) =>
-    op.kind === "set" && op.value < 0 ? Fail.fail(new Negative()) : next(op),
+  const guard = Balance.intercept.set((value, next) =>
+    value < 0 ? Fail.fail(new Negative()) : next(value),
   );
   const program = Kyoot.gen(function* () {
     yield* Balance.set(5);

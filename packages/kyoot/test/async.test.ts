@@ -255,7 +255,7 @@ test("all: results come back in input order, not completion order", async () => 
 });
 
 test("all: branches run concurrently", async () => {
-  const clock = Clock.test();
+  const clock = Clock.manual();
   const events: string[] = [];
   const branch = (tag: string, ms: number) =>
     Kyoot.gen(function* () {

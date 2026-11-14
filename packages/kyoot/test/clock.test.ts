@@ -45,8 +45,8 @@ test("a forked fiber installs its own clock, and interrupt cancels its sleep", a
 
 const nap = (ms: number) => Clock.sleep(ms).map(() => "done" as const);
 
-test("Clock.test: sleeps wait for advance and time is shared with forks", async () => {
-  const clock = Clock.test();
+test("Clock.manual: sleeps wait for advance and time is shared with forks", async () => {
+  const clock = Clock.manual();
   const seen: string[] = [];
   const p = runPromise(
     Kyoot.gen(function* () {
@@ -68,8 +68,8 @@ test("Clock.test: sleeps wait for advance and time is shared with forks", async 
   assert.equal(clock.now, 20);
 });
 
-test("Clock.test: a woken fiber that sleeps again inside the window is woken too", async () => {
-  const clock = Clock.test();
+test("Clock.manual: a woken fiber that sleeps again inside the window is woken too", async () => {
+  const clock = Clock.manual();
   const p = runPromise(
     Kyoot.gen(function* () {
       yield* Clock.sleep(5);
@@ -81,8 +81,8 @@ test("Clock.test: a woken fiber that sleeps again inside the window is woken too
   assert.equal(await p, "x");
 });
 
-test("timeout with Clock.test: fires without real waiting", async () => {
-  const clock = Clock.test();
+test("timeout with Clock.manual: fires without real waiting", async () => {
+  const clock = Clock.manual();
   const p = runPromise(
     Async.timeout(1_000_000, nap(2_000_000), { provide: (k) => k.pipe(clock.handler) }).pipe(
       Fail.run,
@@ -93,8 +93,8 @@ test("timeout with Clock.test: fires without real waiting", async () => {
   assert.ok(!r.ok && r.cause._tag === "Fail" && r.cause.error instanceof Async.Timeout);
 });
 
-test("timeout with Clock.test: the fast path wins", async () => {
-  const clock = Clock.test();
+test("timeout with Clock.manual: the fast path wins", async () => {
+  const clock = Clock.manual();
   const p = runPromise(
     Async.timeout(1_000, nap(10), { provide: (k) => k.pipe(clock.handler) }).pipe(Fail.orThrow),
   );
@@ -104,7 +104,7 @@ test("timeout with Clock.test: the fast path wins", async () => {
 
 test("timeout's sleep goes through the provided clock, so intercepts see it", async () => {
   const seen: number[] = [];
-  const clock = Clock.test();
+  const clock = Clock.manual();
   const spy = Clock.intercept((ms, next) => (seen.push(ms), next(ms)));
   const p = runPromise(
     Async.timeout(40, nap(10_000), { provide: (k) => k.pipe(spy, clock.handler) }).pipe(Fail.run),

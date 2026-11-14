@@ -60,7 +60,7 @@ export const live = <A, S extends Row & Partial<ClockRow>>(
     answering("clock/now", () => Date.now()),
   ) as never;
 
-export interface TestClock {
+export interface ManualClock {
   readonly now: number;
   readonly handler: typeof live;
   advance(ms: number): Promise<void>;
@@ -74,7 +74,7 @@ const flush = () =>
 // A clock whose time moves only by advance(). State lives in the returned object, so one clock can be
 // installed in the parent and in every fork (Async.provide, or fork's provide). Sleeps park until
 // time reaches them.
-export const test = (): TestClock => {
+export const manual = (): ManualClock => {
   let now = 0;
   const sleepers = new Set<{ readonly at: number; readonly wake: () => void }>();
   const sleepUntil = (ms: number, signal: AbortSignal) =>

@@ -75,7 +75,7 @@ type _timedKeys = Expect<
 >;
 type _timedFail = Expect<Equal<Payload<RowsOf<typeof timed>, "fail">, Async.Timeout>>;
 
-const testClock = Clock.test();
+const testClock = Clock.manual();
 const timedTest = Async.timeout(100, Clock.sleep(1), { provide: (k) => k.pipe(testClock.handler) });
 type _timedTestKeys = Expect<Equal<keyof RowsOf<typeof timedTest>, Spawning | "async" | "fail">>;
 // Without a clock in provide, the driver answers the sleep: it stays in the row.
@@ -138,7 +138,7 @@ const c1: readonly [void, number] = Kyoot.runSync(clockProg);
 const retried = Kyoot.gen(function* () {
   yield* Fail.fail(new FetchFailed());
   return 1;
-}).pipe(Retry.run({ times: 3, delay: 10 }));
+}).pipe(Retry.retry({ times: 3, delay: 10 }));
 type _retryKeys = Expect<Equal<keyof RowsOf<typeof retried>, "fail" | "clock/sleep">>;
 type _retryFail = Expect<Equal<Payload<RowsOf<typeof retried>, "fail">, FetchFailed>>;
 type _retryValue = Expect<Equal<ValueOf<typeof retried>, number>>;

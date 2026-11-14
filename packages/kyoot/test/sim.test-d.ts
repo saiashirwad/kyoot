@@ -52,11 +52,11 @@ type _now = Expect<Equal<RowsOf<typeof Sim.now>, { "clock/now": Op<void, number>
 const Count = Var.tag<number>()("count");
 const counting = Sim.fork(Count.get());
 type _countRows = Expect<
-  Equal<keyof RowsOf<typeof counting>, "fiber/fork" | "var/count" | "fork/var/count">
+  Equal<keyof RowsOf<typeof counting>, "fiber/fork" | "var/count/get" | "fork/var/count/get">
 >;
 const counted = Sim.fork(Count.get().pipe(Count.run(0)));
 type _countHandled = Expect<Equal<keyof RowsOf<typeof counted>, "fiber/fork">>;
-// @ts-expect-error the world must answer var/count
+// @ts-expect-error the world must answer var/count/get
 Sim.run(counting, { seed: 1 });
 
 // Promise interop can't run in a simulation: declare an effect and answer it from the world.

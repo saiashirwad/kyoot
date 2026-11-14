@@ -80,39 +80,51 @@ Each declared effect has:
 
 `Kyoot.step` pauses at each effect the program still needs. The host reads `key` and `payload` and answers with `resume`. The program does no IO itself, so the host decides how each request is answered: from a UI, a server, a queue, or a test script.
 
-Here an AI agent with one tool is driven by a host that owns the model call, the user's approval and the weather lookup:
+Here an order flow is plain code: a loop that collects items, a confirmation and a charge. The host answers from a UI.
 
 ```ts
-const Forecast = effect<{ city: string }, string>()("forecast");
-const forecast = needsApproval(
-  Tool("forecast", "Weather for a city", z.object({ city: z.string() }), Forecast),
-);
+const Ask = effect<string, string>()("ui/ask");
+const Confirm = effect<string, boolean>()("ui/confirm");
+const Charge = effect<{ cents: number }, string>()("payments/charge");
 
-const agent = AI.ask("Do I need an umbrella in Pune?", { tools: [forecast] }).pipe(
-  Emit.discard,
-  Fail.orThrow,
-);
+const order = Kyoot.gen(function* () {
+  const items: string[] = [];
+  while (true) {
+    const item = yield* Ask("Add an item, or 'done'");
+    if (item === "done") break;
+    items.push(item);
+  }
+  if (items.length === 0) return "empty cart";
 
-let step = Kyoot.step(agent);
+  const cents = items.length * 1_200;
+  const ok = yield* Confirm(`Pay $${cents / 100} for ${items.join(", ")}?`);
+  if (!ok) return "cancelled";
+
+  const receipt = yield* Charge({ cents });
+  return `paid, receipt ${receipt}`;
+}); // Kyoot<string, { "ui/ask": ...; "ui/confirm": ...; "payments/charge": ... }>
+
+let step = Kyoot.step(order);
 while (!step.done) {
   switch (step.key) {
-    case "ai/model":
-      step = step.resume(await callModel(step.payload));
+    case "ui/ask":
+      step = step.resume(await prompt(step.payload));
       break;
-    case "ai/approve":
-      step = step.resume(await askUser(step.payload));
+    case "ui/confirm":
+      step = step.resume(await confirm(step.payload));
       break;
-    case "forecast":
-      step = step.resume(await weather(step.payload.city));
+    case "payments/charge":
+      step = step.resume(await payments.charge(step.payload.cents));
       break;
   }
 }
-step.value; // "Yes, it will rain."
+step.value; // "paid, receipt ch_123"
 ```
 
-`step.key` is one of the effects in the program's type, and checking it narrows `payload` and what `resume` accepts. A test can drive the same loop with scripted answers and record every request ([`host.ts`](packages/ai/examples/host.ts)).
+`step.key` is one of the effects in the program's type, and checking it narrows `payload` and what `resume` accepts. Each `step` is the flow paused at a point in the code, so this is a state machine without a state enum ([`step.ts`](packages/kyoot/examples/step.ts)).
 
-- The same loop runs a state machine written as plain code: the program waits on a `recv` effect, and each `resume(event)` advances it ([`step.ts`](packages/kyoot/examples/step.ts)).
+A test drives the same loop with scripted answers. [`host.ts`](packages/ai/examples/host.ts) does this for an AI agent, answering `ai/model`, `ai/approve` and a tool call, and records every request.
+
 - `cancel()` unwinds the program, running `finally` blocks and releasing resources. A step also cleans up when declared with `using`.
 - Each step can be resumed once.
 - A paused step lives in memory. It doesn't survive a process restart.

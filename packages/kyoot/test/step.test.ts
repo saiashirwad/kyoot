@@ -181,3 +181,33 @@ test("step example: running out of events cancels the program and runs its clean
   assert.equal(drive([{ type: "add", sku: "book" }], log), "abandoned");
   assert.deepEqual(log, ["closed"]);
 });
+
+test("step: a budget yields long stretches; continue resumes, cancel runs finalizers", () => {
+  const long = Kyoot.gen(function* () {
+    let n = 0;
+    for (let i = 0; i < 50; i++) n = yield* Kyoot.succeed(n + 1).map((x) => x);
+    return n;
+  });
+  let s = Kyoot.step(long, { budget: 10 });
+  let yields = 0;
+  while (!s.done) {
+    assert.equal(s.yielded, true);
+    yields++;
+    s = (s as Extract<typeof s, { yielded: true }>).continue();
+  }
+  assert.ok(yields > 1);
+  assert.equal(s.value, 50);
+
+  const log: string[] = [];
+  const guarded = ensuring(
+    Kyoot.gen(function* () {
+      yield* Ask("a");
+      return 1;
+    }),
+    Kyoot.succeed(undefined).map(() => void log.push("tidy")),
+  );
+  const held = pending(Kyoot.step(guarded, { budget: 1000 }));
+  let end = held.cancel();
+  while (!end.done) end = (end as { continue(): typeof end }).continue?.() ?? end;
+  assert.deepEqual(log, ["tidy"]);
+});

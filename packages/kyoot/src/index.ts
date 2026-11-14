@@ -5,7 +5,7 @@ import type { Row } from "./types.ts";
 
 export { catchDefect, effect, ensuring } from "./core.ts";
 export type { Handle, Intercept, Resume } from "./core.ts";
-export type { Done, Pending, Step } from "./step.ts";
+export type { Done, Pending, Step, StepOptions, Yielded } from "./step.ts";
 export type { Answer, MergeAll, Only, Op, Payload, Row } from "./types.ts";
 export type { RowsOf } from "./model.ts";
 

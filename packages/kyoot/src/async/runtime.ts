@@ -1,5 +1,5 @@
-import { Machine, type Outcome } from "../machine.ts";
-import type { Kyoot } from "../model.ts";
+import type { Kyoot as KyootType } from "../model.ts";
+import { Kyoot, type Step } from "../index.ts";
 import type { Only, Row } from "../types.ts";
 
 export class InterruptedError extends Error {
@@ -17,14 +17,14 @@ export interface FiberHandle<A = unknown> {
 
 export interface AsyncRuntime {
   readonly signal: AbortSignal;
-  spawn<A>(k: Kyoot<A, any>): FiberHandle<A>;
+  spawn<A>(k: KyootType<A, any>): FiberHandle<A>;
 }
 
 export interface AsyncOp {
   execute(rt: AsyncRuntime): Promise<unknown>;
 }
 
-const STEP_BUDGET = 4096;
+const OPTIONS = { budget: 4096 };
 
 const NEVER = new AbortController().signal;
 
@@ -33,62 +33,33 @@ const ABORTED = new DOMException("This operation was aborted", "AbortError");
 const schedule: (f: () => void) => void =
   typeof setImmediate === "function" ? setImmediate : (f) => setTimeout(f, 0);
 
-interface Reactions {
-  generation: number;
-  readonly fulfilled: (value: unknown) => void;
-  readonly rejected: (error: unknown) => void;
-  readonly continued: () => void;
-}
-
-const reactionsFor = (fiber: Fiber<any>): Reactions => {
-  const r: Reactions = {
-    generation: 0,
-    fulfilled: (value) => fiber.settle(r.generation, "resume", value),
-    rejected: (error) => fiber.settle(r.generation, "raise", error),
-    continued: () => fiber.settle(r.generation, "continue", undefined),
-  };
-  return r;
-};
+const tick = (): Promise<void> => new Promise(schedule);
 
 class Fiber<A> implements FiberHandle<A> {
   readonly promise: Promise<A>;
   readonly interrupt: () => void;
   private readonly controller = new AbortController();
-  private readonly machine = new Machine();
   private readonly rt: AsyncRuntime;
   private readonly parent: Fiber<any> | undefined;
   private children: Set<Promise<unknown>> | undefined;
-  private reactions = reactionsFor(this);
-  private resolve!: (value: A) => void;
-  private reject!: (error: unknown) => void;
-  private generation = 0;
-  private waiting = false;
+  private wake: ((error: unknown) => void) | undefined;
   private exit: { readonly error: unknown } | undefined;
 
-  constructor(k: Kyoot<A, any>, parent: Fiber<any> | undefined) {
+  constructor(k: KyootType<A, any>, parent: Fiber<any> | undefined) {
     const { controller } = this;
     this.parent = parent;
     this.interrupt = () => controller.abort(ABORTED);
     this.rt = { signal: controller.signal, spawn: (k2) => this.spawn(k2) };
-    const drive = new Promise<A>((resolve, reject) => {
-      this.resolve = resolve;
-      this.reject = reject;
+    controller.signal.addEventListener("abort", () => this.wake?.(new InterruptedError()), {
+      once: true,
     });
-    this.promise = drive.finally(() => this.close());
-    controller.signal.addEventListener("abort", () => this.onAbort(), { once: true });
-    parent?.controller.signal.addEventListener("abort", this.interrupt, { once: true });
-    this.step(() => this.machine.start(k, STEP_BUDGET));
+    parent?.controller.signal.addEventListener("abort", this.interrupt, {
+      once: true,
+    });
+    this.promise = this.drive(k).finally(() => this.close());
   }
 
-  private step(run: () => Outcome): void {
-    try {
-      this.pump(run());
-    } catch (error) {
-      this.reject(error);
-    }
-  }
-
-  private spawn<B>(k: Kyoot<B, any>): FiberHandle<B> {
+  private spawn<B>(k: KyootType<B, any>): FiberHandle<B> {
     const child = new Fiber(k, this);
     (this.children ??= new Set()).add(child.promise);
     return child;
@@ -103,91 +74,69 @@ class Fiber<A> implements FiberHandle<A> {
     this.parent?.children?.delete(this.promise);
   }
 
-  settle(current: number, how: "resume" | "raise" | "continue", payload: unknown): void {
-    if (current !== this.generation) return;
-    this.waiting = false;
-    const { machine } = this;
-    this.step(() =>
-      how === "resume"
-        ? machine.resume(payload, STEP_BUDGET)
-        : how === "raise"
-          ? this.raise(payload)
-          : machine.continue(STEP_BUDGET),
-    );
+  // Interruptible until the fiber starts exiting; finalizers then run to completion.
+  private wait(work: Promise<unknown>): Promise<unknown> {
+    if (this.exit !== undefined) return work;
+    return new Promise((resolve, reject) => {
+      this.wake = reject;
+      work.then(resolve, reject);
+    });
   }
 
-  private cancel(error: unknown): Outcome {
-    this.exit = { error };
-    return this.machine.cancel(STEP_BUDGET);
-  }
-
-  private raise(error: unknown): Outcome {
-    return error instanceof InterruptedError
-      ? this.cancel(error)
-      : this.machine.raise(error, STEP_BUDGET);
-  }
-
-  private onAbort(): void {
-    if (!this.waiting || this.exit !== undefined) return;
-    this.waiting = false;
-    this.reactions = reactionsFor(this);
-    this.generation++;
-    this.step(() => this.cancel(new InterruptedError()));
-  }
-
-  private wait(): void {
-    this.waiting = true;
-    this.reactions.generation = ++this.generation;
-  }
-
-  private pump(initial: Outcome): void {
-    const { machine, rt, controller } = this;
-    let outcome = initial;
-    while (true) {
-      if (outcome === "done") {
-        if (this.exit === undefined) this.resolve(machine.value as A);
-        else this.reject(this.exit.error);
-        return;
-      }
-
-      if (outcome === "yielded") {
-        this.wait();
-        schedule(this.reactions.continued);
-        return;
-      }
-
-      const { key, payload } = machine;
-      if (key !== "async") {
-        outcome = this.cancel(new Error(`fiber encountered unhandled effect '${String(key)}'`));
+  private async drive(k: KyootType<A, any>): Promise<A> {
+    const { rt, controller } = this;
+    let s: Step<unknown, Row, true> = Kyoot.step(k as KyootType<unknown, Row>, OPTIONS);
+    while (!s.done) {
+      if (s.yielded) {
+        try {
+          await this.wait(tick());
+        } catch (error) {
+          this.exit = { error };
+          s = s.cancel();
+          continue;
+        }
+        s = s.continue();
         continue;
       }
-
+      if (s.key !== "async") {
+        this.exit = {
+          error: new Error(`fiber encountered unhandled effect '${String(s.key)}'`),
+        };
+        s = s.cancel();
+        continue;
+      }
       if (controller.signal.aborted && this.exit === undefined) {
-        outcome = this.cancel(new InterruptedError());
+        this.exit = { error: new InterruptedError() };
+        s = s.cancel();
         continue;
       }
-
       const signal = this.exit === undefined ? controller.signal : NEVER;
-      const op = payload as AsyncOp;
-      let work: Promise<unknown>;
+      let value: unknown;
+      let failed = false;
       try {
-        work = op.execute(signal === rt.signal ? rt : { ...rt, signal });
+        value = await this.wait(
+          (s.payload as AsyncOp).execute(signal === rt.signal ? rt : { ...rt, signal }),
+        );
       } catch (error) {
-        outcome = this.raise(error);
-        continue;
+        failed = true;
+        value = error;
       }
-
-      this.wait();
-      void work.then(this.reactions.fulfilled, this.reactions.rejected);
-      return;
+      this.wake = undefined;
+      if (!failed) s = s.resume(value as never);
+      else if (value instanceof InterruptedError) {
+        this.exit = { error: value };
+        s = s.cancel();
+      } else s = s.raise(value);
     }
+    if (this.exit !== undefined) throw this.exit.error;
+    return s.value as A;
   }
 }
 
-export function runPromise<A, S extends Row>(k: Kyoot<A, S> & Only<S, "async">): Promise<A> {
+export function runPromise<A, S extends Row>(k: KyootType<A, S> & Only<S, "async">): Promise<A> {
   return runFiber<A, S>(k).promise;
 }
 
-export function runFiber<A, S extends Row>(k: Kyoot<A, S> & Only<S, "async">): FiberHandle<A> {
+export function runFiber<A, S extends Row>(k: KyootType<A, S> & Only<S, "async">): FiberHandle<A> {
   return new Fiber(k, undefined);
 }

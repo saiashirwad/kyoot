@@ -47,3 +47,25 @@ test("fs effects: the world fakes them in sim, Node handles them live", async ()
     await fsp.rm(root, { recursive: true, force: true });
   }
 });
+
+test("fs effects: the world fails with a typed FsError the program catches", () => {
+  const readOr = (path: string) =>
+    FileSystem.readFile(path).pipe(
+      Fail.catchAll((e: FileSystem.FsError) => Kyoot.succeed(`${e.code}:${e.path}`)),
+    );
+  const world = () => ({
+    "fs/readFile": ({ path }: { path: string }) =>
+      path === "/nope"
+        ? Sim.fail(new FileSystem.FsError("readFile", path, "NotFound", "no such file"))
+        : "data",
+  });
+  const caught = Sim.run(Async.all([readOr("/nope"), readOr("/yes")]).pipe(Fail.orThrow), {
+    seed: 1,
+    world,
+  });
+  assert.deepEqual(caught.exit, { ok: true, value: ["NotFound:/nope", "data"] });
+  // Uncaught, it surfaces as the program's typed failure, not a defect.
+  const failed = Sim.run(FileSystem.readFile("/nope"), { seed: 1, world });
+  assert.ok(!failed.exit.ok && failed.exit.cause._tag === "Fail");
+  assert.ok(failed.exit.cause.error instanceof FileSystem.FsError);
+});

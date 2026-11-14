@@ -104,10 +104,13 @@ test("timeout with Clock.test: the fast path wins", async () => {
 
 test("timeout's sleep goes through the provided clock, so intercepts see it", async () => {
   const seen: number[] = [];
-  const spy = Clock.intercept((ms, next) => (seen.push(ms), next(ms / 1000)));
-  const r = await runPromise(
-    Async.timeout(40, nap(10_000), { provide: (k) => k.pipe(spy, Clock.live) }).pipe(Fail.run),
+  const clock = Clock.test();
+  const spy = Clock.intercept((ms, next) => (seen.push(ms), next(ms)));
+  const p = runPromise(
+    Async.timeout(40, nap(10_000), { provide: (k) => k.pipe(spy, clock.handler) }).pipe(Fail.run),
   );
+  await clock.advance(40);
+  const r = await p;
   assert.deepEqual(
     seen.sort((a, b) => a - b),
     [40, 10_000],

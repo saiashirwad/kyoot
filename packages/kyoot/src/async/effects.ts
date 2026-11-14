@@ -39,9 +39,22 @@ export type ConcurrencyKey = keyof ConcurrencyRow;
 
 type Ops<K extends ConcurrencyKey> = Pick<ConcurrencyRow, K>;
 
-// A forked fiber's typed failure becomes its Exit; everything else it leaves unhandled surfaces in
-// the parent's row, because the driver answers it for every fiber (handlers don't cross a fork).
-export type Bubbled<S> = S extends unknown ? Omit<S, "fail"> : never;
+// A forked fiber's typed failure becomes its Exit. Every other effect it leaves unhandled surfaces in
+// the parent's row twice: as "<key>" (so a driver or world must answer it) and as a marker
+// "fork/<key>". A plain handler removes "<key>" but not the marker, because handlers don't cross a
+// fork. Async.provide installs the handler in every fiber, so it removes both. A driver's world or
+// live answerer satisfies the marker too.
+// The driver (runPromise, Sim.run) answers its own effects for every fiber, so those aren't marked.
+export type ForkMarked<K> = K extends ConcurrencyKey | "async" | "random" | `fork/${string}`
+  ? never
+  : `fork/${K & string}`;
+
+export type Bubbled<S> = S extends unknown
+  ? { [K in keyof S as K extends "fail" ? never : K | ForkMarked<K>]: S[K] }
+  : never;
+
+// The key a marker stands for.
+export type Unmarked<K> = K extends `fork/${infer X}` ? X : K;
 
 export type FailOf<S> = Payload<S, "fail">;
 
@@ -255,16 +268,33 @@ export function timeout(
 
 const inheritFork = makeIntercept<"fiber/fork", ForkRequest, Fiber<unknown, unknown>>("fiber/fork");
 
+// What provide leaves in the row: what the handler left, minus the markers of effects it handled
+// (a marker goes when its plain key was in the row and the handler removed it).
+type ProvidedRow<S extends Row, S2 extends Row> = {
+  [
+    K in keyof S2 as K extends `fork/${infer X}`
+      ? X extends keyof S
+        ? X extends keyof S2
+          ? K
+          : never
+        : K
+      : K
+  ]: S2[K];
+};
+
 /**
  * Handles a program and every fiber it forks (and they fork) with the same handler. A plain
  * handler only reaches the fiber it wraps; this one also wraps each fork's program, by intercepting
- * fiber/fork. Use it to install live services (or in-memory fakes) once for a whole program. The
- * handler should keep the program's value (a service, not Log.collect), since forks are typed by it:
+ * fiber/fork. Use it to install live services (or in-memory fakes) once for a whole program:
  *   runPromise(program.pipe(Async.provide(Node.provide)))
+ *
+ * It removes the effect and its "fork/<key>" marker from the row, which a plain handler does not.
+ * The handler must keep the program's value (a service, not Log.collect), since forks are typed by
+ * it: a handler that changes the value doesn't type check.
  */
-export const provide = <Args extends [Kyoot<any, any>], R>(
-  handler: (...args: Args) => R,
-): ((...args: Args) => R) => {
+export const provide = <A, S extends Row, S2 extends Row>(
+  handler: (k: Kyoot<A, S>) => Kyoot<A, S2>,
+): ((k: Kyoot<A, S>) => Kyoot<A, MergeAll<ProvidedRow<S, S2>>>) => {
   const h = handler as unknown as (k: AnyKyoot) => AnyKyoot;
   const inherit = inheritFork((req, next) => next({ ...req, program: wrap(req.program) }));
   const wrap = (k: AnyKyoot): AnyKyoot => h(inherit(k));

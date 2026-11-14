@@ -13,6 +13,8 @@ interface PendingAt<A, S extends Row, K extends keyof S> extends Disposable {
   readonly key: K;
   readonly payload: Payload<S, K>;
   resume(value: Answer<S, K>): Step<A, S>;
+  // Continues as if the operation had been answered by running the program (e.g. one that fails).
+  resumeWith(program: Kyoot<Answer<S, K>, S>): Step<A, S>;
   raise(error: unknown): Step<A, S>;
   cancel(): Step<undefined, S>;
 }
@@ -38,6 +40,11 @@ class Suspended implements Disposable {
   resume(value: unknown): AnyStep {
     const machine = this.take();
     return next(machine, machine.resume(value));
+  }
+
+  resumeWith(program: AnyKyoot): AnyStep {
+    const machine = this.take();
+    return next(machine, machine.resumeWith(program));
   }
 
   raise(error: unknown): AnyStep {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { effect, ensuring, Kyoot } from "../src/index.ts";
+import { effect, ensuring, Kyoot, type Op } from "../src/index.ts";
 import * as Fail from "../src/effects/fail.ts";
 import * as Random from "../src/effects/random.ts";
 import * as Sim from "../src/sim/index.ts";
@@ -474,4 +474,149 @@ test("format: a fiber's consecutive events share one name", () => {
       .split("\n")
       .some((l) => l.startsWith(" ")),
   );
+});
+
+// Sim.fail: a responder fails with the program's typed error, which the program can catch.
+class NotFound {
+  readonly _tag = "NotFound";
+  readonly key: string;
+  constructor(key: string) {
+    this.key = key;
+  }
+}
+const Lookup = effect<string, number, { fail: Op<NotFound, never> }>()("db/lookup");
+const lookup = (key: string) =>
+  Kyoot.gen(function* () {
+    return yield* Lookup(key);
+  });
+const lookupWorld = () => ({
+  "db/lookup": (key: string, ctx: Sim.WorldContext) =>
+    key === "missing"
+      ? Sim.fail(new NotFound(key))
+      : key === "slow"
+        ? Sim.delay(5, Sim.fail(new NotFound(key)))
+        : key.length + ctx.now,
+});
+
+test("sim: a world responder can fail with a typed error", () => {
+  const ok = Sim.run(lookup("abc"), { seed: 1, world: lookupWorld });
+  assert.deepEqual(ok.exit, { ok: true, value: 3 });
+  const failed = Sim.run(lookup("missing"), { seed: 1, world: lookupWorld });
+  assert.deepEqual(failed.exit, {
+    ok: false,
+    cause: { _tag: "Fail", error: new NotFound("missing") },
+  });
+  assert.match(Sim.format(failed.trace), /db\/lookup "missing" ✗ fail NotFound\("missing"\)/);
+  const slow = Sim.run(lookup("slow"), { seed: 1, world: lookupWorld });
+  assert.equal(slow.now, 5);
+  assert.ok(!slow.exit.ok);
+});
+
+test("sim: a typed world failure is catchable and reaches a joined fiber", () => {
+  const program = Kyoot.gen(function* () {
+    const fiber = yield* Sim.fork(lookup("missing"));
+    const exit = yield* Sim.wait(fiber);
+    const recovered = yield* lookup("missing").pipe(
+      Fail.catchAll((e: NotFound) => Kyoot.succeed(e.key.length)),
+    );
+    return [exit, recovered] as const;
+  });
+  const r = Sim.run(program, { seed: 2, world: lookupWorld });
+  assert.deepEqual(r.exit, {
+    ok: true,
+    value: [{ ok: false, cause: { _tag: "Fail", error: new NotFound("missing") } }, 7],
+  });
+});
+
+// The determinism guard: ambient time, randomness and timers throw while a simulation runs.
+const ambient = {
+  "Date.now": () => Date.now(),
+  "Math.random": () => Math.random(),
+  setTimeout: () => setTimeout(() => {}, 1),
+  "performance.now": () => performance.now(),
+} as const;
+
+for (const [name, use] of Object.entries(ambient)) {
+  test(`sim guard: ${name} inside a simulated program is a defect`, () => {
+    const program = Kyoot.gen(function* () {
+      yield* Sim.yieldNow;
+      return use();
+    });
+    const r = Sim.run(program, { seed: 1 });
+    assert.ok(!r.exit.ok && r.exit.cause._tag === "Defect");
+    assert.match(
+      String((r.exit.cause as { defect: Error }).defect.message),
+      new RegExp(`${name.replace(".", "\\.")}\\(\\) inside Sim.run breaks determinism`),
+    );
+  });
+}
+
+test("sim guard: globals are restored after a run, also after a failure", () => {
+  const before = [Date.now, Math.random, setTimeout, performance.now, setInterval];
+  const same = () =>
+    assert.deepEqual([Date.now, Math.random, setTimeout, performance.now, setInterval], before);
+  Sim.run(Sim.sleep(1), { seed: 1 });
+  same();
+  Sim.run(
+    Kyoot.gen(function* () {
+      yield* Sim.yieldNow;
+      return Date.now();
+    }),
+    { seed: 1 },
+  );
+  same();
+  assert.throws(
+    () =>
+      Sim.run(Sim.sleep(1), {
+        seed: 1,
+        world: () => {
+          throw new Error("world broke");
+        },
+      } as never),
+    /world broke/,
+  );
+  same();
+  assert.throws(
+    () =>
+      Sim.run(Sim.sleep(1), {
+        seed: 1,
+        strategy: {
+          name: "bad",
+          chooser: () => () => {
+            throw new Error("strategy broke");
+          },
+        },
+      }),
+    /strategy broke/,
+  );
+  same();
+  assert.ok(Date.now() > 0);
+});
+
+test("sim guard: explore and shrink runs are guarded too", () => {
+  const program = Sim.all([
+    Kyoot.gen(function* () {
+      yield* Sim.yieldNow;
+      return Date.now();
+    }),
+  ]);
+  const found = Sim.explore(program, { seeds: 3, check: (r) => r.exit.ok || "defect" });
+  assert.ok(!found.ok);
+  assert.ok(!found.result.exit.ok && found.result.exit.cause._tag === "Defect");
+  assert.match(
+    String((found.result.exit.cause.defect as Error).message),
+    /Date\.now\(\) inside Sim\.run breaks determinism/,
+  );
+  assert.ok(typeof Date.now() === "number" && Date.now() > 0);
+});
+
+test("sim guard: { guard: false } lets ambient globals through", () => {
+  const r = Sim.run(
+    Kyoot.gen(function* () {
+      yield* Sim.yieldNow;
+      return typeof Date.now();
+    }),
+    { seed: 1, guard: false },
+  );
+  assert.deepEqual(r.exit, { ok: true, value: "number" });
 });

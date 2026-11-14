@@ -4,6 +4,7 @@ import type { Kyoot } from "../model.ts";
 import { step } from "../step.ts";
 import type { Answer, Only, Payload, Row } from "../types.ts";
 import type { ConcurrencyKey, Exit, Fiber, ForkRequest } from "../async/effects.ts";
+import { guarded } from "./guard.ts";
 import { prng, random, type Strategy } from "./strategy.ts";
 
 export type Stuck =
@@ -30,6 +31,16 @@ export class Delayed<A> {
 
 export const delay = <A>(ms: number, answer: A) => new Delayed(ms, answer);
 
+// A world answer that fails with the program's typed error instead of answering.
+export class Failed<E> {
+  readonly error: E;
+  constructor(error: E) {
+    this.error = error;
+  }
+}
+
+export const fail = <E>(error: E) => new Failed(error);
+
 export interface WorldContext {
   readonly now: number;
   readonly fiber: string;
@@ -44,7 +55,11 @@ export type IoContext = WorldContext;
 // interop) can't run in a simulation at all.
 type Reserved = ConcurrencyKey | "random" | "fail" | "async";
 
-export type WorldKeysOf<S> = Exclude<keyof S, Reserved> & string;
+// The world answers an effect for every fiber, so it also satisfies the "fork/<key>" markers of
+// effects a forked fiber leaves unhandled.
+type Unmarked<S> = { [K in keyof S as K extends `fork/${infer X}` ? X : K]: S[K] };
+
+export type WorldKeysOf<S> = Exclude<keyof Unmarked<S>, Reserved> & string;
 
 // What Sim.run accepts: anything but promise interop. Declare an effect for that I/O instead.
 export type Simulable<S extends Row> = Only<S, Exclude<keyof S, "async">>;
@@ -52,11 +67,15 @@ export type Simulable<S extends Row> = Only<S, Exclude<keyof S, "async">>;
 // One responder per effect the program leaves to the outside world, whatever its key (db/get,
 // fs/readFile, ai/model). It answers synchronously, may answer later with delay(), or throw to
 // raise the error at the fiber's operation. In production, ordinary handlers answer the same keys.
+// The answer, or Sim.fail(e): the effect's declared failure, which surfaces in the fiber that
+// performed it. Typed loosely, because failures live per fiber (a forked child's aren't in the row).
+type WorldAnswer<S, K extends string> = Answer<Unmarked<S>, K> | Failed<unknown>;
+
 export type World<S> = {
   readonly [K in WorldKeysOf<S>]: (
-    payload: Payload<S, K>,
+    payload: Payload<Unmarked<S>, K>,
     ctx: WorldContext,
-  ) => Answer<S, K> | Delayed<Answer<S, K>>;
+  ) => WorldAnswer<S, K> | Delayed<WorldAnswer<S, K>>;
 };
 
 type WorldOption<S, W> = [WorldKeysOf<S>] extends [never]
@@ -70,6 +89,9 @@ export type RunOptions<S, W> = {
   readonly strategy?: Strategy;
   // Scheduling decisions before giving up with StepLimit (a livelock guard).
   readonly maxSteps?: number;
+  // While it runs, Date.now, Math.random, timers, fetch and crypto randomness throw (they would
+  // break determinism). Default true; false lets them through.
+  readonly guard?: boolean;
 } & WorldOption<S, W>;
 
 export interface SimResult<A, E, W> {
@@ -94,6 +116,7 @@ type Next =
   | { readonly kind: "start" }
   | { readonly kind: "resume"; readonly value: unknown }
   | { readonly kind: "raise"; readonly error: unknown }
+  | { readonly kind: "fail"; readonly error: unknown }
   | { readonly kind: "cancel" };
 
 type Status = "runnable" | "running" | "sleeping" | "joining" | "draining" | "done";
@@ -105,6 +128,7 @@ type AnyStep =
       readonly key: PropertyKey;
       readonly payload: unknown;
       resume(value: unknown): AnyStep;
+      resumeWith(program: Kyoot<unknown, any>): AnyStep;
       raise(error: unknown): AnyStep;
       cancel(): AnyStep;
     };
@@ -142,10 +166,21 @@ const INTERRUPTED: Exit<never, never> = { ok: false, cause: { _tag: "Interrupted
  *   which runs its finally blocks and ensuring cleanups; those may perform effects as usual.
  *
  * Determinism contract: the program may reach time, randomness and I/O only through effects
- * (clock/*, random, and effects the world answers). The whole program runs from scratch on every call, so state created
+ * (clock/*, random, and effects the world answers). While the run executes, Date.now, performance.now,
+ * Math.random, timers, fetch and crypto randomness throw (see `guard`; this covers the run, not
+ * module-level code). The whole program runs from scratch on every call, so state created
  * inside it (a variable in a generator, the world from `world()`) is fresh per run.
  */
 export function run<A, S extends Row, W extends World<S> = World<S>>(
+  program: Kyoot<A, S> & Simulable<S>,
+  options: RunOptions<S, W>,
+): SimResult<A, FailOf<S>, W> {
+  return options.guard === false
+    ? simulate(program, options)
+    : guarded(() => simulate(program, options));
+}
+
+function simulate<A, S extends Row, W extends World<S> = World<S>>(
   program: Kyoot<A, S> & Simulable<S>,
   options: RunOptions<S, W>,
 ): SimResult<A, FailOf<S>, W> {
@@ -322,15 +357,28 @@ export function run<A, S extends Row, W extends World<S> = World<S>>(
       log(f, `${key}${showPayload(payload)} ✗ ${show(error)}`);
       return schedule(f, { kind: "raise", error });
     }
+    const after = result instanceof Delayed ? result.ms : 0;
+    const answered = result instanceof Delayed ? result.answer : result;
+    const next: Next =
+      answered instanceof Failed
+        ? { kind: "fail", error: answered.error }
+        : { kind: "resume", value: answered };
+    const later = result instanceof Delayed ? ` (in ${showTime(after)})` : "";
+    const what =
+      answered instanceof Failed
+        ? ` ✗${later} fail ${show(answered.error)}`
+        : answered === undefined && later === ""
+          ? ""
+          : ` →${later} ${show(answered)}`;
     if (result instanceof Delayed) {
-      log(f, `${key}${showPayload(payload)} → (in ${showTime(result.ms)}) ${show(result.answer)}`);
+      log(f, `${key}${showPayload(payload)}${what}`);
       f.status = "sleeping";
-      f.until = now + result.ms;
-      f.next = { kind: "resume", value: result.answer };
+      f.until = now + after;
+      f.next = next;
       return;
     }
-    log(f, `${key}${showPayload(payload)}${result === undefined ? "" : ` → ${show(result)}`}`);
-    schedule(f, { kind: "resume", value: result });
+    log(f, `${key}${showPayload(payload)}${what}`);
+    schedule(f, next);
   };
 
   const advance = (f: FiberState) => {
@@ -348,7 +396,9 @@ export function run<A, S extends Row, W extends World<S> = World<S>>(
             ? pending.resume(next.value)
             : next.kind === "raise"
               ? pending.raise(next.error)
-              : pending.cancel();
+              : next.kind === "fail"
+                ? pending.resumeWith(Fail.fail(next.error) as Kyoot<unknown, any>)
+                : pending.cancel();
       }
     } catch (defect) {
       return finish(f, { ok: false, cause: { _tag: "Defect", defect } });

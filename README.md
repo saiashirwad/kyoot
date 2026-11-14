@@ -40,6 +40,10 @@ Sim.explore(both, { seeds: 1000, world, check: noOversell }); // finds, replays 
 await runPromise(both.pipe(Async.provide(liveDb))); // the same program, for real
 ```
 
+Handlers don't cross a fork. A fork leaves its program's unhandled effects in the parent's row twice, as `db/get` and as a `fork/db/get` marker. A plain `Db.handle` removes only the first, so the type still asks for the second; `Async.provide(handler)` installs the handler in every fiber and removes both, and a simulation's `world` answers both. `provide` only takes handlers that keep the program's value (a service, not `Log.collect`).
+
+In a simulation a world responder can fail with the program's typed error: return `Sim.fail(new FsError(...))`. While `Sim.run` (and `explore`/`shrink`) executes, `Date.now`, `performance.now`, `Math.random`, timers, `fetch` and `crypto` randomness throw, because they would break determinism; pass `{ guard: false }` to turn that off. The guard covers the run only, not module-level code or `new Date()`.
+
 ## Try it
 
 Needs Node 22.18+, which runs the TypeScript directly.

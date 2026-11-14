@@ -166,6 +166,11 @@ export class Machine {
     return this.run(budget);
   }
 
+  resumeWith(program: AnyKyoot, budget = Infinity): Outcome {
+    this.current = program;
+    return this.run(budget);
+  }
+
   raise(error: unknown, budget = Infinity): Outcome {
     this.current = raise(error);
     return this.run(budget);

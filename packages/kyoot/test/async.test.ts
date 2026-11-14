@@ -255,14 +255,21 @@ test("all: results come back in input order, not completion order", async () => 
 });
 
 test("all: branches run concurrently", async () => {
+  const clock = Clock.test();
   const events: string[] = [];
   const branch = (tag: string, ms: number) =>
     Kyoot.gen(function* () {
       events.push(`start ${tag}`);
-      yield* nap(ms);
+      yield* Clock.sleep(ms);
       events.push(`end ${tag}`);
     });
-  await runPromise(Async.all([branch("a", 20), branch("b", 10)]));
+  const p = runPromise(
+    Async.all([branch("a", 20), branch("b", 10)], { provide: (k) => k.pipe(clock.handler) }),
+  );
+  await clock.advance(10);
+  assert.deepEqual(events, ["start a", "start b", "end b"]);
+  await clock.advance(10);
+  await p;
   assert.deepEqual(events, ["start a", "start b", "end b", "end a"]);
 });
 

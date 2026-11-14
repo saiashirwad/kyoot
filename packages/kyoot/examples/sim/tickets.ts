@@ -90,12 +90,19 @@ if (import.meta.main) {
     if (noOversell(Sim.run(atTheSameTime, { seed, world })) !== true) failing++;
   }
   console.log(`   (${failing} of 1000 schedules oversell; a normal test runs exactly one)\n`);
-  console.log(indent(Sim.format(found.result.trace)));
+  const { shrunk } = found;
+  if (shrunk === undefined) throw new Error("expected a shrunk run");
+  console.log(`   ${Sim.showShrink(shrunk)}\n`);
+  console.log(indent(Sim.format(shrunk.result.trace)));
 
-  const replay = Sim.run(atTheSameTime, { seed: found.seed, world });
-  const same = Sim.format(replay.trace) === Sim.format(found.result.trace);
+  const replay = Sim.run(atTheSameTime, {
+    seed: found.seed,
+    world,
+    strategy: Sim.replay(shrunk.result.choices),
+  });
+  const same = Sim.format(replay.trace) === Sim.format(shrunk.result.trace);
   console.log(
-    `\n3. Replaying seed ${found.seed}: ${same ? "identical trace" : "DIFFERENT trace"}\n`,
+    `\n3. Replaying the shrunk schedule: ${same ? "identical trace" : "DIFFERENT trace"}\n`,
   );
 
   const t0 = performance.now();

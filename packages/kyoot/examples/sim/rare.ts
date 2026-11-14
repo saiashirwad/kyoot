@@ -106,15 +106,23 @@ if (import.meta.main) {
 
   const found = Sim.explore(program, { seeds: N, world, check: fresh, strategy: strategies[2]! });
   if (found.ok) throw new Error("expected PCT to find the stale cache");
-  const { result } = found;
-  console.log(`\n${found.strategy}, seed ${found.seed}: ${found.reason}\n`);
+  const { shrunk } = found;
+  if (shrunk === undefined) throw new Error("expected a shrunk run");
+  console.log(`\n${found.strategy}, seed ${found.seed}: ${found.reason}`);
+  console.log(`${Sim.showShrink(shrunk)}\n`);
   // Only the interesting steps: skip the audit and request noise.
   const noise = /io\/(audit|cache.get)/;
-  console.log(Sim.format(result.trace.filter((e) => !noise.test(e.what))).replace(/^/gm, "    "));
-
-  const again = Sim.run(program, { seed: found.seed, world, strategy: Sim.replay(result.choices) });
-  const same = Sim.format(again.trace) === Sim.format(result.trace);
   console.log(
-    `\nReplaying its ${result.choices.length} recorded choices: ${same ? "identical trace" : "DIFFERENT trace"}`,
+    Sim.format(shrunk.result.trace.filter((e) => !noise.test(e.what))).replace(/^/gm, "    "),
+  );
+
+  const again = Sim.run(program, {
+    seed: found.seed,
+    world,
+    strategy: Sim.replay(shrunk.result.choices),
+  });
+  const same = Sim.format(again.trace) === Sim.format(shrunk.result.trace);
+  console.log(
+    `\nReplaying its ${shrunk.result.choices.length} recorded choices: ${same ? "identical trace" : "DIFFERENT trace"}`,
   );
 }

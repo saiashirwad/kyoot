@@ -66,6 +66,10 @@ export interface SimResult<A, E, W> {
   readonly strategy: string;
   // The scheduler's choice at each step (an index into the runnable fibers): Sim.replay(choices).
   readonly choices: ReadonlyArray<number>;
+  // The fiber id that ran at each step, and how many of those steps switched away from a fiber that
+  // could have kept running (the preemptions; switching because it blocked is free).
+  readonly schedule: ReadonlyArray<number>;
+  readonly preemptions: number;
   readonly exit: SimExit<E, A>;
   readonly trace: ReadonlyArray<TraceEvent>;
   readonly now: number;
@@ -73,7 +77,7 @@ export interface SimResult<A, E, W> {
   readonly world: W;
 }
 
-type FailOf<S> = Payload<S, "fail">;
+export type FailOf<S> = Payload<S, "fail">;
 
 type Next =
   | { readonly kind: "start" }
@@ -137,6 +141,9 @@ export function run<A, S extends Row, W extends World<S> = World<S>>(
   const { seed, maxSteps = 100_000, strategy = random() } = options;
   const pick = strategy.chooser(seed);
   const choices: number[] = [];
+  const ran: number[] = [];
+  let preemptions = 0;
+  let last: number | undefined;
   const chance = prng(seed ^ 0x5bd1e995);
   const world = (options.world?.() ?? {}) as W;
   const responders = world as unknown as Record<string, (p: unknown, ctx: IoContext) => unknown>;
@@ -335,6 +342,8 @@ export function run<A, S extends Row, W extends World<S> = World<S>>(
     seed,
     strategy: strategy.name,
     choices,
+    schedule: ran,
+    preemptions,
     exit: exit as SimExit<FailOf<S>, A>,
     trace,
     now,
@@ -354,11 +363,13 @@ export function run<A, S extends Row, W extends World<S> = World<S>>(
       continue;
     }
     if (++steps > maxSteps) return result({ ok: false, cause: { _tag: "StepLimit", steps } });
-    const choice = pick(
-      runnable.map((r) => r.handle.id),
-      choices.length,
-    );
+    const ids = runnable.map((r) => r.handle.id);
+    const choice = pick(ids, choices.length);
     choices.push(choice);
+    const chosen = ids[choice]!;
+    if (last !== undefined && chosen !== last && ids.includes(last)) preemptions++;
+    ran.push(chosen);
+    last = chosen;
     const [f] = runnable.splice(choice, 1);
     advance(f!);
   }
@@ -376,47 +387,6 @@ const describe = (f: FiberState): string => {
       return `${name} is ${f.status}`;
   }
 };
-
-export type Check<A, E, W> = (result: SimResult<A, E, W>) => boolean | string;
-
-export type Explored<A, E, W> =
-  | { readonly ok: true; readonly runs: number }
-  | {
-      readonly ok: false;
-      readonly runs: number;
-      readonly seed: number;
-      readonly strategy: string;
-      readonly reason: string;
-      readonly result: SimResult<A, E, W>;
-    };
-
-/**
- * Runs the program once per seed (from scratch each time) and stops at the first run `check`
- * rejects. `check` returns true to pass, or false / a reason to fail; by default a run passes when
- * main ended with a value. Rerun the reported seed (and strategy) with Sim.run to get the same
- * trace back, or replay result.choices.
- */
-export function explore<A, S extends Row, W extends World<S> = World<S>>(
-  program: Kyoot<A, S> & Only<S, ChildKey>,
-  options: Omit<RunOptions<S, W>, "seed"> & {
-    readonly seeds: number | Iterable<number>;
-    readonly check?: Check<A, FailOf<S>, W>;
-  },
-): Explored<A, FailOf<S>, W> {
-  const { seeds, check = (r) => r.exit.ok || showExit(r.exit) } = options;
-  const list = typeof seeds === "number" ? Array.from({ length: seeds }, (_, i) => i) : seeds;
-  let runs = 0;
-  for (const seed of list) {
-    runs++;
-    const result = run(program, { ...options, seed } as RunOptions<S, W>);
-    const verdict = check(result);
-    if (verdict !== true) {
-      const reason = verdict === false ? `check failed: ${showExit(result.exit)}` : verdict;
-      return { ok: false, runs, seed, strategy: result.strategy, reason, result };
-    }
-  }
-  return { ok: true, runs };
-}
 
 export const showTime = (ms: number): string => {
   if (ms < 1_000) return `${ms}ms`;
@@ -455,15 +425,21 @@ export const showExit = (exit: SimExit<unknown, unknown>): string => {
   }
 };
 
-// One line per event: virtual time (left out when it never moved), fiber, what it did.
-export const format = (trace: ReadonlyArray<TraceEvent>): string => {
+// One line per event: virtual time (left out when it never moved), fiber, what it did. Consecutive
+// events of one fiber show its name once (collapse: false repeats it).
+export const format = (
+  trace: ReadonlyArray<TraceEvent>,
+  options: { readonly collapse?: boolean } = {},
+): string => {
+  const { collapse = true } = options;
   const width = Math.max(0, ...trace.map((e) => e.fiber.length));
   const timed = trace.some((e) => e.time > 0);
   const times = trace.map((e) => (timed ? showTime(e.time) : ""));
   const tw = Math.max(0, ...times.map((t) => t.length));
   return trace
-    .map(
-      (e, i) => `${timed ? `${times[i]!.padStart(tw)}  ` : ""}${e.fiber.padEnd(width)}  ${e.what}`,
-    )
+    .map((e, i) => {
+      const same = collapse && i > 0 && trace[i - 1]!.fiber === e.fiber;
+      return `${timed ? `${times[i]!.padStart(tw)}  ` : ""}${(same ? "" : e.fiber).padEnd(width)}  ${e.what}`;
+    })
     .join("\n");
 };

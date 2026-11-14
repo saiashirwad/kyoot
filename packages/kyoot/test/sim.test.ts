@@ -365,3 +365,113 @@ test("sim: PCT finds a rare stale-cache bug that random scheduling mostly misses
   assert.ok(pct >= 2, `pct hit ${pct}`);
   assert.ok(random * 3 <= pct, `random ${random} vs pct ${pct}`);
 });
+
+// A lost update: two fibers read, then write read + 1. One preemption (between a read and its
+// write) is the least that loses an increment; the extra fibers only add noise.
+const Read = effect<void, number>()("io/counter.read");
+const Write = effect<number, void>()("io/counter.write");
+const counter = () => {
+  let value = 0;
+  return {
+    get value() {
+      return value;
+    },
+    "io/counter.read": () => value,
+    "io/counter.write": (v: number) => void (value = v),
+    "io/note": () => {},
+  };
+};
+const increment = Kyoot.gen(function* () {
+  for (let i = 0; i < 5; i++) yield* Note("noise");
+  const v = yield* Read();
+  yield* Write(v + 1);
+});
+const chatter = Kyoot.gen(function* () {
+  for (let i = 0; i < 6; i++) yield* Note("noise");
+});
+const lost = Sim.all([increment, increment, chatter]);
+const lostCheck = (r: { world: ReturnType<typeof counter> }) => r.world.value === 2;
+
+test("shrink: a failing run stays failing, is never longer, and reaches the minimal preemptions", () => {
+  const options = { world: counter, check: lostCheck };
+  for (const strategy of [Sim.random(), Sim.pct({ depth: 3, steps: 60 })]) {
+    const found = Sim.explore(lost, { ...options, seeds: 500, strategy, shrink: false });
+    assert.ok(!found.ok);
+    assert.equal(found.shrunk, undefined);
+    const shrunk = Sim.shrink(lost, found.result, options);
+    assert.notEqual(lostCheck(shrunk.result), true);
+    assert.ok(shrunk.after.steps <= shrunk.before.steps);
+    assert.ok(shrunk.after.preemptions <= shrunk.before.preemptions);
+    assert.equal(shrunk.after.preemptions, 1);
+    assert.deepEqual(shrunk.before, {
+      steps: found.result.steps,
+      preemptions: found.result.preemptions,
+    });
+    const again = Sim.run(lost, {
+      seed: found.seed,
+      world: counter,
+      strategy: Sim.replay(shrunk.result.choices),
+    });
+    assert.notEqual(lostCheck(again), true);
+    assert.equal(Sim.format(again.trace), Sim.format(shrunk.result.trace));
+  }
+});
+
+test("shrink: deterministic, and explore shrinks by default", () => {
+  const options = { world: counter, check: lostCheck };
+  const a = Sim.explore(lost, { ...options, seeds: 500 });
+  const b = Sim.explore(lost, { ...options, seeds: 500 });
+  assert.ok(!a.ok && !b.ok && a.shrunk !== undefined && b.shrunk !== undefined);
+  assert.deepEqual(a.shrunk.result.choices, b.shrunk.result.choices);
+  assert.equal(Sim.format(a.shrunk.result.trace), Sim.format(b.shrunk.result.trace));
+  assert.equal(a.shrunk.runs, b.shrunk.runs);
+  assert.equal(a.shrunk.after.preemptions, 1);
+});
+
+test("shrink: the ticket race shrinks to one preemption between the two fans", () => {
+  const found = Sim.explore(Tickets.atTheSameTime, {
+    seeds: 1000,
+    world: Tickets.world,
+    check: Tickets.noOversell,
+  });
+  assert.ok(!found.ok && found.shrunk !== undefined);
+  assert.equal(found.shrunk.after.preemptions, 1);
+  assert.ok(found.shrunk.after.steps <= found.result.steps);
+  assert.notEqual(Tickets.noOversell(found.shrunk.result), true);
+  const lines = Sim.format(found.shrunk.result.trace).split("\n");
+  const reads = lines.filter((l) => l.includes("db.get"));
+  assert.match(reads[0]!, /^alice/);
+  assert.match(reads[1]!, /^bob/);
+});
+
+test("shrink: reaches a smaller schedule for the rare stale cache", () => {
+  const found = Sim.explore(Rare.program, {
+    seeds: 500,
+    world: Rare.world,
+    check: Rare.fresh,
+    strategy: Sim.pct({ depth: 2, steps: 200 }),
+  });
+  assert.ok(!found.ok && found.shrunk !== undefined);
+  assert.ok(found.shrunk.after.preemptions < found.shrunk.before.preemptions);
+  assert.notEqual(Rare.fresh(found.shrunk.result), true);
+});
+
+test("shrink: a run that passes the check is returned unchanged", () => {
+  const ok = Sim.run(lost, { seed: 0, world: counter });
+  const shrunk = Sim.shrink(lost, ok, { world: counter, check: () => false as boolean });
+  assert.equal(shrunk.after.steps, ok.steps);
+});
+
+test("format: a fiber's consecutive events share one name", () => {
+  const trace = Sim.run(Sim.all([worker("a", 2)]), { seed: 0, world: notes }).trace;
+  assert.ok(
+    Sim.format(trace, { collapse: false })
+      .split("\n")
+      .every((l) => /^\S/.test(l)),
+  );
+  assert.ok(
+    Sim.format(trace)
+      .split("\n")
+      .some((l) => l.startsWith(" ")),
+  );
+});

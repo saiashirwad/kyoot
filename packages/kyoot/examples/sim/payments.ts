@@ -79,7 +79,10 @@ if (import.meta.main) {
   const found = Sim.explore(naive, { seeds: 1000, world: gateway, check: chargedOnce });
   if (found.ok) throw new Error("expected a double charge");
   console.log(`Without an idempotency key, seed ${found.seed}: ${found.reason}\n`);
-  console.log(Sim.format(found.result.trace).replace(/^/gm, "    "));
+  const { shrunk } = found;
+  if (shrunk === undefined) throw new Error("expected a shrunk run");
+  console.log(`    (${Sim.showShrink(shrunk)})\n`);
+  console.log(Sim.format(shrunk.result.trace).replace(/^/gm, "    "));
 
   const fixed = Sim.explore(safe, { seeds: 1000, world: gateway, check: chargedOnce });
   console.log(

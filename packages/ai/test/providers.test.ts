@@ -115,3 +115,19 @@ test("chatCompletions does not retry 401", async () => {
     globalThis.fetch = fetch;
   }
 });
+
+test("chatCompletions fails a stream that ends without [DONE]", async () => {
+  const fetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    response([event({ choices: [{ delta: { content: "partial" } }] })]);
+  try {
+    const result = await runPromise(
+      Model(request).pipe(chatCompletions(options), Emit.discard, Fail.run),
+    );
+    assert.ok(
+      !result.ok && result.cause._tag === "Fail" && result.cause.error instanceof ProviderError,
+    );
+  } finally {
+    globalThis.fetch = fetch;
+  }
+});

@@ -37,7 +37,7 @@ const parse = <A>(schema: Schema.Schema<A>, raw: string): { args: A } | { error:
 const run = (tool: Tool, args: unknown) =>
   tool
     .run(args)
-    .map((v) => JSON.stringify(v))
+    .map((v) => JSON.stringify(v) ?? "null")
     .pipe(Fail.catchAll((e: unknown) => Kyoot.succeed(`error: ${show(e)}`)));
 
 export function generate<T extends Tool = never>(
@@ -53,6 +53,8 @@ export function generate<A = string, T extends Tool = never>(
   { tools = [], rounds = 8, schema }: Options<A, T> = {},
 ): K<readonly [A, Message[]], Requires<T>> {
   return Kyoot.gen(function* () {
+    if (schema && tools.some((tool) => tool.name === "answer"))
+      throw new Error("Tool name answer is reserved for structured output");
     const schemas = tools.map(schemaOf);
     if (schema)
       schemas.push({

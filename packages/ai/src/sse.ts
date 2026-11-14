@@ -1,4 +1,4 @@
-export async function* events<T = unknown>(body: ReadableStream): AsyncGenerator<T> {
+export async function* events<T = unknown>(body: ReadableStream): AsyncGenerator<T, boolean> {
   let buffer = "";
   let data = "";
   let skipLf = false;
@@ -20,7 +20,7 @@ export async function* events<T = unknown>(body: ReadableStream): AsyncGenerator
       if (line === "") {
         const payload = data.slice(0, -1);
         data = "";
-        if (payload === "[DONE]") return;
+        if (payload === "[DONE]") return true;
         if (payload !== "") yield JSON.parse(payload) as T;
       } else if (!line.startsWith(":")) {
         const colon = line.indexOf(":");
@@ -32,4 +32,5 @@ export async function* events<T = unknown>(body: ReadableStream): AsyncGenerator
     }
     buffer = buffer.slice(from);
   }
+  return false;
 }

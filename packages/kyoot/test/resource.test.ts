@@ -483,3 +483,82 @@ test("Resource under Sim.run: interrupting during open registers nothing", () =>
   const r = Sim.run(program, { seed: 2, world: notes });
   assert.deepEqual(r.world.seen, ["open a", "close a"]);
 });
+
+test("Resource: a typed release failure does not skip older finalizers", () => {
+  const events: string[] = [];
+  const program = Kyoot.gen(function* () {
+    yield* Resource.acquire(Kyoot.succeed("old"), () => events.push("old"));
+    yield* Resource.acquire(Kyoot.succeed("new"), () => {
+      events.push("new");
+      return Fail.fail("release failed");
+    });
+    return 7;
+  }).pipe(Resource.run, Fail.run);
+  assert.deepEqual(Kyoot.runSync(program), {
+    ok: false,
+    cause: { _tag: "Fail", error: "release failed" },
+  });
+  assert.deepEqual(events, ["new", "old"]);
+});
+
+test("Resource: the first release failure (newest) is the one reported", () => {
+  const program = Kyoot.gen(function* () {
+    yield* Resource.acquire(Kyoot.succeed("old"), () => Fail.fail("old failed"));
+    yield* Resource.acquire(Kyoot.succeed("new"), () => Fail.fail("new failed"));
+  }).pipe(Resource.run, Fail.run);
+  assert.deepEqual(Kyoot.runSync(program), {
+    ok: false,
+    cause: { _tag: "Fail", error: "new failed" },
+  });
+});
+
+test("Resource: the body's outcome wins over a typed release failure", () => {
+  const events: string[] = [];
+  const defect = new Error("body died");
+  const release = (name: string) => () => {
+    events.push(name);
+    return Fail.fail("release failed");
+  };
+  const dies = Kyoot.gen(function* () {
+    yield* Resource.acquire(Kyoot.succeed("a"), release("a"));
+    throw defect;
+  }).pipe(Resource.run, Fail.run);
+  assert.deepEqual(Kyoot.runSync(dies), { ok: false, cause: { _tag: "Defect", defect } });
+  const fails = Kyoot.gen(function* () {
+    yield* Resource.acquire(Kyoot.succeed("b"), release("b"));
+    return yield* Fail.fail("body failed");
+  }).pipe(Resource.run, Fail.run);
+  assert.deepEqual(Kyoot.runSync(fails), {
+    ok: false,
+    cause: { _tag: "Fail", error: "body failed" },
+  });
+  assert.deepEqual(events, ["a", "b"]);
+});
+
+const Missing = effect<undefined, void>()("missing");
+const releaseDefect = new Error("release defect");
+const leaky = Resource.run(
+  Kyoot.gen(function* () {
+    yield* Resource.acquire(Kyoot.succeed("r"), () => {
+      throw releaseDefect;
+    });
+    yield* Missing(undefined);
+  }) as never,
+) as never;
+
+const boundary = (e: unknown) =>
+  e instanceof Error && /effect 'missing'/.test(e.message) && e.cause === releaseDefect;
+
+test("boundary: runSync keeps its error over a throwing release, with the release as cause", () => {
+  assert.throws(() => Reflect.apply(Kyoot.runSync, undefined, [leaky]), boundary);
+});
+
+test("boundary: the live driver keeps its error over a throwing release", async () => {
+  await assert.rejects(runPromise(leaky), boundary);
+});
+
+test("boundary: Sim.run keeps its error over a throwing release", () => {
+  const r = Sim.run(leaky, { seed: 0, world: () => ({}) });
+  assert.ok(!r.exit.ok && r.exit.cause._tag === "Defect");
+  assert.ok(boundary(r.exit.cause.defect));
+});

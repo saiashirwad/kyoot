@@ -1,3 +1,4 @@
+import { UnhandledEffectError } from "../machine.ts";
 import * as Fail from "../effects/fail.ts";
 import type { Err } from "../effects/fail.ts";
 import type { Kyoot } from "../model.ts";
@@ -332,7 +333,7 @@ function simulate<A, S extends Row, W extends World<S> = World<S>>(
     }
     if (key === "async") {
       log(f, "async ✗");
-      const error = new Error(
+      const error = new UnhandledEffectError(
         `sim: promise interop (Async.fromPromise) can't run in a simulation (fiber ${f.handle.name}); declare an effect for it and answer it from the world`,
       );
       return schedule(f, { kind: "raise", error });
@@ -340,7 +341,9 @@ function simulate<A, S extends Row, W extends World<S> = World<S>>(
     const responder = responders[key];
     if (typeof responder !== "function") {
       log(f, `unhandled ${key}`);
-      const error = new Error(`sim: no handler for effect '${key}' in fiber ${f.handle.name}`);
+      const error = new UnhandledEffectError(
+        `sim: no handler for effect '${key}' in fiber ${f.handle.name}`,
+      );
       return schedule(f, { kind: "raise", error });
     }
     let result: unknown;

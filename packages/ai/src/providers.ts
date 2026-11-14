@@ -79,7 +79,10 @@ const complete = ({ url, model, apiKey }: Options, req: Request) =>
     const calls: { id: string; name: string; arguments: string }[] = [];
     while (true) {
       const r = yield* Async.next(it);
-      if (r.done) break;
+      if (r.done) {
+        if (!r.value) return yield* Fail.fail(new ProviderError(422, "Incomplete provider stream"));
+        break;
+      }
       const { content, tool_calls = [] } = r.value.choices?.[0]?.delta ?? {};
       if (content) {
         text += content;

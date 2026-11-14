@@ -14,7 +14,8 @@
     "./resource": "./src/effects/resource.ts",
     "./sync": "./src/effects/sync.ts",
     "./var": "./src/effects/var.ts",
-    "./async": "./src/async/index.ts"
+    "./async": "./src/async/index.ts",
+    "./sim": "./src/sim/index.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

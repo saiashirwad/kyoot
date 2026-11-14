@@ -24,11 +24,11 @@ console.log(Kyoot.runSync(handled)); // hello ada
 
 ## Packages
 
-| Package                                | Contents                                                                                                                       |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| [`kyoot`](packages/kyoot)              | Core and `step`; entries `kyoot/fail`, `emit`, `env`, `log`, `random`, `resource`, `sync`, `var`, and `kyoot/async` for fibers |
-| [`@kyoot/ai`](packages/ai)             | Language models, tools, and providers                                                                                          |
-| [`@kyoot/platform`](packages/platform) | File system and process effects                                                                                                |
+| Package                                | Contents                                                                                                                                                                 |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [`kyoot`](packages/kyoot)              | Core and `step`; entries `kyoot/fail`, `emit`, `env`, `log`, `random`, `resource`, `sync`, `var`, `kyoot/async` for fibers, and `kyoot/sim` for deterministic simulation |
+| [`@kyoot/ai`](packages/ai)             | Language models, tools, and providers                                                                                                                                    |
+| [`@kyoot/platform`](packages/platform) | File system and process effects                                                                                                                                          |
 
 ## Try it
 
@@ -37,6 +37,7 @@ Needs Node 22.18+, which runs the TypeScript directly.
 ```sh
 pnpm install
 node packages/kyoot/examples/step.ts
+node packages/kyoot/examples/sim/tickets.ts   # a race found by a seeded scheduler
 pnpm check
 ```
 

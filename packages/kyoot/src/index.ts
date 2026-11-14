@@ -3,16 +3,7 @@ import type { Kyoot as KyootType } from "./model.ts";
 import { runSync, step } from "./step.ts";
 import type { Row } from "./types.ts";
 
-export {
-  catchDefect,
-  collect,
-  effect,
-  ensuring,
-  forEach,
-  makeHandler,
-  op,
-  withState,
-} from "./core.ts";
+export { catchDefect, effect, ensuring } from "./core.ts";
 export type { Intercept, Resume } from "./core.ts";
 export type { Done, Pending, Step } from "./step.ts";
 export { Result } from "./result.ts";

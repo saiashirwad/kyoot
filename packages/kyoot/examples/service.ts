@@ -37,17 +37,16 @@ const flakyModel = (failures: number) => {
       return reply;
     });
 
-  return Model.handle({
-    onOp: (prompt, resume) =>
-      complete(prompt)
-        .pipe(Retry.run({ times: 3, delay: (n) => 50 * 2 ** n }))
-        .flatMap(resume),
-  });
+  return Model.handle((prompt, resume) =>
+    complete(prompt)
+      .pipe(Retry.run({ times: 3, delay: (n) => 50 * 2 ** n }))
+      .flatMap(resume),
+  );
 };
 
-const localSearch = Search.handle({
-  onOp: ({ query }, resume) => resume([`${query} → doc 1`, `${query} → doc 2`]),
-});
+const localSearch = Search.handle(({ query }, resume) =>
+  resume([`${query} → doc 1`, `${query} → doc 2`]),
+);
 
 const program = agent("why is the sky blue?").pipe(
   flakyModel(1),

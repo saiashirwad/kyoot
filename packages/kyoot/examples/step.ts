@@ -24,10 +24,9 @@ const paying = (cart: readonly string[]) =>
     return `paid for ${cart.join(", ")}`;
   });
 
-const cancellable = Recv.handle({
-  onOp: (_, resume) =>
-    recv.flatMap((event) => (event.type === "cancel" ? Kyoot.succeed("cancelled") : resume(event))),
-});
+const cancellable = Recv.handle((_, resume) =>
+  recv.flatMap((event) => (event.type === "cancel" ? Kyoot.succeed("cancelled") : resume(event))),
+);
 
 const checkout = (log: string[]) =>
   Kyoot.gen(function* () {

@@ -20,10 +20,11 @@ export const info = at("info");
 export const warn = at("warn");
 export const error = at("error");
 
-export const print = log.handle({
-  tail: ({ level, message }) => console[level === "debug" ? "log" : level](message),
+export const print = log.handle(({ level, message }, resume) => {
+  console[level === "debug" ? "log" : level](message);
+  return resume(undefined);
 });
 
 export const collect = collecting("log");
 
-export const discard = log.handle({ tail: () => {} });
+export const discard = log.handle((_, resume) => resume(undefined));

@@ -59,16 +59,15 @@ const performFs = (op: FileSystem.Op): Promise<unknown> => {
   }
 };
 
-export const fs = FileSystem.handle({
-  onOp: (op, resume) =>
-    Fail.resumeOrFail(
-      resume,
-      Async.tryPromise(
-        () => performFs(op),
-        (e) => fsError(op, e),
-      ),
+export const fs = FileSystem.handle((op, resume) =>
+  Fail.resumeOrFail(
+    resume,
+    Async.tryPromise(
+      () => performFs(op),
+      (e) => fsError(op, e),
     ),
-});
+  ),
+);
 
 const exec = (op: Command.Op, signal: AbortSignal) =>
   new Promise<Command.Output>((resolve, reject) => {
@@ -85,16 +84,15 @@ const exec = (op: Command.Op, signal: AbortSignal) =>
     child.stdin?.end(op.stdin ?? "");
   });
 
-export const command = Command.handle({
-  onOp: (op, resume) =>
-    Fail.resumeOrFail(
-      resume,
-      Async.tryPromise(
-        (signal) => exec(op, signal),
-        (e) => new Command.CommandError(op.command, (e as Error).message),
-      ),
+export const command = Command.handle((op, resume) =>
+  Fail.resumeOrFail(
+    resume,
+    Async.tryPromise(
+      (signal) => exec(op, signal),
+      (e) => new Command.CommandError(op.command, (e as Error).message),
     ),
-});
+  ),
+);
 
 export const provide = <A, S extends Row & Partial<FileSystem.FsRow & Command.CommandRow>>(
   k: K<A, S>,

@@ -120,13 +120,10 @@ interface Spawned<A, E> {
 }
 
 const inherit = (k: AnyKyoot, snapshots: readonly Snapshot[] = []): AnyKyoot => {
-  for (const { key, hooks, state } of snapshots) {
+  for (const { key, hooks } of snapshots) {
     const fork = hooks.fork;
     if (fork === false) continue;
-    k =
-      typeof fork === "function"
-        ? fork(k)
-        : makeHandler(key, k, { initial: state, onOp: hooks.onOp, tail: hooks.tail } as never);
+    k = typeof fork === "function" ? fork(k) : makeHandler(key, k, hooks.onOp);
   }
   return k;
 };
@@ -135,12 +132,13 @@ const spawn = <A, E>(rt: AsyncRuntime, k: AnyKyoot): Spawned<A, E> => {
   let exit: Result<E, A> | undefined;
   const record = (r: Result<E, A>) => ((exit = r), succeed(undefined));
   const failed = (e: E) => record(Result.fail(e));
-  const inner = makeHandler("fail", k, {
-    fork: false,
-    onOp: failed,
-    onReturn: (a: A) => record(Result.ok(a)),
-  });
-  const outer = makeHandler("fail", inherit(inner, rt.handlers), { fork: false, onOp: failed });
+  const inner = makeHandler(
+    "fail",
+    k.flatMap((a) => record(Result.ok(a))),
+    failed,
+    false,
+  );
+  const outer = makeHandler("fail", inherit(inner, rt.handlers), failed, false);
   const h: FiberHandle = rt.spawn(outer);
   return {
     promise: h.promise.then(

@@ -71,9 +71,7 @@ test("command: a program that cannot start is a CommandError", async () => {
 test("command: a fake handler", () => {
   const out = Kyoot.runSync(
     Command.run("ls", ["-la"]).pipe(
-      Command.handle({
-        onOp: (op, resume) => resume({ code: 0, stdout: op.args.join(" "), stderr: "" }),
-      }),
+      Command.handle((op, resume) => resume({ code: 0, stdout: op.args.join(" "), stderr: "" })),
       Fail.orThrow,
     ),
   );

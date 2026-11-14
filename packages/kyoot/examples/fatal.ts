@@ -23,13 +23,12 @@ const lookup = (id: string) =>
 const run = (id: string) =>
   lookup(id).pipe(
     Fail.catchAll((e: NotFound) => Kyoot.succeed(`no user ${e.id}`)),
-    Fatal.handle({
-      onOp: (e) =>
-        Sync.defer(() => {
-          console.error(`fatal: ${e.reason}`);
-          process.exit(1);
-        }),
-    }),
+    Fatal.handle((e) =>
+      Sync.defer(() => {
+        console.error(`fatal: ${e.reason}`);
+        process.exit(1);
+      }),
+    ),
     Sync.run,
     Kyoot.runSync,
   );

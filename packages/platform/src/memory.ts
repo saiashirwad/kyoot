@@ -108,15 +108,13 @@ export const fs =
       }
     };
 
-    const served = handle({
-      onOp: (op, resume) => {
-        try {
-          return resume(run(op));
-        } catch (e) {
-          if (e instanceof FsError) return resume.with(Fail.fail(e));
-          throw e;
-        }
-      },
+    const served = handle((op, resume) => {
+      try {
+        return resume(run(op));
+      } catch (e) {
+        if (e instanceof FsError) return resume.with(Fail.fail(e));
+        throw e;
+      }
     });
     return served(k).map(
       (a) => [a, Object.fromEntries([...files].map(([p, f]) => [p, f.data]))] as const,

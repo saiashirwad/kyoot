@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { effect, Emit, Fail, Kyoot } from "kyoot";
-import type { Op } from "kyoot";
+import type { Kyoot as K, Op, Row } from "kyoot";
 import { z } from "zod";
 import {
   AI,
@@ -27,9 +27,7 @@ const emitting = Tool("emitting", "emits numbers", z.object({}), () => Emit.valu
 type _emittingRow = Expect<
   Equal<Requires<typeof emitting>["emit"], Op<Events.Event | number, void>>
 >;
-const evaluate = Calc.handle({
-  onOp: ({ expression }, resume) => resume(expression === "2+2" ? 4 : NaN),
-});
+const evaluate = Calc.handle(({ expression }, resume) => resume(expression === "2+2" ? 4 : NaN));
 
 const call = (name: string, args: object): Completion => ({
   text: "",
@@ -41,14 +39,18 @@ const say = (text: string, usage?: Completion["usage"]): Completion => ({
   usage,
 });
 
-const scripted = (script: readonly Completion[], seen: Request[] = []) =>
-  Model.handle({
-    initial: 0,
-    onOp: (req, resume, i) => {
-      seen.push(req);
-      return resume(script[Math.min(i, script.length - 1)]!, i + 1);
-    },
-  });
+const scripted =
+  (script: readonly Completion[], seen: Request[] = []) =>
+  <A, S extends Row & { "ai/model"?: Op<Request, Completion> }>(k: K<A, S>) =>
+    Kyoot.gen(function* () {
+      let i = 0;
+      return yield* k.pipe(
+        Model.handle((req, resume) => {
+          seen.push(req);
+          return resume(script[Math.min(i++, script.length - 1)]!);
+        }),
+      );
+    });
 
 test("ask: runs tool calls as effects and feeds results back", () => {
   const seen: Request[] = [];
@@ -157,13 +159,17 @@ test("events: text from the provider, calls and results from the loop", () => {
   const events: Events.Event[] = [];
   Kyoot.runSync(
     AI.ask("2+2?", { tools: [calc] }).pipe(
-      Model.handle({
-        initial: 0,
-        onOp: (_req, resume, i) =>
-          Emit.value<Events.Event>({ type: "text", text: "hm" }).flatMap(() =>
-            resume(i === 0 ? call("calc", { expression: "2+2" }) : say("4"), i + 1),
-          ),
-      }),
+      (k) =>
+        Kyoot.gen(function* () {
+          let i = 0;
+          return yield* k.pipe(
+            Model.handle((_req, resume) =>
+              Emit.value<Events.Event>({ type: "text", text: "hm" }).flatMap(() =>
+                resume(i++ === 0 ? call("calc", { expression: "2+2" }) : say("4")),
+              ),
+            ),
+          );
+        }),
       evaluate,
       Emit.forEach((e: Events.Event) => events.push(e)),
       Fail.orThrow,
@@ -184,11 +190,9 @@ test("approval is an effect the tool performs", () => {
     Fail.orThrow,
   );
   const result = (content: string) => ({ role: "tool", toolCallId: "1", content });
-  Kyoot.runSync(program.pipe(Approve.handle({ onOp: (_, resume) => resume(false) })));
+  Kyoot.runSync(program.pipe(Approve.handle((_, resume) => resume(false))));
   assert.deepEqual(seen[1]!.messages.at(-1), result('{"denied":true}'));
-  Kyoot.runSync(
-    program.pipe(Approve.handle({ onOp: ({ tool }, resume) => resume(tool === "calc") })),
-  );
+  Kyoot.runSync(program.pipe(Approve.handle(({ tool }, resume) => resume(tool === "calc"))));
   assert.deepEqual(seen[3]!.messages.at(-1), result("4"));
 });
 

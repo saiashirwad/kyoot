@@ -226,7 +226,7 @@ test("a handler that performs an op and then does not resume releases after its 
     return "never";
   }).pipe(
     Resource.run,
-    Stop.handle({ onOp: (why) => Sync.defer(() => (events.push(`stopped: ${why}`), "stopped")) }),
+    Stop.handle((why) => Sync.defer(() => (events.push(`stopped: ${why}`), "stopped"))),
     Sync.run,
     Kyoot.runSync,
   );
@@ -247,9 +247,7 @@ test("a handler that resumes does not release early", () => {
     return n;
   }).pipe(
     Resource.run,
-    Ask.handle({
-      onOp: (_, resume) => Sync.defer(() => events.push("asked")).flatMap(() => resume(7)),
-    }),
+    Ask.handle((_, resume) => Sync.defer(() => events.push("asked")).flatMap(() => resume(7))),
     Sync.run,
     Kyoot.runSync,
   );
@@ -269,7 +267,7 @@ test("a handler that claims a resume token and discards it still releases", () =
     return "never";
   }).pipe(
     Resource.run,
-    Ask.handle({ onOp: (_, resume) => (resume(42), Kyoot.succeed("discarded")) }),
+    Ask.handle((_, resume) => (resume(42), Kyoot.succeed("discarded"))),
     Kyoot.runSync,
   );
   assert.equal(r, "discarded");
@@ -288,9 +286,7 @@ test("a handler that claims a resume.with token and discards it still releases",
     return "never";
   }).pipe(
     Resource.run,
-    Ask.handle({
-      onOp: (_, resume) => (resume.with(Kyoot.succeed(42)), Kyoot.succeed("discarded")),
-    }),
+    Ask.handle((_, resume) => (resume.with(Kyoot.succeed(42)), Kyoot.succeed("discarded"))),
     Kyoot.runSync,
   );
   assert.equal(r, "discarded");
@@ -315,7 +311,7 @@ test("a discarded resume token releases nested captured resources, innermost fir
     return "never";
   }).pipe(
     Resource.run,
-    Ask.handle({ onOp: (_, resume) => (resume(42), Kyoot.succeed("discarded nested")) }),
+    Ask.handle((_, resume) => (resume(42), Kyoot.succeed("discarded nested"))),
     Kyoot.runSync,
   );
   assert.equal(r, "discarded nested");
@@ -334,7 +330,7 @@ test("a discarded resume token releases a captured resource whose finalizer is a
     return "never";
   }).pipe(
     Resource.run,
-    Ask.handle({ onOp: (_, resume) => (resume(42), Kyoot.succeed("discarded")) }),
+    Ask.handle((_, resume) => (resume(42), Kyoot.succeed("discarded"))),
     runPromise,
   );
   assert.equal(r, "discarded");
@@ -354,11 +350,9 @@ test("a resume token returned later in the handler's program still resumes", () 
     return n;
   }).pipe(
     Resource.run,
-    Ask.handle({
-      onOp: (_, resume) => {
-        const token = resume(7);
-        return Sync.defer(() => events.push("asked")).flatMap(() => token);
-      },
+    Ask.handle((_, resume) => {
+      const token = resume(7);
+      return Sync.defer(() => events.push("asked")).flatMap(() => token);
     }),
     Sync.run,
     Kyoot.runSync,

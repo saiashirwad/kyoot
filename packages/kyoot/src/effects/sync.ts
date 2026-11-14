@@ -1,4 +1,4 @@
-import { effect } from "../core.ts";
+import { effect, unit } from "../core.ts";
 import type { Kyoot, RowsOf } from "../model.ts";
 
 const sync = effect<() => unknown, unknown>()("sync");
@@ -9,4 +9,4 @@ export const handle = sync.handle;
 
 export const intercept = sync.intercept;
 
-export const run = sync.handle({ tail: (f) => f() });
+export const run = sync.handle((f, resume) => resume.with(unit.map(f)));

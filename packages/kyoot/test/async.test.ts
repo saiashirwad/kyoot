@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { makeHandler } from "../src/core.ts";
 import { effect, Emit, Env, Fail, Kyoot, Log, Resource } from "../src/index.ts";
+import type { Result } from "../src/index.ts";
 import { Async, Clock, InterruptedError, runPromise } from "../src/async/index.ts";
 const deferred = <A>() => {
   let resolve = (_value: A | PromiseLike<A>): void => {};
@@ -556,7 +558,7 @@ test("fork: Clock.virtual outside the fork makes the fiber's sleeps instant", as
     const fiber = yield* Async.fork(Clock.sleep(10_000).map(() => "woke"));
     return yield* fiber.join;
   }).pipe(Clock.virtual);
-  assert.deepEqual(await runPromise(prog), ["woke", 0]);
+  assert.deepEqual(await runPromise(prog), ["woke", 10_000]);
 });
 
 test("fork: a copied handler that returns instead of resuming is a defect", async () => {
@@ -564,7 +566,7 @@ test("fork: a copied handler that returns instead of resuming is a defect", asyn
   const prog = Kyoot.gen(function* () {
     const fiber = yield* Async.fork(Ask("n?"));
     return yield* fiber.await;
-  }).pipe(Ask.handle({ onOp: () => Kyoot.succeed(0) }));
+  }).pipe(Ask.handle(() => Kyoot.succeed(0)));
   const r = await runPromise(prog);
   assert.ok(typeof r === "object" && !r.ok && r.cause._tag === "Defect");
   assert.match(String((r.cause as { defect: Error }).defect.message), /returned a value/);
@@ -575,7 +577,9 @@ test("fork: a handler marked fork: false stops at the fiber, loudly", async () =
   const prog = Kyoot.gen(function* () {
     const fiber = yield* Async.fork(Ask("n?"));
     return yield* fiber.await;
-  }).pipe(Ask.handle({ fork: false, onOp: (_q, resume) => resume(1) }));
+  }).pipe(
+    (k) => makeHandler("ask", k, (_q, resume) => resume(1), false) as Kyoot<Result<never, number>>,
+  );
   const r = await runPromise(prog);
   assert.ok(!r.ok && r.cause._tag === "Defect");
   assert.match(String((r.cause as { defect: Error }).defect.message), /unhandled effect 'ask'/);
@@ -589,7 +593,10 @@ test("fork: a copied handler that fails in its own scope fails the fiber, typed"
   const prog = Kyoot.gen(function* () {
     const fiber = yield* Async.fork(Pay(1));
     return yield* fiber.join;
-  }).pipe(Pay.handle({ onOp: () => Fail.fail(new Declined()) }), Fail.run);
+  }).pipe(
+    Pay.handle(() => Fail.fail(new Declined())),
+    Fail.run,
+  );
   const r = await runPromise(prog);
   assert.ok(!r.ok && r.cause._tag === "Fail" && r.cause.error instanceof Declined);
 });
@@ -618,7 +625,7 @@ test("fork: a user effect handled outside the fork answers inside it", async () 
   const prog = Kyoot.gen(function* () {
     const fibers = yield* Async.all([Ask("a"), Ask("bb")]);
     return fibers;
-  }).pipe(Ask.handle({ onOp: (q, resume) => resume(q.length) }));
+  }).pipe(Ask.handle((q, resume) => resume(q.length)));
   assert.deepEqual(await runPromise(prog), [1, 2]);
 });
 

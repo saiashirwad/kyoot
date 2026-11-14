@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   checkout,
-  Inventory,
+  inMemoryInventory,
   OutOfStock,
   PaymentDeclined,
   Payments,
@@ -21,21 +21,10 @@ const order: Order = {
 const card = "4242";
 const stocked = { book: 5, pen: 5 };
 
-const inMemoryInventory = (stock: Record<string, number>) =>
-  Inventory.handle({
-    initial: new Map(Object.entries(stock)),
-    onOp: ({ sku, qty }, resume, stock) => {
-      const have = stock.get(sku) ?? 0;
-      return have >= qty ? resume(true, new Map(stock).set(sku, have - qty)) : resume(false);
-    },
-  });
-
-const approveAll = Payments.handle({
-  onOp: ({ totalCents }, resume) => resume(`ch_${totalCents}`),
-});
+const approveAll = Payments.handle(({ totalCents }, resume) => resume(`ch_${totalCents}`));
 
 const declineAll = (reason: string) =>
-  Payments.handle({ onOp: () => Fail.fail(new PaymentDeclined(reason)) });
+  Payments.handle(() => Fail.fail(new PaymentDeclined(reason)));
 
 test("pure handlers run the whole checkout under runSync", () => {
   const [receipt, total] = checkout(order, card).pipe(

@@ -1,16 +1,5 @@
 import { effect } from "kyoot";
-import type { Kyoot, Op as RowOp } from "kyoot";
-
-export type Op =
-  | { readonly kind: "readFile"; readonly path: string }
-  | { readonly kind: "writeFile"; readonly path: string; readonly data: string }
-  | { readonly kind: "appendFile"; readonly path: string; readonly data: string }
-  | { readonly kind: "readDir"; readonly path: string }
-  | { readonly kind: "stat"; readonly path: string }
-  | { readonly kind: "exists"; readonly path: string }
-  | { readonly kind: "mkdir"; readonly path: string; readonly recursive: boolean }
-  | { readonly kind: "remove"; readonly path: string; readonly recursive: boolean }
-  | { readonly kind: "rename"; readonly path: string; readonly to: string };
+import type { Kyoot, MergeAll, Op as RowOp, Resume, RowsOf, Row } from "kyoot";
 
 export type Code =
   | "NotFound"
@@ -21,13 +10,24 @@ export type Code =
   | "NotEmpty"
   | "Other";
 
+export type Name =
+  | "readFile"
+  | "writeFile"
+  | "appendFile"
+  | "readDir"
+  | "stat"
+  | "exists"
+  | "mkdir"
+  | "remove"
+  | "rename";
+
 export class FsError {
   readonly _tag = "FsError";
-  readonly op: Op["kind"];
+  readonly op: Name;
   readonly path: string;
   readonly code: Code;
   readonly message: string;
-  constructor(op: Op["kind"], path: string, code: Code, message: string) {
+  constructor(op: Name, path: string, code: Code, message: string) {
     this.op = op;
     this.path = path;
     this.code = code;
@@ -41,7 +41,21 @@ export interface Stat {
   readonly mtime: Date;
 }
 
-type Answer = {
+type Path = { readonly path: string };
+
+export type Payload = {
+  readFile: Path;
+  writeFile: Path & { readonly data: string };
+  appendFile: Path & { readonly data: string };
+  readDir: Path;
+  stat: Path;
+  exists: Path;
+  mkdir: Path & { readonly recursive: boolean };
+  remove: Path & { readonly recursive: boolean };
+  rename: Path & { readonly to: string };
+};
+
+export type Answer = {
   readFile: string;
   writeFile: void;
   appendFile: void;
@@ -53,34 +67,83 @@ type Answer = {
   rename: void;
 };
 
-export type FsRow = { fs: RowOp<Op, unknown> };
+type Failing = { fail: RowOp<FsError, never> };
 
-const fs = effect<Op, unknown, { fail: RowOp<FsError, never> }>()("fs");
+export type FsRow = { [N in Name as `fs/${N}`]: RowOp<Payload[N], Answer[N]> };
 
-export const handle = fs.handle;
+const op = <N extends Name>() => effect<Payload[N], Answer[N], Failing>();
 
-export const intercept = fs.intercept;
+// One effect per operation: handle or intercept just the ones you care about.
+export const ops = {
+  readFile: op<"readFile">()("fs/readFile"),
+  writeFile: op<"writeFile">()("fs/writeFile"),
+  appendFile: op<"appendFile">()("fs/appendFile"),
+  readDir: op<"readDir">()("fs/readDir"),
+  stat: op<"stat">()("fs/stat"),
+  exists: op<"exists">()("fs/exists"),
+  mkdir: op<"mkdir">()("fs/mkdir"),
+  remove: op<"remove">()("fs/remove"),
+  rename: op<"rename">()("fs/rename"),
+};
 
-const perform = <O extends Op>(op: O) =>
-  fs(op) as Kyoot<Answer[O["kind"]], FsRow & { fail: RowOp<FsError, never> }>;
+const names = Object.keys(ops) as Name[];
 
-export const readFile = (path: string) => perform({ kind: "readFile", path });
+// Wraps k in one handler per operation. Typed at the call sites above, so the plumbing is loose.
+const anyOp = (n: Name): any => ops[n];
+const apply = (k: unknown, wrap: (n: Name) => any) =>
+  names.reduce<any>((acc, n) => wrap(n)?.(acc) ?? acc, k) as never;
 
-export const writeFile = (path: string, data: string) => perform({ kind: "writeFile", path, data });
+export type Handlers = {
+  [N in Name]: (payload: Payload[N], resume: Resume<Answer[N], Failing>) => Kyoot<any, any>;
+};
 
-export const appendFile = (path: string, data: string) =>
-  perform({ kind: "appendFile", path, data });
+type ValueOf<R> = R extends Kyoot<infer A, any> ? A : never;
 
-export const readDir = (path: string) => perform({ kind: "readDir", path });
+// Handle every operation at once; one call, so the handlers can share state.
+export const handle =
+  <H extends Handlers>(handlers: H) =>
+  <B, S extends Row & Partial<FsRow>>(
+    k: Kyoot<B, S>,
+  ): Kyoot<
+    B | ValueOf<ReturnType<H[Name]>>,
+    MergeAll<Omit<S, keyof FsRow> | RowsOf<ReturnType<H[Name]>>>
+  > =>
+    apply(k, (n) => anyOp(n).handle(handlers[n]));
 
-export const stat = (path: string) => perform({ kind: "stat", path });
+type Next<N extends Name> = Parameters<Parameters<(typeof ops)[N]["intercept"]>[0]>[1];
 
-export const exists = (path: string) => perform({ kind: "exists", path });
+export type Interceptors = {
+  [N in Name]?: (payload: Payload[N], next: Next<N>) => Kyoot<Answer[N], any>;
+};
 
-export const mkdir = (path: string, { recursive = false } = {}) =>
-  perform({ kind: "mkdir", path, recursive });
+// Intercept only the operations given; the rest pass through untouched.
+export const intercept =
+  <H extends Interceptors>(interceptors: H) =>
+  <B, S extends Row & Partial<FsRow>>(
+    k: Kyoot<B, S>,
+  ): Kyoot<
+    B,
+    MergeAll<
+      | Omit<S, `fs/${keyof H & Name}`>
+      | RowsOf<ReturnType<Extract<H[keyof H], (...args: any) => any>>>
+    >
+  > =>
+    apply(k, (n) => interceptors[n] && anyOp(n).intercept(interceptors[n]));
 
-export const remove = (path: string, { recursive = false } = {}) =>
-  perform({ kind: "remove", path, recursive });
+export const readFile = (path: string) => ops.readFile({ path });
 
-export const rename = (path: string, to: string) => perform({ kind: "rename", path, to });
+export const writeFile = (path: string, data: string) => ops.writeFile({ path, data });
+
+export const appendFile = (path: string, data: string) => ops.appendFile({ path, data });
+
+export const readDir = (path: string) => ops.readDir({ path });
+
+export const stat = (path: string) => ops.stat({ path });
+
+export const exists = (path: string) => ops.exists({ path });
+
+export const mkdir = (path: string, { recursive = false } = {}) => ops.mkdir({ path, recursive });
+
+export const remove = (path: string, { recursive = false } = {}) => ops.remove({ path, recursive });
+
+export const rename = (path: string, to: string) => ops.rename({ path, to });

@@ -4,6 +4,7 @@ import type { Kyoot } from "../model.ts";
 import { step } from "../step.ts";
 import type { Answer, Only, Payload, Row } from "../types.ts";
 import type { ChildKey, Exit, Fiber, ForkRequest, IoKey } from "./effects.ts";
+import { prng, random, type Strategy } from "./strategy.ts";
 
 export type Stuck =
   | { readonly _tag: "Deadlock"; readonly blocked: ReadonlyArray<string> }
@@ -52,13 +53,19 @@ type WorldOption<S, W> = [IoKeysOf<S>] extends [never]
   : { readonly world: () => W };
 
 export type RunOptions<S, W> = {
+  // Seeds the strategy and the world's random().
   readonly seed: number;
+  // Who runs next (default: Sim.random()). Sim.replay(choices) reruns a recorded schedule.
+  readonly strategy?: Strategy;
   // Scheduling decisions before giving up with StepLimit (a livelock guard).
   readonly maxSteps?: number;
 } & WorldOption<S, W>;
 
 export interface SimResult<A, E, W> {
   readonly seed: number;
+  readonly strategy: string;
+  // The scheduler's choice at each step (an index into the runnable fibers): Sim.replay(choices).
+  readonly choices: ReadonlyArray<number>;
   readonly exit: SimExit<E, A>;
   readonly trace: ReadonlyArray<TraceEvent>;
   readonly now: number;
@@ -67,17 +74,6 @@ export interface SimResult<A, E, W> {
 }
 
 type FailOf<S> = Payload<S, "fail">;
-
-// mulberry32: small, fast and good enough to pick fibers.
-const prng = (seed: number) => {
-  let s = seed | 0;
-  return () => {
-    s = (s + 0x6d2b79f5) | 0;
-    let t = Math.imul(s ^ (s >>> 15), s | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-};
 
 type Next =
   | { readonly kind: "start" }
@@ -138,8 +134,9 @@ export function run<A, S extends Row, W extends World<S> = World<S>>(
   program: Kyoot<A, S> & Only<S, ChildKey>,
   options: RunOptions<S, W>,
 ): SimResult<A, FailOf<S>, W> {
-  const { seed, maxSteps = 100_000 } = options;
-  const pick = prng(seed);
+  const { seed, maxSteps = 100_000, strategy = random() } = options;
+  const pick = strategy.chooser(seed);
+  const choices: number[] = [];
   const chance = prng(seed ^ 0x5bd1e995);
   const world = (options.world?.() ?? {}) as W;
   const responders = world as unknown as Record<string, (p: unknown, ctx: IoContext) => unknown>;
@@ -336,6 +333,8 @@ export function run<A, S extends Row, W extends World<S> = World<S>>(
   const main = spawn(program as Kyoot<unknown, any>);
   const result = (exit: SimExit<unknown, unknown>): SimResult<A, FailOf<S>, W> => ({
     seed,
+    strategy: strategy.name,
+    choices,
     exit: exit as SimExit<FailOf<S>, A>,
     trace,
     now,
@@ -355,7 +354,12 @@ export function run<A, S extends Row, W extends World<S> = World<S>>(
       continue;
     }
     if (++steps > maxSteps) return result({ ok: false, cause: { _tag: "StepLimit", steps } });
-    const [f] = runnable.splice(Math.floor(pick() * runnable.length), 1);
+    const choice = pick(
+      runnable.map((r) => r.handle.id),
+      choices.length,
+    );
+    choices.push(choice);
+    const [f] = runnable.splice(choice, 1);
     advance(f!);
   }
   return result(main.exit!);
@@ -381,6 +385,7 @@ export type Explored<A, E, W> =
       readonly ok: false;
       readonly runs: number;
       readonly seed: number;
+      readonly strategy: string;
       readonly reason: string;
       readonly result: SimResult<A, E, W>;
     };
@@ -388,7 +393,8 @@ export type Explored<A, E, W> =
 /**
  * Runs the program once per seed (from scratch each time) and stops at the first run `check`
  * rejects. `check` returns true to pass, or false / a reason to fail; by default a run passes when
- * main ended with a value. Rerun the reported seed with Sim.run to get the same trace back.
+ * main ended with a value. Rerun the reported seed (and strategy) with Sim.run to get the same
+ * trace back, or replay result.choices.
  */
 export function explore<A, S extends Row, W extends World<S> = World<S>>(
   program: Kyoot<A, S> & Only<S, ChildKey>,
@@ -406,7 +412,7 @@ export function explore<A, S extends Row, W extends World<S> = World<S>>(
     const verdict = check(result);
     if (verdict !== true) {
       const reason = verdict === false ? `check failed: ${showExit(result.exit)}` : verdict;
-      return { ok: false, runs, seed, reason, result };
+      return { ok: false, runs, seed, strategy: result.strategy, reason, result };
     }
   }
   return { ok: true, runs };

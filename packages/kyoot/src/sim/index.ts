@@ -23,6 +23,8 @@ export type {
   SimKey,
   SimRow,
 } from "./effects.ts";
+export { bounded, pct, random, replay } from "./strategy.ts";
+export type { Chooser, Strategy } from "./strategy.ts";
 export { delay, Delayed, explore, format, run, showExit, showTime } from "./scheduler.ts";
 export type {
   Check,

@@ -6,6 +6,7 @@ import * as Random from "../src/effects/random.ts";
 import * as Sim from "../src/sim/index.ts";
 import * as Tickets from "../examples/sim/tickets.ts";
 import * as Payments from "../examples/sim/payments.ts";
+import * as Rare from "../examples/sim/rare.ts";
 
 const Note = effect<string, void>()("io/note");
 const notes = () => {
@@ -288,4 +289,79 @@ test("demo: virtual time finds the double charge behind a timeout and retry", ()
   assert.equal(found.ok, false);
   assert.ok(!found.ok && found.result.now >= 10_000);
   assert.deepEqual(Sim.explore(Payments.safe, options), { ok: true, runs: 500 });
+});
+
+const strategies = [
+  Sim.random(),
+  Sim.pct({ depth: 3, steps: 20 }),
+  Sim.bounded({ preemptions: 2, steps: 20 }),
+];
+
+test("sim: every strategy is deterministic and records its choices", () => {
+  for (const strategy of strategies) {
+    for (const seed of [0, 5, 99]) {
+      const a = Sim.run(three, { seed, world: notes, strategy });
+      const b = Sim.run(three, { seed, world: notes, strategy });
+      assert.deepEqual(a.choices, b.choices);
+      assert.equal(Sim.format(a.trace), Sim.format(b.trace));
+      assert.equal(a.choices.length, a.steps);
+      assert.equal(a.strategy, strategy.name);
+    }
+  }
+});
+
+test("sim: replaying recorded choices reproduces the identical run", () => {
+  for (const strategy of strategies) {
+    for (const seed of [1, 2, 3]) {
+      const a = Sim.run(three, { seed, world: notes, strategy });
+      const b = Sim.run(three, { seed, world: notes, strategy: Sim.replay(a.choices) });
+      assert.equal(Sim.format(b.trace), Sim.format(a.trace));
+      assert.deepEqual(b.world.seen, a.world.seen);
+      assert.deepEqual(b.choices, a.choices);
+    }
+  }
+});
+
+test("sim: replay tolerates edited choices", () => {
+  const a = Sim.run(three, { seed: 4, world: notes });
+  const b = Sim.run(three, { seed: 4, world: notes, strategy: Sim.replay(a.choices.slice(0, 3)) });
+  assert.deepEqual(b.exit, { ok: true, value: ["a", "b", "c"] });
+});
+
+test("sim: bounded keeps one fiber running except at its preemption points", () => {
+  const switches = (strategy: Sim.Strategy) => {
+    const seen = Sim.run(three, { seed: 3, world: notes, strategy }).world.seen;
+    return seen.filter((s, i) => i > 0 && s[0] !== seen[i - 1]![0]).length;
+  };
+  assert.ok(switches(Sim.bounded({ preemptions: 0 })) <= 2);
+  assert.ok(switches(Sim.random()) > 3);
+});
+
+test("sim: PCT finds a rare stale-cache bug that random scheduling mostly misses", () => {
+  const options = { seeds: 500, world: Rare.world, check: Rare.fresh };
+  const found = Sim.explore(Rare.program, {
+    ...options,
+    strategy: Sim.pct({ depth: 2, steps: 200 }),
+  });
+  assert.ok(!found.ok);
+  assert.equal(found.strategy, "pct(depth=2)");
+  const again = Sim.run(Rare.program, {
+    seed: found.seed,
+    world: Rare.world,
+    strategy: Sim.replay(found.result.choices),
+  });
+  assert.notEqual(Rare.fresh(again), true);
+  assert.equal(Sim.format(again.trace), Sim.format(found.result.trace));
+
+  const count = (strategy: Sim.Strategy) => {
+    let n = 0;
+    for (let seed = 0; seed < 500; seed++) {
+      if (Rare.fresh(Sim.run(Rare.program, { seed, world: Rare.world, strategy })) !== true) n++;
+    }
+    return n;
+  };
+  const pct = count(Sim.pct({ depth: 2, steps: 200 }));
+  const random = count(Sim.random());
+  assert.ok(pct >= 2, `pct hit ${pct}`);
+  assert.ok(random * 3 <= pct, `random ${random} vs pct ${pct}`);
 });

@@ -256,7 +256,7 @@ test("sim: the existing random effect is answered from the seed", () => {
 
 test("sim: an effect no one answers is raised in the fiber that performed it", () => {
   const Mystery = effect<void, number>()("mystery");
-  const r = Sim.run(Sim.fork(Mystery() as never).flatMap(Sim.wait), { seed: 0 });
+  const r = Sim.run(Sim.fork(Mystery() as Kyoot<number>).flatMap(Sim.wait), { seed: 0 });
   assert.ok(r.exit.ok && !r.exit.value.ok && r.exit.value.cause._tag === "Defect");
 });
 
@@ -439,7 +439,7 @@ test("shrink: the ticket race shrinks to one preemption between the two fans", (
   assert.ok(found.shrunk.after.steps <= found.result.steps);
   assert.notEqual(Tickets.noOversell(found.shrunk.result), true);
   const lines = Sim.format(found.shrunk.result.trace).split("\n");
-  const reads = lines.filter((l) => l.includes("db.get"));
+  const reads = lines.filter((l) => l.includes("db/get"));
   assert.match(reads[0]!, /^alice/);
   assert.match(reads[1]!, /^bob/);
 });

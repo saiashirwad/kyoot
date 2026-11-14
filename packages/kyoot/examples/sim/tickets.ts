@@ -2,26 +2,30 @@
  * The last concert ticket: a check-then-act race that ordinary tests miss.
  *
  * buyTicket reads how many tickets are left, charges the card, then writes the new count. Each step
- * is an io/ effect, i.e. an await on a real database or payment API. Run alone, or one fan after the
- * other, it is correct. Run two fans at once and, in some interleavings, both read "1 left" and both
- * are charged for the same seat.
+ * is an ordinary declared effect (db/get, payments/charge, ...): in production a handler answers it
+ * with an await on a real database or payment API. Run alone, or one fan after the other, it is
+ * correct. Run two fans at once and, in some interleavings, both read "1 left" and both are charged
+ * for the same seat.
  *
  * Sim.explore runs the program under 1000 seeded schedules, finds one that oversells, prints the
  * interleaving, replays the seed to show it reproduces exactly, then checks a compare-and-set fix.
+ * Finally the very same programs run under runPromise, on real fibers, against live handlers.
  *
  *   node packages/kyoot/examples/sim/tickets.ts
  */
-import { effect, Kyoot } from "../../src/index.ts";
+import { effect, Kyoot, type Row } from "../../src/index.ts";
+import { Async, runPromise } from "../../src/async/index.ts";
 import * as Sim from "../../src/sim/index.ts";
 
-// The outside world, declared as io/ effects: Sim answers them from a fake, in-memory world.
+// The outside world, declared as ordinary effects. Sim answers them from a fake world; in
+// production a handler does (see `live` below).
 const Db = {
-  get: effect<string, number>()("io/db.get"),
-  set: effect<{ key: string; value: number }, void>()("io/db.set"),
+  get: effect<string, number>()("db/get"),
+  set: effect<{ key: string; value: number }, void>()("db/set"),
   // Writes only if the value is still `expected`; answers whether it did.
-  cas: effect<{ key: string; expected: number; value: number }, boolean>()("io/db.cas"),
+  cas: effect<{ key: string; expected: number; value: number }, boolean>()("db/cas"),
 };
-const Charge = effect<{ fan: string; cents: number }, void>()("io/payments.charge");
+const Charge = effect<{ fan: string; cents: number }, void>()("payments/charge");
 
 export const buyTicket = (fan: string) =>
   Kyoot.gen(function* () {
@@ -49,8 +53,8 @@ export const oneAfterTheOther = Kyoot.gen(function* () {
 });
 
 const names = { names: ["alice", "bob"] };
-export const atTheSameTime = Sim.all([buyTicket("alice"), buyTicket("bob")], names);
-export const atTheSameTimeSafely = Sim.all(
+export const atTheSameTime = Async.all([buyTicket("alice"), buyTicket("bob")], names);
+export const atTheSameTimeSafely = Async.all(
   [buyTicketSafely("alice"), buyTicketSafely("bob")],
   names,
 );
@@ -61,12 +65,40 @@ export const world = () => {
   const charged: string[] = [];
   return {
     charged,
-    "io/db.get": (key: string) => db.get(key) ?? 0,
-    "io/db.set": ({ key, value }: { key: string; value: number }) => void db.set(key, value),
-    "io/db.cas": ({ key, expected, value }: { key: string; expected: number; value: number }) =>
+    "db/get": (key: string) => db.get(key) ?? 0,
+    "db/set": ({ key, value }: { key: string; value: number }) => void db.set(key, value),
+    "db/cas": ({ key, expected, value }: { key: string; expected: number; value: number }) =>
       db.get(key) === expected && (db.set(key, value), true),
-    "io/payments.charge": ({ fan }: { fan: string }) => void charged.push(fan),
+    "payments/charge": ({ fan }: { fan: string }) => void charged.push(fan),
   };
+};
+
+// Live handlers for the same keys: an in-memory store behind a promise and a millisecond of real
+// latency, the shape a database or payments client has. Async.provide installs them in every fiber.
+export const live = () => {
+  const db = new Map([["tickets", 1]]);
+  const charged: string[] = [];
+  const io = <A>(f: () => A) =>
+    Async.fromPromise(() => new Promise<A>((resolve) => setTimeout(() => resolve(f()), 1)));
+  const handle = <A, S extends Row>(k: Kyoot<A, S>) =>
+    k.pipe(
+      Db.get.handle((key, resume) => io(() => db.get(key) ?? 0).flatMap(resume)),
+      Db.set.handle(({ key, value }, resume) => io(() => void db.set(key, value)).flatMap(resume)),
+      Db.cas.handle(({ key, expected, value }, resume) =>
+        io(() => db.get(key) === expected && (db.set(key, value), true)).flatMap(resume),
+      ),
+      Charge.handle(({ fan }, resume) => io(() => void charged.push(fan)).flatMap(resume)),
+    );
+  return { charged, handlers: Async.provide(handle) };
+};
+
+// Runs the two fans for real: runPromise gives each one a real fiber.
+export const runLive = async (options: { readonly safely?: boolean } = {}) => {
+  const { charged, handlers } = live();
+  const value = options.safely
+    ? await runPromise(atTheSameTimeSafely.pipe(handlers))
+    : await runPromise(atTheSameTime.pipe(handlers));
+  return { value, charged };
 };
 
 // The invariant: never charge more fans than there were tickets.
@@ -110,5 +142,15 @@ if (import.meta.main) {
   const ms = (performance.now() - t0).toFixed(0);
   console.log(
     `4. With compare-and-set: ${fixed.ok ? `all ${fixed.runs} schedules pass` : `seed ${fixed.seed} fails`} (${ms}ms)`,
+  );
+
+  const racy = await runLive();
+  const safe = await runLive({ safely: true });
+  console.log(`\n5. The same programs under runPromise, with live handlers:`);
+  console.log(
+    `   two fans at once:  ${JSON.stringify(racy.value)}, charged ${racy.charged.join(", ")}`,
+  );
+  console.log(
+    `   compare-and-set:   ${JSON.stringify(safe.value)}, charged ${safe.charged.join(", ")}`,
   );
 }

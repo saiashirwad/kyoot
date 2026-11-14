@@ -30,20 +30,20 @@ const mixed = Kyoot.gen(function* () {
   return "done";
 });
 type MixedRows = RowsOf<typeof mixed>;
-type _mixedKeys = Expect<Equal<keyof MixedRows, "fail" | "async" | "clock" | "sync">>;
+type _mixedKeys = Expect<Equal<keyof MixedRows, "fail" | "async" | "clock/sleep" | "sync">>;
 type _mixedFail = Expect<Equal<MixedRows["fail"], Op<FetchFailed, never>>>;
 type _mixedAsync = Expect<Equal<MixedRows["async"], Op<AsyncOp, unknown>>>;
 type _mixedSync = Expect<Equal<MixedRows["sync"], Op<() => unknown, unknown>>>;
-type _mixedClock = Expect<Equal<MixedRows["clock"], Op<number, void>>>;
+type _mixedClock = Expect<Equal<MixedRows["clock/sleep"], Op<number, void>>>;
 type _mixedValue = Expect<Equal<typeof mixed extends KyootT<infer A, any> ? A : never, string>>;
 
 // @ts-expect-error runSync rejects clock rows
 Kyoot.runSync(Clock.sleep(1));
-// @ts-expect-error runPromise serves only async
-runPromise(Clock.sleep(1));
+// runPromise answers clock/sleep itself; Clock.live turns it into promise interop.
+const sleptLive: Promise<void> = runPromise(Clock.sleep(1));
 const slept: Promise<void> = runPromise(Clock.sleep(1).pipe(Clock.live));
 
-// @ts-expect-error runSync names every unhandled key: Unhandled<"fail" | "async" | "clock" | "sync">
+// @ts-expect-error runSync names every unhandled key: Unhandled<"fail" | "async" | "clock/sleep" | "sync">
 Kyoot.runSync(mixed);
 
 const syncProg = Sync.defer(() => 1);
@@ -69,16 +69,20 @@ type _batchedKeys = Expect<Equal<keyof RowsOf<typeof batched>, "async">>;
 type _batchedValue = Expect<Equal<typeof batched extends KyootT<infer A, any> ? A : never, string>>;
 
 const timed = Async.timeout(100, Clock.sleep(1).pipe(Clock.live));
-type _timedKeys = Expect<Equal<keyof RowsOf<typeof timed>, "async" | "fail">>;
+type Spawning = "fiber/fork" | "fiber/join" | "fiber/interrupt";
+type _timedKeys = Expect<
+  Equal<keyof RowsOf<typeof timed>, Spawning | "clock/sleep" | "async" | "fail">
+>;
 type _timedFail = Expect<Equal<Payload<RowsOf<typeof timed>, "fail">, Async.Timeout>>;
 
 const testClock = Clock.test();
 const timedTest = Async.timeout(100, Clock.sleep(1), { provide: (k) => k.pipe(testClock.handler) });
-type _timedTestKeys = Expect<Equal<keyof RowsOf<typeof timedTest>, "async" | "fail">>;
-// @ts-expect-error provide must handle the sleep's clock
-Async.timeout(100, Clock.sleep(1), { provide: (k) => k });
-// @ts-expect-error provide must leave only async/fail
-Async.fork(Clock.sleep(1), { provide: (k) => k });
+type _timedTestKeys = Expect<Equal<keyof RowsOf<typeof timedTest>, Spawning | "async" | "fail">>;
+// Without a clock in provide, the driver answers the sleep: it stays in the row.
+const timedPlain = Async.timeout(100, Clock.sleep(1), { provide: (k) => k });
+type _timedPlainKeys = Expect<
+  Equal<keyof RowsOf<typeof timedPlain>, Spawning | "clock/sleep" | "fail">
+>;
 
 const greeted = Kyoot.gen(function* () {
   const g = yield* Greeter;
@@ -135,7 +139,7 @@ const retried = Kyoot.gen(function* () {
   yield* Fail.fail(new FetchFailed());
   return 1;
 }).pipe(Retry.run({ times: 3, delay: 10 }));
-type _retryKeys = Expect<Equal<keyof RowsOf<typeof retried>, "fail" | "clock">>;
+type _retryKeys = Expect<Equal<keyof RowsOf<typeof retried>, "fail" | "clock/sleep">>;
 type _retryFail = Expect<Equal<Payload<RowsOf<typeof retried>, "fail">, FetchFailed>>;
 type _retryValue = Expect<Equal<ValueOf<typeof retried>, number>>;
 
@@ -150,7 +154,7 @@ const neverMapped = Async.fromPromise(() => Promise.resolve()).map(() => {
 });
 type _neverMapKeys = Expect<Equal<keyof RowsOf<typeof neverMapped>, "async">>;
 const forked = Async.fork(neverMapped);
-type _forkKeys = Expect<Equal<keyof RowsOf<typeof forked>, "async">>;
+type _forkKeys = Expect<Equal<keyof RowsOf<typeof forked>, "fiber/fork" | "async">>;
 
 const flatMapped = Kyoot.succeed(1).flatMap((n) => Fail.fail(String(n)));
 type _flatKeys = Expect<Equal<keyof RowsOf<typeof flatMapped>, "fail">>;
@@ -173,7 +177,7 @@ const recovered = Kyoot.gen(function* () {
   return 1;
 }).pipe(Fail.catchAll(() => Clock.sleep(1).map(() => "fallback" as const)));
 type _catchAllValue = Expect<Equal<ValueOf<typeof recovered>, number | "fallback">>;
-type _catchAllKeys = Expect<Equal<keyof RowsOf<typeof recovered>, "clock">>;
+type _catchAllKeys = Expect<Equal<keyof RowsOf<typeof recovered>, "clock/sleep">>;
 
 const slowSync = Sync.defer(() => 1).pipe((k) =>
   ensuring(
@@ -182,7 +186,7 @@ const slowSync = Sync.defer(() => 1).pipe((k) =>
   ),
 );
 type _asyncHandlerValue = Expect<Equal<ValueOf<typeof slowSync>, number>>;
-type _asyncHandlerKeys = Expect<Equal<keyof RowsOf<typeof slowSync>, "async" | "clock">>;
+type _asyncHandlerKeys = Expect<Equal<keyof RowsOf<typeof slowSync>, "async" | "clock/sleep">>;
 
 class Tagged1 {
   readonly _tag = "One";
@@ -207,14 +211,14 @@ type _tokensRow = Expect<Equal<RowsOf<typeof tokens>, { emit: Op<string, void> }
 const mapped = tokens.pipe(Emit.map((t: string) => t.length));
 type _mappedEmit = Expect<Equal<RowsOf<typeof mapped>["emit"], Op<number, void>>>;
 const consumed = mapped.pipe(Emit.forEach((n: number) => Clock.sleep(n)));
-type _consumedKeys = Expect<Equal<keyof RowsOf<typeof consumed>, "clock">>;
+type _consumedKeys = Expect<Equal<keyof RowsOf<typeof consumed>, "clock/sleep">>;
 const iter: AsyncIterable<number> = Async.toAsyncIterable(mapped);
 
 const scoped = Resource.acquire(
   () => 1,
   () => Clock.sleep(1),
 ).pipe(Resource.run);
-type _scopedKeys = Expect<Equal<keyof RowsOf<typeof scoped>, "clock">>;
+type _scopedKeys = Expect<Equal<keyof RowsOf<typeof scoped>, "clock/sleep">>;
 const plainScoped = Resource.acquire(
   () => 1,
   () => {},
@@ -227,37 +231,52 @@ const needsGreeter = Kyoot.gen(function* () {
   yield* Clock.sleep(1);
   return 1;
 });
-// @ts-expect-error a forked program must handle everything but async and fail
-Async.fork(needsGreeter);
-// @ts-expect-error the same holds for race, all, and timeout
-Async.all([needsGreeter]);
+// A fork leaves what its program doesn't handle (but its failure) in the parent's row: the driver
+// must answer it for every fiber, so runPromise still asks for a greeter handler.
+const forkedNeedy = Async.fork(needsGreeter);
+type _needyKeys = Expect<
+  Equal<keyof RowsOf<typeof forkedNeedy>, "fiber/fork" | "env/greeter" | "clock/sleep">
+>;
+// @ts-expect-error runPromise names what no handler answers: Unhandled<"env/greeter">
+runPromise(forkedNeedy);
+// Async.provide installs it in the program and in every fiber it forks.
+const providedNeedy = forkedNeedy.pipe(Async.provide(Greeter.provide({ greet: (n) => n })));
+type _providedNeedyKeys = Expect<
+  Equal<keyof RowsOf<typeof providedNeedy>, "fiber/fork" | "clock/sleep">
+>;
 
 const ready = needsGreeter.pipe(Greeter.provide({ greet: (n) => n }), Clock.live);
 const forkedReady = Async.fork(ready);
-type _forkReadyKeys = Expect<Equal<keyof RowsOf<typeof forkedReady>, "async">>;
-type NeedyFiber = ValueOf<typeof forkedReady>;
-type _joinKeys = Expect<Equal<keyof RowsOf<NeedyFiber["join"]>, "async" | "fail">>;
-type _joinFail = Expect<Equal<Payload<RowsOf<NeedyFiber["join"]>, "fail">, FetchFailed>>;
-type _joinValue = Expect<Equal<ValueOf<NeedyFiber["join"]>, number>>;
-type _awaitValue = Expect<Equal<ValueOf<NeedyFiber["await"]>, Exit<FetchFailed, number>>>;
+type _forkReadyKeys = Expect<Equal<keyof RowsOf<typeof forkedReady>, "fiber/fork" | "async">>;
+declare const needy: ValueOf<typeof forkedReady>;
+const needyJoin = Async.join(needy);
+type _joinKeys = Expect<
+  Equal<keyof RowsOf<typeof needyJoin>, "fiber/join" | "fiber/interrupt" | "fail">
+>;
+type _joinFail = Expect<Equal<Payload<RowsOf<typeof needyJoin>, "fail">, FetchFailed>>;
+type _joinValue = Expect<Equal<ValueOf<typeof needyJoin>, number>>;
+type _awaitValue = Expect<
+  Equal<ValueOf<ReturnType<typeof Async.wait<number, FetchFailed>>>, Exit<FetchFailed, number>>
+>;
 
-type PureFiber = ValueOf<typeof forked>;
-type _pureJoinKeys = Expect<Equal<keyof RowsOf<PureFiber["join"]>, "async">>;
+declare const pure: ValueOf<typeof forked>;
+const pureJoin = Async.join(pure);
+type _pureJoinKeys = Expect<Equal<keyof RowsOf<typeof pureJoin>, "fiber/join" | "fiber/interrupt">>;
 
 const joined = Kyoot.gen(function* () {
   const fiber = yield* Async.fork(ready);
-  return yield* fiber.join;
+  return yield* Async.join(fiber);
 }).pipe(Fail.run);
 const j1: Promise<Fail.Result<FetchFailed, number>> = runPromise(joined);
 
 const raced = Async.race(ready, Fail.fail("other" as const));
-type _raceKeys = Expect<Equal<keyof RowsOf<typeof raced>, "async" | "fail">>;
+type _raceKeys = Expect<Equal<keyof RowsOf<typeof raced>, Spawning | "async" | "fail">>;
 type _raceFail = Expect<Equal<RowsOf<typeof raced>["fail"], Op<FetchFailed | "other", never>>>;
 const allOf = Async.all([ready, ready]);
-type _allKeys = Expect<Equal<keyof RowsOf<typeof allOf>, "async" | "fail">>;
+type _allKeys = Expect<Equal<keyof RowsOf<typeof allOf>, Spawning | "async" | "fail">>;
 type _allValue = Expect<Equal<ValueOf<typeof allOf>, number[]>>;
 const none = Async.all([]);
-type _noneKeys = Expect<Equal<keyof RowsOf<typeof none>, "async">>;
+type _noneKeys = Expect<Equal<keyof RowsOf<typeof none>, Spawning>>;
 
 const Config = Env.tag<{ url: string }>()("config");
 const Db = Env.tag<{ query(sql: string): KyootT<string, { async: Op<AsyncOp, unknown> }> }>()("db");

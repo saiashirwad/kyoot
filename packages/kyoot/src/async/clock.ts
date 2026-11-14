@@ -1,31 +1,64 @@
-import { effect, gen, makeOp } from "../core.ts";
+import { answering, effect, gen } from "../core.ts";
 import type { Kyoot } from "../model.ts";
-import type { AsyncRuntime } from "./runtime.ts";
 import type { MergeAll, Op, Row } from "../types.ts";
+import { fromPromise, type AsyncRow } from "./promise.ts";
 
-const clock = effect<number, void>()("clock");
+// Time is two data effects, clock/sleep and clock/now. runPromise answers them with real timers and
+// Sim.run with virtual time, so most programs need no clock handler at all. The handlers below
+// replace the driver's answer for one subtree.
+const sleeping = effect<number, void>()("clock/sleep");
 
-export const sleep = (ms: number) => clock(ms);
+export { now, sleep } from "./effects.ts";
 
-export const handle = clock.handle;
+export type ClockRow = { "clock/sleep": Op<number, void>; "clock/now": Op<void, number> };
 
-export const handleWith = clock.handleWith;
+type ClockKey = keyof ClockRow;
 
-export const intercept = clock.intercept;
+type Handled<A, S extends Row, R extends Row = {}> = Kyoot<A, MergeAll<Omit<S, ClockKey> | R>>;
 
-export const virtual = <A, S extends Row & { clock?: Op<number, void> }>(
+export const handle = sleeping.handle;
+
+export const handleWith = sleeping.handleWith;
+
+export const intercept = sleeping.intercept;
+
+// Sleeps finish at once and add up; answers [value, elapsed].
+export const virtual = <A, S extends Row & Partial<ClockRow>>(
   k: Kyoot<A, S>,
-): Kyoot<readonly [A, number], MergeAll<Omit<S, "clock">>> =>
+): Handled<readonly [A, number], S> =>
   gen(function* () {
     let now = 0;
     const a = yield* k.pipe(
-      clock.handle((ms, resume) => {
+      sleeping.handle((ms, resume) => {
         now += ms;
         return resume(undefined);
       }),
+      answering("clock/now", () => now),
     );
     return [a, now] as const;
   }) as never;
+
+const realSleep = (ms: number, signal: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    const onAbort = () => clearTimeout(t);
+    const t = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+
+// Real time through promise interop. runPromise already sleeps for real; use this to put real time
+// back inside a subtree whose clock an outer handler would otherwise answer.
+export const live = <A, S extends Row & Partial<ClockRow>>(
+  k: Kyoot<A, S>,
+): Handled<A, S, AsyncRow> =>
+  k.pipe(
+    sleeping.handle((ms, resume) =>
+      resume.with(fromPromise((signal) => realSleep(ms, signal)) as never),
+    ),
+    answering("clock/now", () => Date.now()),
+  ) as never;
 
 export interface TestClock {
   readonly now: number;
@@ -39,7 +72,8 @@ const flush = () =>
   );
 
 // A clock whose time moves only by advance(). State lives in the returned object, so one clock can be
-// installed in the parent and in every fork (via `provide`). Sleeps park until time reaches them.
+// installed in the parent and in every fork (Async.provide, or fork's provide). Sleeps park until
+// time reaches them.
 export const test = (): TestClock => {
   let now = 0;
   const sleepers = new Set<{ readonly at: number; readonly wake: () => void }>();
@@ -55,11 +89,13 @@ export const test = (): TestClock => {
     get now() {
       return now;
     },
-    handler: clock.handle((ms, resume) =>
-      resume.with(
-        makeOp("async", { execute: (rt: AsyncRuntime) => sleepUntil(ms, rt.signal) }) as never,
-      ),
-    ),
+    handler: (k) =>
+      k.pipe(
+        sleeping.handle((ms, resume) =>
+          resume.with(fromPromise((signal) => sleepUntil(ms, signal)) as never),
+        ),
+        answering("clock/now", () => now),
+      ) as never,
     // Wakes sleepers in deadline order, letting woken fibers run (and sleep again) before moving on.
     async advance(ms) {
       const target = now + ms;
@@ -74,19 +110,3 @@ export const test = (): TestClock => {
     },
   };
 };
-
-const realSleep = (ms: number, signal: AbortSignal) =>
-  new Promise<void>((resolve) => {
-    const onAbort = () => clearTimeout(t);
-    const t = setTimeout(() => {
-      signal.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
-    signal.addEventListener("abort", onAbort, { once: true });
-  });
-
-export const live = clock.handle((ms, resume) =>
-  resume.with(
-    makeOp("async", { execute: (rt: AsyncRuntime) => realSleep(ms, rt.signal) }) as never,
-  ),
-);

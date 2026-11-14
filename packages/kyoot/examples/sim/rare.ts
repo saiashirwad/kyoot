@@ -7,22 +7,26 @@
  * takes two specific preemptions among ~200 steps (the request handlers only add noise), so random
  * scheduling almost never gets there. PCT does, within a few hundred runs.
  *
+ * The effects are ordinary declarations (config/*, cache/*, audit): the world fakes them under
+ * Sim.run, and live handlers answer them when the same program runs under runPromise.
+ *
  *   node packages/kyoot/examples/sim/rare.ts
  */
-import { effect, Kyoot } from "../../src/index.ts";
+import { effect, Kyoot, type Row } from "../../src/index.ts";
+import { Async, runPromise } from "../../src/async/index.ts";
 import * as Sim from "../../src/sim/index.ts";
 
 const Version = {
-  get: effect<void, number>()("io/config.version"),
-  bump: effect<void, number>()("io/config.bump"),
+  get: effect<void, number>()("config/version"),
+  bump: effect<void, number>()("config/bump"),
 };
-const Load = effect<number, string>()("io/config.load");
+const Load = effect<number, string>()("config/load");
 const Cache = {
-  get: effect<void, string | undefined>()("io/cache.get"),
-  put: effect<{ version: number; data: string }, void>()("io/cache.put"),
-  clear: effect<void, void>()("io/cache.clear"),
+  get: effect<void, string | undefined>()("cache/get"),
+  put: effect<{ version: number; data: string }, void>()("cache/put"),
+  clear: effect<void, void>()("cache/clear"),
 };
-const Audit = effect<string, void>()("io/audit");
+const Audit = effect<string, void>()("audit");
 
 export const refresh = Kyoot.gen(function* () {
   for (let i = 0; i < 30; i++) yield* Audit("refresh tick");
@@ -44,12 +48,12 @@ const handler = Kyoot.gen(function* () {
 
 export const program = Kyoot.gen(function* () {
   const fibers = [
-    yield* Sim.fork(refresh, { name: "refresh" }),
-    yield* Sim.fork(update, { name: "update" }),
-    yield* Sim.fork(handler, { name: "req1" }),
-    yield* Sim.fork(handler, { name: "req2" }),
+    yield* Async.fork(refresh, { name: "refresh" }),
+    yield* Async.fork(update, { name: "update" }),
+    yield* Async.fork(handler, { name: "req1" }),
+    yield* Async.fork(handler, { name: "req2" }),
   ];
-  for (const fiber of fibers) yield* Sim.join(fiber);
+  for (const fiber of fibers) yield* Async.join(fiber);
 });
 
 // A fresh world per run.
@@ -63,21 +67,55 @@ export const world = () => {
     get version() {
       return version;
     },
-    "io/config.version": () => version,
-    "io/config.bump": () => ++version,
-    "io/config.load": (v: number) => `config v${v}`,
-    "io/cache.get": () => cached?.data,
-    "io/cache.put": (entry: { version: number; data: string }) => void (cached = entry),
-    "io/cache.clear": () => void (cached = undefined),
-    "io/audit": () => {},
+    "config/version": () => version,
+    "config/bump": () => ++version,
+    "config/load": (v: number) => `config v${v}`,
+    "cache/get": () => cached?.data,
+    "cache/put": (entry: { version: number; data: string }) => void (cached = entry),
+    "cache/clear": () => void (cached = undefined),
+    audit: () => {},
   };
 };
 
+// Live handlers for the same keys: the state lives in the returned object, each call is a promise.
+export const live = () => {
+  const state = {
+    version: 1,
+    cached: undefined as { version: number; data: string } | undefined,
+  };
+  const io = <A>(f: () => A) => Async.fromPromise(async () => f());
+  const handle = <A, S extends Row>(k: Kyoot<A, S>) =>
+    k.pipe(
+      Version.get.handle((_, resume) => io(() => state.version).flatMap(resume)),
+      Version.bump.handle((_, resume) => io(() => ++state.version).flatMap(resume)),
+      Load.handle((v, resume) => io(() => `config v${v}`).flatMap(resume)),
+      Cache.get.handle((_, resume) => io(() => state.cached?.data).flatMap(resume)),
+      Cache.put.handle((entry, resume) => io(() => void (state.cached = entry)).flatMap(resume)),
+      Cache.clear.handle((_, resume) => io(() => void (state.cached = undefined)).flatMap(resume)),
+      Audit.handle((_, resume) => io(() => undefined).flatMap(resume)),
+    );
+  return { state, handlers: Async.provide(handle) };
+};
+
+// Runs the program for real and checks the same invariant.
+export const runLive = async () => {
+  const { state, handlers } = live();
+  await runPromise(program.pipe(handlers));
+  return current(state);
+};
+
+type Config = {
+  readonly version: number;
+  readonly cached: { readonly version: number; readonly data: string } | undefined;
+};
+
 // The invariant: once everything has settled, the cache is empty or current.
-export const fresh = (r: { world: ReturnType<typeof world> }) =>
-  r.world.cached === undefined ||
-  r.world.cached.version === r.world.version ||
-  `cache holds v${r.world.cached.version}, config is v${r.world.version}`;
+const current = (c: Config) =>
+  c.cached === undefined ||
+  c.cached.version === c.version ||
+  `cache holds v${c.cached.version}, config is v${c.version}`;
+
+export const fresh = (r: { world: ReturnType<typeof world> }) => current(r.world);
 
 if (import.meta.main) {
   const N = 2000;
@@ -111,7 +149,7 @@ if (import.meta.main) {
   console.log(`\n${found.strategy}, seed ${found.seed}: ${found.reason}`);
   console.log(`${Sim.showShrink(shrunk)}\n`);
   // Only the interesting steps: skip the audit and request noise.
-  const noise = /io\/(audit|cache.get)/;
+  const noise = /^(audit|cache\/get)/;
   console.log(
     Sim.format(shrunk.result.trace.filter((e) => !noise.test(e.what))).replace(/^/gm, "    "),
   );
@@ -124,5 +162,10 @@ if (import.meta.main) {
   const same = Sim.format(again.trace) === Sim.format(shrunk.result.trace);
   console.log(
     `\nReplaying its ${shrunk.result.choices.length} recorded choices: ${same ? "identical trace" : "DIFFERENT trace"}`,
+  );
+
+  const verdict = await runLive();
+  console.log(
+    `\nThe same program under runPromise, live handlers: ${verdict === true ? "cache fresh" : verdict}`,
   );
 }

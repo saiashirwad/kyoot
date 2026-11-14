@@ -49,7 +49,7 @@ test("fork/join: a fiber is an independent interpreter loop", async () => {
         return "fiber done";
       }),
     );
-    return yield* fiber.join;
+    return yield* Async.join(fiber);
   });
   assert.equal(await runPromise(prog), "fiber done");
 });
@@ -72,7 +72,7 @@ test("concurrent fibers may yield the same node", async () => {
       gate.resolve(7);
       return Promise.resolve();
     });
-    return [yield* left.join, yield* right.join];
+    return [yield* Async.join(left), yield* Async.join(right)];
   });
 
   assert.deepEqual(await runPromise(program), ["left:7", "right:7"]);
@@ -86,7 +86,7 @@ test("fiber.await returns a Result instead of throwing", async () => {
         throw boom;
       }),
     );
-    return yield* fiber.await;
+    return yield* Async.wait(fiber);
   });
   const r = await runPromise(prog);
   assert.equal(r.ok, false);
@@ -163,8 +163,8 @@ test("interrupt: finalizers run and await reports Interrupted", async () => {
         return "unreachable";
       }).pipe(Resource.run),
     );
-    yield* fiber.interrupt;
-    return yield* fiber.await;
+    yield* Async.interrupt(fiber);
+    return yield* Async.wait(fiber);
   });
   const r = await runPromise(prog);
   assert.equal(r.ok, false);
@@ -220,7 +220,8 @@ for (const timing of ["before", "after"] as const) {
         Kyoot.gen(function* () {
           const fiber = yield* Async.fork(child);
           yield* Async.fromPromise(() => originalStarted.promise);
-          yield* fiber.interrupt;
+          // Interrupt waits for the finalizer, which waits for us: interrupt from a helper fiber.
+          yield* Async.fork(Async.interrupt(fiber));
           yield* Async.fromPromise(() => cleanupStarted.promise);
 
           if (timing === "before") {
@@ -230,7 +231,7 @@ for (const timing of ["before", "after"] as const) {
           }
 
           cleanup.resolve(undefined);
-          const exit = yield* fiber.await;
+          const exit = yield* Async.wait(fiber);
 
           if (timing === "after") {
             if (completion === "resolve") original.resolve("stale");
@@ -305,8 +306,8 @@ test("all: interrupting the parent interrupts every branch", async () => {
   const prog = Kyoot.gen(function* () {
     const fiber = yield* Async.fork(Async.all([branch("a"), branch("b")]));
     yield* nap(10);
-    yield* fiber.interrupt;
-    return yield* fiber.await;
+    yield* Async.interrupt(fiber);
+    return yield* Async.wait(fiber);
   });
   const r = await runPromise(prog);
   assert.equal(r.ok, false);
@@ -358,8 +359,8 @@ test("fromPromise's signal fires on interruption", async () => {
           }),
       ),
     );
-    yield* fiber.interrupt;
-    yield* fiber.await;
+    yield* Async.interrupt(fiber);
+    yield* Async.wait(fiber);
     return sawAbort;
   });
   assert.equal(await runPromise(prog), true);
@@ -368,8 +369,8 @@ test("fromPromise's signal fires on interruption", async () => {
 test("joining an interrupted fiber interrupts the joiner", async () => {
   const prog = Kyoot.gen(function* () {
     const fiber = yield* Async.fork(nap(10_000));
-    yield* fiber.interrupt;
-    return yield* fiber.join;
+    yield* Async.interrupt(fiber);
+    return yield* Async.join(fiber);
   });
   await assert.rejects(runPromise(prog), (e) => e instanceof InterruptedError);
 });
@@ -378,9 +379,9 @@ test("joining an interrupted fiber is an interruption, not a defect a handler ca
   const events: string[] = [];
   const prog = Kyoot.gen(function* () {
     const fiber = yield* Async.fork(nap(10_000));
-    yield* fiber.interrupt;
+    yield* Async.interrupt(fiber);
     try {
-      return yield* fiber.join;
+      return yield* Async.join(fiber);
     } finally {
       events.push("finally");
     }
@@ -445,7 +446,7 @@ test("fork: a fiber installs the Env it needs", async () => {
         .map((n) => `hi ${n}`)
         .pipe(Name.provide("kyoot")),
     );
-    return yield* fiber.join;
+    return yield* Async.join(fiber);
   });
   assert.equal(await runPromise(prog), "hi kyoot");
 });
@@ -457,7 +458,7 @@ test("fork: a fiber collects its own Log entries", async () => {
         .map(() => 1)
         .pipe(Log.collect),
     );
-    return yield* fiber.join;
+    return yield* Async.join(fiber);
   });
   const [n, entries] = await runPromise(prog);
   assert.equal(n, 1);
@@ -487,7 +488,7 @@ test("fork: a fiber's Var and Random.seeded are its own", async () => {
   const prog = Kyoot.gen(function* () {
     yield* Count.update((n) => n + 1);
     const fiber = yield* Async.fork(child);
-    const [childDraw, childCount] = yield* fiber.join;
+    const [childDraw, childCount] = yield* Async.join(fiber);
     return { childDraw, childCount, parentDraw: yield* draw };
   }).pipe(Count.run(0), Random.seeded(42));
   const solo = Kyoot.runSync(draw.pipe(Random.seeded(42)));
@@ -507,7 +508,7 @@ test("fork: a typed failure in the fiber crosses join as a fail op", async () =>
         return yield* Fail.fail(new Boom());
       }),
     );
-    return yield* fiber.join;
+    return yield* Async.join(fiber);
   }).pipe(Fail.run);
   const r = await runPromise(prog);
   assert.equal(r.ok, false);
@@ -517,7 +518,7 @@ test("fork: a typed failure in the fiber crosses join as a fail op", async () =>
 test("fork: fiber.await reports a typed failure as a Fail cause", async () => {
   const prog = Kyoot.gen(function* () {
     const fiber = yield* Async.fork(Fail.fail("nope" as const));
-    return yield* fiber.await;
+    return yield* Async.wait(fiber);
   });
   const r = await runPromise(prog);
   assert.ok(!r.ok && r.cause._tag === "Fail" && r.cause.error === "nope");
@@ -565,7 +566,7 @@ test("fork: Resource.run inside the fiber gives it a scope of its own", async ()
         yield* nap(1);
       }).pipe(Resource.run),
     );
-    yield* fiber.join;
+    yield* Async.join(fiber);
     events.push("joined");
   }).pipe(Resource.run);
   await runPromise(prog);
@@ -579,7 +580,7 @@ test("fork: Clock.virtual inside the fiber makes its sleeps instant", async () =
         .map(() => "woke")
         .pipe(Clock.virtual),
     );
-    return yield* fiber.join;
+    return yield* Async.join(fiber);
   });
   assert.deepEqual(await runPromise(prog), ["woke", 10_000]);
 });
@@ -587,8 +588,8 @@ test("fork: Clock.virtual inside the fiber makes its sleeps instant", async () =
 test("fork: an effect nobody handles in the fiber is a defect, loudly", async () => {
   const Ask = effect<string, number>()("ask");
   const prog = Kyoot.gen(function* () {
-    const fiber = yield* Async.fork(Ask("n?") as never);
-    return yield* fiber.await;
+    const fiber = yield* Async.fork(Ask("n?") as Kyoot<number>);
+    return yield* Async.wait(fiber);
   });
   const r = await runPromise(prog);
   assert.ok(typeof r === "object" && !r.ok && r.cause._tag === "Defect");
@@ -607,7 +608,7 @@ test("fork: a typed failure still ends the fiber's own scope", async () => {
         return yield* Fail.fail("bad" as const);
       }).pipe(Resource.run),
     );
-    return yield* fiber.await;
+    return yield* Async.wait(fiber);
   });
   const r = await runPromise(prog);
   assert.ok(!r.ok && r.cause._tag === "Fail" && r.cause.error === "bad");
@@ -633,7 +634,7 @@ test("scheduler: a hot loop in one fiber does not starve a sleeper", async () =>
     const fiber = yield* Async.fork(hotLoop(300_000).map(() => void events.push("hot done")));
     yield* nap(1);
     events.push("slept");
-    yield* fiber.join;
+    yield* Async.join(fiber);
   });
   await runPromise(prog);
   assert.deepEqual(events, ["slept", "hot done"]);
@@ -643,8 +644,8 @@ test("scheduler: a hot loop can be interrupted", async () => {
   const prog = Kyoot.gen(function* () {
     const fiber = yield* Async.fork(hotLoop(Infinity));
     yield* nap(1);
-    yield* fiber.interrupt;
-    return yield* fiber.await;
+    yield* Async.interrupt(fiber);
+    return yield* Async.wait(fiber);
   });
   const r = await runPromise(prog);
   assert.ok(!r.ok && r.cause._tag === "Interrupted");
@@ -742,8 +743,8 @@ test("interruption stops a batch before the next item starts", async () => {
       }),
     );
     yield* Async.fromPromise(() => first.promise);
-    yield* fiber.interrupt;
-    return yield* fiber.await;
+    yield* Async.interrupt(fiber);
+    return yield* Async.wait(fiber);
   });
   const r = await runPromise(prog);
   assert.ok(!r.ok && r.cause._tag === "Interrupted");
@@ -765,8 +766,8 @@ test("a pending batch callback sees the operation's abort signal", async () => {
           }),
       ),
     );
-    yield* fiber.interrupt;
-    yield* fiber.await;
+    yield* Async.interrupt(fiber);
+    yield* Async.wait(fiber);
     return sawAbort;
   });
   assert.equal(await runPromise(prog), true);
@@ -809,8 +810,8 @@ test("Async.next closes the iterator when the wait is interrupted", async () => 
   const prog = Kyoot.gen(function* () {
     const fiber = yield* Async.fork(Async.next(it));
     yield* nap(1);
-    yield* fiber.interrupt;
-    return yield* fiber.await;
+    yield* Async.interrupt(fiber);
+    return yield* Async.wait(fiber);
   });
   const r = await runPromise(prog);
   assert.ok(!r.ok && r.cause._tag === "Interrupted");

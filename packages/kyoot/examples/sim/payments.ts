@@ -1,7 +1,7 @@
 /**
  * Hours of retries in milliseconds: timeouts, backoff and a flaky gateway under virtual time.
  *
- * pay() charges an order through a payment gateway, giving each attempt 10s (Sim.timeout) and
+ * pay() charges an order through a payment gateway, giving each attempt 10s (Async.timeout) and
  * retrying 503s and timeouts with exponential backoff (30s, 1m, 2m, ... up to an hour). The fake
  * gateway, driven by the seed, sometimes answers 503, and sometimes charges the card but then
  * hangs for two hours (a lost response). Every run spans minutes to hours of simulated time and
@@ -10,14 +10,18 @@
  * The hang exposes a real bug: the charge went through, the client timed out and retried, and the
  * customer paid twice. Sending an idempotency key with every attempt fixes it.
  *
+ * The program only performs effects (gateway/charge, timeouts, sleeps), so it also runs unchanged
+ * under runPromise, on real timers, against a live gateway handler.
+ *
  *   node packages/kyoot/examples/sim/payments.ts
  */
-import { effect, Kyoot } from "../../src/index.ts";
+import { effect, Kyoot, type Row } from "../../src/index.ts";
 import * as Fail from "../../src/effects/fail.ts";
+import { Async, runPromise } from "../../src/async/index.ts";
 import * as Sim from "../../src/sim/index.ts";
 
 type ChargeRequest = { readonly order: string; readonly cents: number; readonly key?: string };
-const Gateway = effect<ChargeRequest, { readonly status: 200 | 503 }>()("io/gateway.charge");
+const Gateway = effect<ChargeRequest, { readonly status: 200 | 503 }>()("gateway/charge");
 
 class GaveUp {
   readonly _tag = "GaveUp";
@@ -28,10 +32,10 @@ const pay = (order: string, cents: number, options: { readonly idempotent: boole
     for (let attempt = 1; attempt <= 8; attempt++) {
       const key = options.idempotent ? `${order}-charge` : undefined;
       const reply = yield* Fail.run(
-        Sim.timeout(10_000, Gateway({ order, cents, key }), { name: "charge" }),
+        Async.timeout(10_000, Gateway({ order, cents, key }), { name: "charge" }),
       );
       if (reply.ok && reply.value.status === 200) return `paid on attempt ${attempt}`;
-      yield* Sim.sleep(Math.min(30_000 * 2 ** (attempt - 1), 3_600_000));
+      yield* Async.sleep(Math.min(30_000 * 2 ** (attempt - 1), 3_600_000));
     }
     return yield* Fail.fail(new GaveUp());
   });
@@ -43,7 +47,7 @@ const gateway = () => {
   const seen = new Set<string>();
   return {
     charges,
-    "io/gateway.charge": (req: ChargeRequest, io: Sim.IoContext) => {
+    "gateway/charge": (req: ChargeRequest, io: Sim.WorldContext) => {
       const roll = io.random();
       if (roll < 0.3) return Sim.delay(200, { status: 503 as const });
       if (req.key === undefined || !seen.has(req.key)) charges.push(req.order);
@@ -61,6 +65,30 @@ const chargedOnce = (r: Sim.SimResult<unknown, unknown, ReturnType<typeof gatewa
 export const naive = pay("order-42", 4_999, { idempotent: false });
 export const safe = pay("order-42", 4_999, { idempotent: true });
 export { chargedOnce, gateway };
+
+// A live gateway for the same key: a real 5ms round trip that always charges. Async.provide puts it
+// in every fiber, including the one Async.timeout forks for each attempt.
+export const liveGateway = () => {
+  const charges: string[] = [];
+  const handle = <A, S extends Row>(k: Kyoot<A, S>) =>
+    k.pipe(
+      Gateway.handle((req, resume) =>
+        Async.fromPromise(
+          () =>
+            new Promise<{ status: 200 }>((resolve) =>
+              setTimeout(() => (charges.push(req.order), resolve({ status: 200 })), 5),
+            ),
+        ).flatMap(resume),
+      ),
+    );
+  return { charges, handlers: Async.provide(handle) };
+};
+
+export const runLive = async () => {
+  const { charges, handlers } = liveGateway();
+  const value = await runPromise(safe.pipe(handlers, Fail.run));
+  return { value, charges };
+};
 
 if (import.meta.main) {
   const t0 = performance.now();
@@ -87,5 +115,11 @@ if (import.meta.main) {
   const fixed = Sim.explore(safe, { seeds: 1000, world: gateway, check: chargedOnce });
   console.log(
     `\nWith an idempotency key: ${fixed.ok ? "all 1000 seeds charge at most once" : `seed ${fixed.seed} fails`}`,
+  );
+
+  const t1 = performance.now();
+  const live = await runLive();
+  console.log(
+    `\nThe same program under runPromise, live gateway: ${Sim.showExit(live.value)}, ${live.charges.length} charge (${(performance.now() - t1).toFixed(0)}ms)`,
   );
 }

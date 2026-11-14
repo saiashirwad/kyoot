@@ -232,8 +232,8 @@ test("generator: finally runs when a fiber is interrupted", async () => {
         }
       }),
     );
-    yield* fiber.interrupt;
-    return yield* fiber.await;
+    yield* Async.interrupt(fiber);
+    return yield* Async.wait(fiber);
   });
   const r = await runPromise(prog);
   assert.equal(!r.ok && r.cause._tag, "Interrupted");

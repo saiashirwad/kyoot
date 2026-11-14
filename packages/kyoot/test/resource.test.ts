@@ -115,8 +115,8 @@ test("Resource: program finalizers run to completion on interrupt", async () => 
         }).pipe(Resource.run),
       );
       yield* nap(5);
-      yield* fiber.interrupt;
-      return yield* fiber.await;
+      yield* Async.interrupt(fiber);
+      return yield* Async.wait(fiber);
     }),
   );
   assert.ok(!r.ok && r.cause._tag === "Interrupted");

@@ -1,4 +1,4 @@
-import { Machine, type Outcome } from "../machine.ts";
+import { Machine, UnhandledEffectError, type Outcome } from "../machine.ts";
 import type { AnyKyoot, Kyoot } from "../model.ts";
 import type { Only, Row } from "../types.ts";
 import type { ConcurrencyKey, Exit, Fiber, ForkRequest } from "./effects.ts";
@@ -213,7 +213,7 @@ class LiveFiber implements Fiber<unknown, unknown> {
         ? ""
         : " (in a forked fiber: handlers don't cross a fork; use Async.provide or fork's provide)";
     this.mode = RAISE;
-    this.input = new Error(`unhandled effect '${String(key)}'${hint}`);
+    this.input = new UnhandledEffectError(`unhandled effect '${String(key)}'${hint}`);
     return true;
   }
 

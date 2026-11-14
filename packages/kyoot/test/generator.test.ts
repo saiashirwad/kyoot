@@ -326,7 +326,7 @@ test("generator: an outer finally that throws replaces the inner one's error", (
   assert.deepEqual(events, ["inner", "outer"]);
 });
 
-test("generator: the outer error also wins when the machine stops with a stack", () => {
+test("generator: the boundary error wins over throwing finally blocks", () => {
   const events: string[] = [];
   const inner = new Error("inner");
   const outer = new Error("outer");
@@ -350,7 +350,8 @@ test("generator: the outer error also wins when the machine stops with a stack",
   });
   assert.throws(
     () => Kyoot.runSync(prog as never),
-    (e: unknown) => e === outer,
+    (e: unknown) =>
+      e instanceof Error && /unhandled effect 'missing'/.test(e.message) && e.cause === outer,
   );
   assert.deepEqual(events, ["inner", "outer"]);
 });

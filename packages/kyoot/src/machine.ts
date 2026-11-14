@@ -1,7 +1,14 @@
-import { KyootImpl, node, raise, succeed, unit } from "./core.ts";
+import { catchDefect, KyootImpl, node, raise, succeed, unit } from "./core.ts";
 import type { AnyKyoot, OnOp, RuntimeResume } from "./model.ts";
 
 export type Outcome = "done" | "suspended" | "yielded";
+
+/**
+ * What a runner raises at an effect nothing handles. The runner stops at this boundary: if a
+ * finally, release or other cleanup throws while the error unwinds, the boundary error is still the
+ * one reported, and the cleanup's error is attached as its `cause` (the first one, if several).
+ */
+export class UnhandledEffectError extends Error {}
 
 const STALE = "resume used outside the operation it answers";
 
@@ -109,7 +116,9 @@ class EnsureFrame implements Frame {
   }
 
   error(e: unknown): AnyKyoot {
-    return this.cleanup.flatMap(() => raise(e));
+    if (!(e instanceof UnhandledEffectError)) return this.cleanup.flatMap(() => raise(e));
+    const keep = (thrown: unknown) => (thrown !== e && (e.cause ??= thrown), unit);
+    return catchDefect(this.cleanup, keep).flatMap(() => raise(e));
   }
 
   cancel(): AnyKyoot {
@@ -307,7 +316,8 @@ export class Machine {
         const next = entry.error(error, this);
         if (next !== undefined) return next;
       } catch (next) {
-        error = next;
+        if (error instanceof UnhandledEffectError && next !== error) error.cause ??= next;
+        else error = next;
       }
     }
     throw error;

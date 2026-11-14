@@ -9,4 +9,4 @@ const boilEgg = (minute: number) =>
   });
 
 console.log(Kyoot.runSync(boilEgg(60_000).pipe(Clock.virtual)));
-console.log(await runPromise(boilEgg(20)));
+console.log(await runPromise(boilEgg(20).pipe(Clock.live)));

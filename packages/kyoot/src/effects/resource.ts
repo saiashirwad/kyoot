@@ -7,7 +7,6 @@ import {
   makeIntercept,
   op,
   unit,
-  type Resume,
 } from "../core.ts";
 import type { Kyoot, RowsOf } from "../model.ts";
 import type { MergeAll, Op, Payload, Row } from "../types.ts";
@@ -53,13 +52,10 @@ export const run = <A, S extends Row & { resource?: Op<ResourceOp<any>, unknown>
 ): Kyoot<A, MergeAll<Omit<S, "resource"> | ReleaseRow<Payload<S, "resource">>>> =>
   gen(function* () {
     const finalizers: Finalizer[] = [];
-    const scope = makeHandler("resource", k, {
-      fork: run,
-      onOp: (res: ResourceOp<any>, resume: Resume<unknown, undefined>) => {
-        const r = res.acquire();
-        finalizers.push(() => res.release(r));
-        return resume(r);
-      },
+    const scope = makeHandler("resource", k, (res: ResourceOp, resume) => {
+      const r = res.acquire();
+      finalizers.push(() => res.release(r));
+      return resume(r);
     });
     return yield* ensuring(scope, finalize(finalizers));
   }) as never;

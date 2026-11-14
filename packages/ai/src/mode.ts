@@ -1,6 +1,6 @@
-import { makeHandler, withState } from "kyoot";
-import type { Kyoot as K, Op, Resume, Row } from "kyoot";
-import { Model, type Completion, type Request, type Usage } from "./model.ts";
+import { Kyoot } from "kyoot";
+import type { Kyoot as K, Op, Row } from "kyoot";
+import { Model, type Completion, type Request } from "./model.ts";
 
 export const system = (content: string) =>
   Model.intercept((req, next) =>
@@ -11,14 +11,16 @@ export const config = (patch: Pick<Request, "temperature" | "maxTokens">) =>
   Model.intercept((req, next) => next({ ...req, ...patch }));
 
 export const usage = <A, S extends Row & { "ai/model"?: Op<Request, Completion> }>(k: K<A, S>) =>
-  makeHandler("ai/model", k, {
-    initial: { input: 0, output: 0 },
-    onOp: (req: Request, resume: Resume<Completion, Usage>, total) =>
-      Model(req).flatMap((c) =>
-        resume(c, {
-          input: total.input + (c.usage?.input ?? 0),
-          output: total.output + (c.usage?.output ?? 0),
+  Kyoot.gen(function* () {
+    const total = { input: 0, output: 0 };
+    const a = yield* k.pipe(
+      Model.intercept((req, next) =>
+        next(req).map((c) => {
+          total.input += c.usage?.input ?? 0;
+          total.output += c.usage?.output ?? 0;
+          return c;
         }),
       ),
-    onReturn: withState,
+    );
+    return [a, total] as const;
   });

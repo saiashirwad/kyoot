@@ -1,9 +1,7 @@
 import { KyootImpl, node, raise, succeed, unit } from "./core.ts";
-import type { AnyKyoot, HandlerHooks, RuntimeResume, Snapshot } from "./model.ts";
+import type { AnyKyoot, OnOp, RuntimeResume } from "./model.ts";
 
 export type Outcome = "done" | "suspended" | "yielded";
-
-const KEEP = Symbol("kyoot.keep");
 
 const STALE = "resume used outside the operation it answers";
 
@@ -51,28 +49,19 @@ class GenFrame implements Frame {
 // Handlers and masks are pushed once and never re-pushed, so `stack[f.index] === f` says whether f is live.
 // Everything a live frame's `prev` reaches is live too: popping it would have popped f first.
 class HandlerFrame implements Frame {
+  readonly value?: undefined;
   readonly key: PropertyKey;
-  readonly hooks: HandlerHooks;
+  readonly onOp: OnOp;
+  readonly answer: OnOp["answer"];
   readonly index: number;
   readonly prev: HandlerFrame | undefined;
-  state: unknown;
 
-  constructor(
-    key: PropertyKey,
-    hooks: HandlerHooks,
-    index: number,
-    prev: HandlerFrame | undefined,
-  ) {
+  constructor(key: PropertyKey, onOp: OnOp, index: number, prev: HandlerFrame | undefined) {
     this.key = key;
-    this.hooks = hooks;
+    this.onOp = onOp;
+    this.answer = onOp.answer;
     this.index = index;
     this.prev = prev;
-    this.state = hooks.create === undefined ? hooks.initial : hooks.create();
-  }
-
-  value(v: unknown): AnyKyoot | undefined {
-    const onReturn = this.hooks.onReturn;
-    return onReturn === undefined ? undefined : onReturn(v, this.state);
   }
 }
 
@@ -147,12 +136,8 @@ class Unwind implements Frame {
 }
 
 const resumer = (mask: Mask): RuntimeResume => {
-  const resume = function (value: unknown, state?: unknown): AnyKyoot {
-    return new KyootImpl("resume", mask, value, arguments.length > 1 ? state : KEEP);
-  };
-  resume.with = function (program: AnyKyoot, state?: unknown): AnyKyoot {
-    return new KyootImpl("resumeWith", mask, program, arguments.length > 1 ? state : KEEP);
-  };
+  const resume = (value: unknown): AnyKyoot => new KyootImpl("resume", mask, value);
+  resume.with = (program: AnyKyoot): AnyKyoot => new KyootImpl("resumeWith", mask, program);
   return resume;
 };
 
@@ -166,7 +151,6 @@ export class Machine {
   value: unknown;
   key: PropertyKey = "";
   payload: unknown;
-  private skip = 0;
 
   start(program: AnyKyoot, budget = Infinity): Outcome {
     this.current = program;
@@ -200,21 +184,6 @@ export class Machine {
     if (this.remaining <= 0) return false;
     this.remaining--;
     return true;
-  }
-
-  snapshot(): Snapshot[] {
-    const out: Snapshot[] = [];
-    const stack = this.stack;
-    const key = this.key;
-    let skip = this.skip;
-    for (let i = stack.length - 1; i >= 0; i--) {
-      const entry = stack[i];
-      if (entry instanceof Mask) i = entry.handler.index;
-      else if (!(entry instanceof HandlerFrame)) continue;
-      else if (skip > 0 && entry.key === key) skip--;
-      else out.push({ key: entry.key, hooks: entry.hooks, state: entry.state });
-    }
-    return out;
   }
 
   cancelTo(index: number, then: AnyKyoot): AnyKyoot {
@@ -264,7 +233,6 @@ export class Machine {
             if (next === undefined) {
               this.key = n.a;
               this.payload = n.b;
-              this.skip = n.c;
               return "suspended";
             }
             this.current = next;
@@ -369,24 +337,22 @@ export class Machine {
         skip--;
         continue;
       }
-      const { tail, onOp } = h.hooks;
-      if (tail !== undefined) return succeed(tail(payload, h.state));
+      if (h.answer !== undefined) return succeed(h.answer(payload));
       const mask = new Mask(h, stack.length, this.mask);
       this.mask = mask;
       stack.push(mask);
-      return onOp!(payload, resumer(mask), h.state, past + 1);
+      return h.onOp(payload, resumer(mask), past + 1);
     }
     return undefined;
   }
 
   private resumeAt(k: AnyKyoot): AnyKyoot | undefined {
-    const n = node(k) as { _tag: "resume" | "resumeWith"; a: Mask; b: unknown; c: unknown };
+    const n = node(k) as { _tag: "resume" | "resumeWith"; a: Mask; b: unknown };
     const mask = n.a;
     const stack = this.stack;
     if (stack[mask.index] !== mask) throw new Error(STALE);
     if (stack.length > mask.index + 1) return this.cancelTo(mask.index + 1, k);
     stack.pop();
-    if (n.c !== KEEP) mask.handler.state = n.c;
     return n._tag === "resumeWith" ? (n.b as AnyKyoot) : this.deliver(n.b);
   }
 }

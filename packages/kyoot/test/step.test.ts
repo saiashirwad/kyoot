@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { drive } from "../examples/step.ts";
-import { effect, ensuring, Kyoot, Sync, Var } from "../src/index.ts";
+import { effect, ensuring, Kyoot } from "../src/index.ts";
+import * as Sync from "../src/effects/sync.ts";
+import * as Var from "../src/effects/var.ts";
 
 const Ask = effect<string, number>()("ask");
 const Tidy = effect<string, void>()("tidy");

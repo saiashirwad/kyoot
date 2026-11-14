@@ -1,4 +1,5 @@
-import { Fail, Kyoot } from "kyoot";
+import { Kyoot } from "kyoot";
+import * as Fail from "kyoot/fail";
 import type { Kyoot as K, MergeAll, Op } from "kyoot";
 import * as Events from "./events.ts";
 import { Model, type Completion, type Message, type Request } from "./model.ts";
@@ -9,10 +10,9 @@ export class TooManyRounds {
   readonly _tag = "TooManyRounds";
 }
 
-export interface Options<A, T extends Tool> {
+export interface Options<T extends Tool = never> {
   readonly tools?: readonly T[];
   readonly rounds?: number;
-  readonly schema?: Schema.Schema<A>;
 }
 
 export type Requires<T extends Tool> = MergeAll<
@@ -40,19 +40,14 @@ const run = (tool: Tool, args: unknown) =>
     .map((v) => JSON.stringify(v) ?? "null")
     .pipe(Fail.catchAll((e: unknown) => Kyoot.succeed(`error: ${show(e)}`)));
 
-export function generate<T extends Tool = never>(
+// The agent loop: it only performs effects (model, tools, events); the host answers them.
+// Returns the result and the messages added to the conversation.
+export const loop = <A, T extends Tool = never>(
   messages: readonly Message[],
-  options?: Options<string, T> & { readonly schema?: undefined },
-): K<readonly [string, Message[]], Requires<T>>;
-export function generate<A, T extends Tool = never>(
-  messages: readonly Message[],
-  options: Options<A, T> & { readonly schema: Schema.Schema<A> },
-): K<readonly [A, Message[]], Requires<T>>;
-export function generate<A = string, T extends Tool = never>(
-  messages: readonly Message[],
-  { tools = [], rounds = 8, schema }: Options<A, T> = {},
-): K<readonly [A, Message[]], Requires<T>> {
-  return Kyoot.gen(function* () {
+  { tools = [], rounds = 8 }: Options<T>,
+  schema?: Schema.Schema<A>,
+): K<readonly [A, Message[]], Requires<T>> =>
+  Kyoot.gen(function* () {
     if (schema && tools.some((tool) => tool.name === "answer"))
       throw new Error("Tool name answer is reserved for structured output");
     const schemas = tools.map(schemaOf);
@@ -73,15 +68,15 @@ export function generate<A = string, T extends Tool = never>(
       if (!schema && toolCalls.length === 0) return [text as A, added] as const;
       for (const call of toolCalls) {
         yield* Events.emit({ type: "call", call });
-        const tool = tools.find((t) => t.name === call.name);
-        const args = schema && call.name === "answer" ? schema : tool?.args;
+        const final = schema !== undefined && call.name === "answer";
+        const tool = final ? undefined : tools.find((t) => t.name === call.name);
+        const args = final ? schema : tool?.args;
         const r = args ? parse(args, call.arguments) : { error: `unknown tool ${call.name}` };
         const content = "error" in r ? r.error : tool ? yield* run(tool, r.args) : "ok";
         added.push({ role: "tool", toolCallId: call.id, content });
         yield* Events.emit({ type: "result", call, content });
-        if (!("error" in r) && !tool) return [r.args as A, added] as const;
+        if (final && !("error" in r)) return [r.args as A, added] as const;
       }
     }
     return yield* Fail.fail(new TooManyRounds());
   }) as never;
-}

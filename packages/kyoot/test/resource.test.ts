@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { effect, Fail, Kyoot, Resource, Sync } from "../src/index.ts";
+import { effect, Kyoot } from "../src/index.ts";
+import * as Fail from "../src/effects/fail.ts";
+import * as Resource from "../src/effects/resource.ts";
+import * as Sync from "../src/effects/sync.ts";
 import { Async, Clock, runPromise } from "../src/async/index.ts";
 
 test("Resource: release runs on success", () => {
@@ -71,10 +74,12 @@ test("Resource: release runs on defect", () => {
   assert.deepEqual(events, ["release"]);
 });
 
+const nap = (ms: number) => Clock.sleep(ms).pipe(Clock.live);
+
 const slowClose = (events: string[], name: string) =>
   Resource.acquire(
     () => events.push(`open ${name}`),
-    () => Clock.sleep(5).map(() => void events.push(`close ${name}`)),
+    () => nap(5).map(() => void events.push(`close ${name}`)),
   );
 
 test("Resource: a finalizer may be a program (runs on success)", async () => {
@@ -106,10 +111,10 @@ test("Resource: program finalizers run to completion on interrupt", async () => 
       const fiber = yield* Async.fork(
         Kyoot.gen(function* () {
           yield* slowClose(events, "a");
-          yield* Clock.sleep(10_000);
+          yield* nap(10_000);
         }).pipe(Resource.run),
       );
-      yield* Clock.sleep(5);
+      yield* nap(5);
       yield* fiber.interrupt;
       return yield* fiber.await;
     }),
@@ -226,7 +231,7 @@ test("a handler that performs an op and then does not resume releases after its 
     return "never";
   }).pipe(
     Resource.run,
-    Stop.handle({ onOp: (why) => Sync.defer(() => (events.push(`stopped: ${why}`), "stopped")) }),
+    Stop.handle((why) => Sync.defer(() => (events.push(`stopped: ${why}`), "stopped"))),
     Sync.run,
     Kyoot.runSync,
   );
@@ -247,9 +252,7 @@ test("a handler that resumes does not release early", () => {
     return n;
   }).pipe(
     Resource.run,
-    Ask.handle({
-      onOp: (_, resume) => Sync.defer(() => events.push("asked")).flatMap(() => resume(7)),
-    }),
+    Ask.handle((_, resume) => Sync.defer(() => events.push("asked")).flatMap(() => resume(7))),
     Sync.run,
     Kyoot.runSync,
   );
@@ -269,7 +272,7 @@ test("a handler that claims a resume token and discards it still releases", () =
     return "never";
   }).pipe(
     Resource.run,
-    Ask.handle({ onOp: (_, resume) => (resume(42), Kyoot.succeed("discarded")) }),
+    Ask.handle((_, resume) => (resume(42), Kyoot.succeed("discarded"))),
     Kyoot.runSync,
   );
   assert.equal(r, "discarded");
@@ -288,9 +291,7 @@ test("a handler that claims a resume.with token and discards it still releases",
     return "never";
   }).pipe(
     Resource.run,
-    Ask.handle({
-      onOp: (_, resume) => (resume.with(Kyoot.succeed(42)), Kyoot.succeed("discarded")),
-    }),
+    Ask.handle((_, resume) => (resume.with(Kyoot.succeed(42)), Kyoot.succeed("discarded"))),
     Kyoot.runSync,
   );
   assert.equal(r, "discarded");
@@ -315,7 +316,7 @@ test("a discarded resume token releases nested captured resources, innermost fir
     return "never";
   }).pipe(
     Resource.run,
-    Ask.handle({ onOp: (_, resume) => (resume(42), Kyoot.succeed("discarded nested")) }),
+    Ask.handle((_, resume) => (resume(42), Kyoot.succeed("discarded nested"))),
     Kyoot.runSync,
   );
   assert.equal(r, "discarded nested");
@@ -334,7 +335,7 @@ test("a discarded resume token releases a captured resource whose finalizer is a
     return "never";
   }).pipe(
     Resource.run,
-    Ask.handle({ onOp: (_, resume) => (resume(42), Kyoot.succeed("discarded")) }),
+    Ask.handle((_, resume) => (resume(42), Kyoot.succeed("discarded"))),
     runPromise,
   );
   assert.equal(r, "discarded");
@@ -354,11 +355,9 @@ test("a resume token returned later in the handler's program still resumes", () 
     return n;
   }).pipe(
     Resource.run,
-    Ask.handle({
-      onOp: (_, resume) => {
-        const token = resume(7);
-        return Sync.defer(() => events.push("asked")).flatMap(() => token);
-      },
+    Ask.handle((_, resume) => {
+      const token = resume(7);
+      return Sync.defer(() => events.push("asked")).flatMap(() => token);
     }),
     Sync.run,
     Kyoot.runSync,

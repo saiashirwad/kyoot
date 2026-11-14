@@ -3,7 +3,6 @@
   "references": [
     { "path": "packages/kyoot" },
     { "path": "packages/ai" },
-    { "path": "packages/platform" },
-    { "path": "packages/registry" }
+    { "path": "packages/platform" }
   ]
 }

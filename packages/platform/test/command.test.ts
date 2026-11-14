@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
-import { Fail, Kyoot } from "kyoot";
+import { Kyoot } from "kyoot";
+import * as Fail from "kyoot/fail";
 import { Command } from "@kyoot/platform";
 import * as Node from "@kyoot/platform/node";
 import { InterruptedError, runFiber, runPromise } from "kyoot/async";
@@ -71,9 +72,7 @@ test("command: a program that cannot start is a CommandError", async () => {
 test("command: a fake handler", () => {
   const out = Kyoot.runSync(
     Command.run("ls", ["-la"]).pipe(
-      Command.handle({
-        onOp: (op, resume) => resume({ code: 0, stdout: op.args.join(" "), stderr: "" }),
-      }),
+      Command.handle((op, resume) => resume({ code: 0, stdout: op.args.join(" "), stderr: "" })),
       Fail.orThrow,
     ),
   );

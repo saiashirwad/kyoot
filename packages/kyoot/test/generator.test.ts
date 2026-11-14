@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { effect, Fail, Kyoot, Resource, Sync } from "../src/index.ts";
+import { effect, Kyoot } from "../src/index.ts";
+import * as Fail from "../src/effects/fail.ts";
+import * as Resource from "../src/effects/resource.ts";
+import * as Sync from "../src/effects/sync.ts";
 import { Async, runPromise } from "../src/async/index.ts";
 
 const Stop = effect<string, never>()("stop");
@@ -67,7 +70,7 @@ test("generator: finally runs when a custom handler answers without resuming", (
       events.push("finally");
     }
     return "unreachable";
-  }).pipe(Stop.handle({ onOp: (reason) => Kyoot.succeed(`stopped: ${reason}`) }));
+  }).pipe(Stop.handle((reason) => Kyoot.succeed(`stopped: ${reason}`)));
   assert.equal(Kyoot.runSync(prog), "stopped: now");
   assert.deepEqual(events, ["finally"]);
 });
@@ -173,9 +176,7 @@ test("generator: a finally may perform effects while its frame is cancelled", ()
       events.push("after the effect");
     }
   }).pipe(
-    Cleanup.handle({
-      onOp: (_, resume) => (events.push("cleanup handled"), resume(undefined)),
-    }),
+    Cleanup.handle((_, resume) => (events.push("cleanup handled"), resume(undefined))),
     Fail.run,
   );
   assert.deepEqual(Kyoot.runSync(prog), { ok: false, cause: { _tag: "Fail", error: "stop" } });
@@ -247,7 +248,7 @@ test("generator: a drop that ends in an unhandled effect still closes the frame"
     } finally {
       events.push("finally");
     }
-  }).pipe(Stop.handle({ onOp: () => Missing(undefined) }));
+  }).pipe(Stop.handle(() => Missing(undefined)));
   assert.throws(
     () => Kyoot.runSync(prog as never),
     (e: unknown) => e instanceof Error && e.message.includes("unhandled effect 'missing'"),
@@ -264,11 +265,9 @@ test("generator: a claimed continuation that never lands closes too", () => {
       events.push("finally");
     }
   }).pipe(
-    Hold.handle({
-      onOp: (_payload, resume) => {
-        const landing = resume(undefined);
-        return Missing(undefined).flatMap(() => landing);
-      },
+    Hold.handle((_payload, resume) => {
+      const landing = resume(undefined);
+      return Missing(undefined).flatMap(() => landing);
     }),
   );
   assert.throws(
@@ -304,7 +303,7 @@ test("generator: frames queued behind a cleanup program close when the machine s
     } finally {
       events.push("outer");
     }
-  }).pipe(Stop.handle({ onOp: () => Kyoot.succeed("stopped") }));
+  }).pipe(Stop.handle(() => Kyoot.succeed("stopped")));
   assert.throws(
     () => Kyoot.runSync(outer as never),
     (e: unknown) => e instanceof Error && e.message.includes("unhandled effect 'missing'"),
@@ -382,11 +381,9 @@ test("generator: a handler that discards the resume token still drops the contin
     return "unreachable";
   }).pipe(
     Resource.run,
-    Hold.handle({
-      onOp: (_payload, resume) => {
-        resume(undefined);
-        return Kyoot.succeed("stopped");
-      },
+    Hold.handle((_payload, resume) => {
+      resume(undefined);
+      return Kyoot.succeed("stopped");
     }),
   );
   assert.equal(Kyoot.runSync(prog), "stopped");
@@ -404,11 +401,9 @@ test("generator: a token saved past a closed continuation cannot restore it", ()
       events.push("finally");
     }
   }).pipe(
-    Hold.handle({
-      onOp: (_payload, resume) => {
-        token = resume(undefined);
-        return Missing(undefined);
-      },
+    Hold.handle((_payload, resume) => {
+      token = resume(undefined);
+      return Missing(undefined);
     }),
   );
   assert.throws(
@@ -446,8 +441,8 @@ test("generator: a dropped continuation releases its resources when the machine 
     yield* Stop("now");
   }).pipe(Resource.run);
   const prog = held.pipe(
-    Hold.handle({ onOp: () => answer }),
-    Stop.handle({ onOp: () => Kyoot.succeed(undefined) }),
+    Hold.handle(() => answer),
+    Stop.handle(() => Kyoot.succeed(undefined)),
   );
   assert.throws(
     () => Kyoot.runSync(prog as never),
@@ -481,8 +476,8 @@ test("generator: an abort during cleanup replaces the error a finally raised", (
     }
   }).pipe(
     Resource.run,
-    Stop.handle({ onOp: () => Kyoot.succeed(undefined) }),
-    Cleanup.handle({ onOp: () => Kyoot.succeed("cleanup aborted") }),
+    Stop.handle(() => Kyoot.succeed(undefined)),
+    Cleanup.handle(() => Kyoot.succeed("cleanup aborted")),
   );
   assert.equal(Kyoot.runSync(prog), "cleanup aborted");
   assert.deepEqual(events, ["inner release", "finally"]);

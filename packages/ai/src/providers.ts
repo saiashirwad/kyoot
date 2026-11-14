@@ -1,4 +1,5 @@
-import { Fail, Kyoot } from "kyoot";
+import { Kyoot } from "kyoot";
+import * as Fail from "kyoot/fail";
 import { Model, type Message, type Request, type ToolCall } from "./model.ts";
 import { events } from "./sse.ts";
 import * as Events from "./events.ts";
@@ -101,20 +102,19 @@ const complete = ({ url, model, apiKey }: Options, req: Request) =>
   });
 
 export const chatCompletions = (options: Options) =>
-  Model.handle({
-    onOp: (req, resume) =>
-      complete(options, req)
-        .pipe(
-          Retry.run(
-            options.retry ?? {
-              times: 3,
-              delay: (n) => 500 * 2 ** n,
-              while: (e) => e instanceof ProviderError && (e.status === 429 || e.status >= 500),
-            },
-          ),
-        )
-        .flatMap(resume),
-  });
+  Model.handle((req, resume) =>
+    complete(options, req)
+      .pipe(
+        Retry.run(
+          options.retry ?? {
+            times: 3,
+            delay: (n) => 500 * 2 ** n,
+            while: (e) => e instanceof ProviderError && (e.status === 429 || e.status >= 500),
+          },
+        ),
+      )
+      .flatMap(resume),
+  );
 
 export const Deepseek = (options: Partial<Options> = {}) => {
   const apiKey = options.apiKey ?? process.env.DEEPSEEK_API_KEY;

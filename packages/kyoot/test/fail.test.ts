@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Fail, Kyoot, Var } from "../src/index.ts";
+import { Kyoot } from "../src/index.ts";
+import * as Fail from "../src/effects/fail.ts";
+import * as Var from "../src/effects/var.ts";
 
 const Total = Var.tag<number>()("Total");
 

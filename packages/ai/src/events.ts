@@ -1,4 +1,4 @@
-import { Emit } from "kyoot";
+import * as Emit from "kyoot/emit";
 import type { ToolCall } from "./model.ts";
 
 export type Event =

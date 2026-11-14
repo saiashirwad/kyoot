@@ -1,4 +1,7 @@
-import { effect, Emit, Fail, Kyoot, Log } from "../src/index.ts";
+import { effect, Kyoot } from "../src/index.ts";
+import * as Emit from "../src/effects/emit.ts";
+import * as Fail from "../src/effects/fail.ts";
+import * as Log from "../src/effects/log.ts";
 import { Async, Clock, Retry, runPromise } from "../src/async/index.ts";
 
 interface Prompt {
@@ -21,33 +24,32 @@ const agent = (question: string) =>
     return yield* Model({ messages: [question, ...results] });
   });
 
-const flakyModel = (failures: number) => {
-  let calls = 0;
-  const complete = ({ messages }: Prompt) =>
-    Kyoot.gen(function* () {
-      if (calls++ < failures) {
-        yield* Log.warn("rate limited");
-        return yield* Fail.fail(new RateLimited());
-      }
-      const reply = `reply to "${messages.at(-1)}"`;
-      for (const token of reply.split(" ")) {
-        yield* Clock.sleep(20);
-        yield* Emit.value(token);
-      }
-      return reply;
-    });
+const flakyModel = (failures: number) =>
+  Model.handleWith(() => {
+    let calls = 0;
+    const complete = ({ messages }: Prompt) =>
+      Kyoot.gen(function* () {
+        if (calls++ < failures) {
+          yield* Log.warn("rate limited");
+          return yield* Fail.fail(new RateLimited());
+        }
+        const reply = `reply to "${messages.at(-1)}"`;
+        for (const token of reply.split(" ")) {
+          yield* Clock.sleep(20);
+          yield* Emit.value(token);
+        }
+        return reply;
+      });
 
-  return Model.handle({
-    onOp: (prompt, resume) =>
+    return (prompt, resume) =>
       complete(prompt)
         .pipe(Retry.run({ times: 3, delay: (n) => 50 * 2 ** n }))
-        .flatMap(resume),
+        .flatMap(resume);
   });
-};
 
-const localSearch = Search.handle({
-  onOp: ({ query }, resume) => resume([`${query} → doc 1`, `${query} → doc 2`]),
-});
+const localSearch = Search.handle(({ query }, resume) =>
+  resume([`${query} → doc 1`, `${query} → doc 2`]),
+);
 
 const program = agent("why is the sky blue?").pipe(
   flakyModel(1),
@@ -55,6 +57,7 @@ const program = agent("why is the sky blue?").pipe(
   Emit.forEach((token: string) => process.stdout.write(`${token} `)),
   Log.print,
   Fail.run,
+  Clock.live,
 );
 
 const answer = await Async.timeout(5_000, program).pipe(Fail.orThrow, runPromise);

@@ -1,4 +1,4 @@
-import { effect, makeHandler, withState, type Intercept, type Resume } from "../core.ts";
+import { effect, gen, answering, type Intercept } from "../core.ts";
 import type { Kyoot } from "../model.ts";
 import type { MergeAll, Op, Row } from "../types.ts";
 
@@ -34,19 +34,23 @@ export const tag =
       update: (f) => v({ kind: "update", f }),
       intercept: v.intercept,
       run: (initial) => (k) =>
-        makeHandler(v.key, k, {
-          initial,
-          onOp: (op: VarOp<V>, resume: Resume<V | void, V>, value) => {
-            switch (op.kind) {
-              case "get":
-                return resume(value);
-              case "set":
-                return resume(undefined, op.value);
-              case "update":
-                return resume(undefined, op.f(value));
-            }
-          },
-          onReturn: withState,
-        }),
+        gen(function* () {
+          let value = initial;
+          const a = yield* k.pipe(
+            answering(v.key, (op: VarOp<V>) => {
+              switch (op.kind) {
+                case "get":
+                  return value;
+                case "set":
+                  value = op.value;
+                  return undefined;
+                case "update":
+                  value = op.f(value);
+                  return undefined;
+              }
+            }),
+          );
+          return [a, value] as const;
+        }) as never,
     };
   };

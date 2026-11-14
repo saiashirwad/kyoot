@@ -2,26 +2,13 @@ import type { MergeAll, Row } from "./types.ts";
 
 export type AnyKyoot = Kyoot<any, any>;
 
-export type RuntimeResume = ((value: any, state?: any) => AnyKyoot) & {
-  with: (program: AnyKyoot, state?: any) => AnyKyoot;
+export type RuntimeResume = ((value: any) => AnyKyoot) & {
+  with: (program: AnyKyoot) => AnyKyoot;
 };
 
-export type OnOp = (payload: any, resume: RuntimeResume, state: any, past: number) => AnyKyoot;
-
-export interface HandlerHooks {
-  readonly initial?: unknown;
-  readonly create?: () => unknown;
-  readonly fork?: false | ((k: AnyKyoot) => AnyKyoot);
-  readonly onOp?: OnOp;
-  readonly tail?: (payload: any, state: any) => unknown;
-  readonly onReturn?: (a: unknown, state: unknown) => AnyKyoot;
-}
-
-export interface Snapshot {
-  readonly key: PropertyKey;
-  readonly hooks: HandlerHooks;
-  readonly state: unknown;
-}
+export type OnOp = ((payload: any, resume: RuntimeResume, past: number) => AnyKyoot) & {
+  answer?: (payload: any) => unknown;
+};
 
 interface Pipeable {
   pipe<A>(this: A): A;

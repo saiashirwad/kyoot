@@ -1,5 +1,5 @@
-import type { AnyKyoot, HandlerHooks, Kyoot, OnOp, RowsOf, ValueOf } from "./model.ts";
-import type { Answer, MergeAll, Only, Op, Payload, Row, Simplify } from "./types.ts";
+import type { AnyKyoot, Kyoot, OnOp, RowsOf, ValueOf } from "./model.ts";
+import type { MergeAll, Only, Op, Payload, Row, Simplify } from "./types.ts";
 
 type RuntimeNode =
   | { readonly _tag: "pure"; readonly a: unknown }
@@ -7,20 +7,10 @@ type RuntimeNode =
   | { readonly _tag: "flatMap"; readonly a: AnyKyoot; readonly b: (a: unknown) => AnyKyoot }
   | { readonly _tag: "gen"; readonly a: () => Generator<AnyKyoot, unknown, unknown> }
   | { readonly _tag: "op"; readonly a: PropertyKey; readonly b: unknown; readonly c: number }
-  | {
-      readonly _tag: "handler";
-      readonly a: AnyKyoot;
-      readonly b: PropertyKey;
-      readonly c: HandlerHooks;
-    }
+  | { readonly _tag: "handler"; readonly a: AnyKyoot; readonly b: PropertyKey; readonly c: OnOp }
   | { readonly _tag: "catch"; readonly a: AnyKyoot; readonly b: (d: unknown) => AnyKyoot }
   | { readonly _tag: "ensure"; readonly a: AnyKyoot; readonly b: AnyKyoot }
-  | {
-      readonly _tag: "resume" | "resumeWith";
-      readonly a: unknown;
-      readonly b: unknown;
-      readonly c: unknown;
-    }
+  | { readonly _tag: "resume" | "resumeWith"; readonly a: unknown; readonly b: unknown }
   | { readonly _tag: "raise"; readonly a: unknown };
 
 class KyootIterator<A, S extends Row> implements Iterator<Kyoot<unknown, S>, A, unknown> {
@@ -85,8 +75,6 @@ export const succeed = <A>(value: A): Kyoot<A, {}> => new KyootImpl("pure", valu
 
 export const unit: Kyoot<void, {}> = succeed(undefined);
 
-export const withState = <A, St>(a: A, state: St) => succeed([a, state] as const);
-
 export const raise = (error: unknown): Kyoot<never, {}> => new KyootImpl("raise", error);
 
 export const makeOp = (key: PropertyKey, payload: unknown, skip = 0) =>
@@ -111,12 +99,9 @@ export const ensuring = <A, S extends Row, S2 extends Row>(
   cleanup: Kyoot<unknown, S2>,
 ): Kyoot<A, MergeAll<S | S2>> => new KyootImpl("ensure", k, cleanup);
 
-export interface Resume<A, St, C extends Row = Row> {
-  (value: A, state?: St): Kyoot<never, {}>;
-  with<S extends Row & Partial<C>>(
-    program: Kyoot<A, S> & Only<S, keyof C>,
-    state?: St,
-  ): Kyoot<never, {}>;
+export interface Resume<A, C extends Row = Row> {
+  (value: A): Kyoot<never, {}>;
+  with<S extends Row & Partial<C>>(program: Kyoot<A, S> & Only<S, keyof C>): Kyoot<never, {}>;
 }
 
 type Performed<K extends string, P, A, C extends Row> = Kyoot<
@@ -124,118 +109,93 @@ type Performed<K extends string, P, A, C extends Row> = Kyoot<
   Simplify<{ [k in K]: Op<P, A> } & C>
 >;
 
-interface Cell<St> {
-  readonly create: () => St;
-}
-
-type Interceptor<K extends string, P, A, C extends Row, St, Ret> = (
+type Interceptor<K extends string, P, A, C extends Row, Ret> = (
   payload: P,
   next: (payload: P) => Performed<K, P, A, C>,
-  state: St,
 ) => Ret;
 
 type Interception<K extends string, P, A, Ret> = <B, S extends Row & { [k in K]?: Op<P, A> }>(
   k: Kyoot<B, S>,
 ) => Kyoot<B, MergeAll<Omit<S, K> | RowsOf<Ret>>>;
 
-export interface Intercept<K extends string, P, A, C extends Row = {}> {
-  <Ret extends Kyoot<A, any>>(
-    f: Interceptor<K, P, A, C, undefined, Ret>,
-  ): Interception<K, P, A, Ret>;
-  <St, Ret extends Kyoot<A, any>>(
-    cell: Cell<St>,
-    f: Interceptor<K, P, A, C, St, Ret>,
-  ): Interception<K, P, A, Ret>;
-}
+export type Intercept<K extends string, P, A, C extends Row = {}> = <Ret extends Kyoot<A, any>>(
+  f: Interceptor<K, P, A, C, Ret>,
+) => Interception<K, P, A, Ret>;
+
+export const makeHandler = (key: PropertyKey, self: AnyKyoot, onOp: OnOp): AnyKyoot =>
+  new KyootImpl("handler", self, key, onOp);
+
+// A handler that always resumes at once with answer(payload); the machine skips the mask and resumer.
+export const answering =
+  <const K extends string, P, A>(
+    key: K,
+    answer: (payload: P) => A,
+  ): Handle<K, P, A, Kyoot<never>> =>
+  (k) => {
+    const onOp: OnOp = (payload, resume) => resume(answer(payload));
+    onOp.answer = answer;
+    return makeHandler(key, k, onOp) as never;
+  };
 
 export const makeIntercept = <K extends string, P, A, C extends Row = {}>(
   key: K,
 ): Intercept<K, P, A, C> => {
-  type F = Interceptor<K, P, A, C, any, AnyKyoot>;
   const nexts: Array<(p: P) => never> = [];
   const nextPast = (past: number) => (nexts[past] ??= (p: P) => makeOp(key, p, past) as never);
-  return (cellOrF: Cell<unknown> | F, maybeF?: F) => {
-    const cell = typeof cellOrF === "function" ? undefined : cellOrF;
-    const f = typeof cellOrF === "function" ? cellOrF : maybeF!;
-    const onOp: OnOp = (payload, resume, state, past) =>
-      resume.with(f(payload, nextPast(past), state));
-    return (k: AnyKyoot) => makeHandler(key, k, { create: cell?.create, onOp: onOp as never });
+  return (f) => {
+    const onOp: OnOp = (payload, resume, past) => resume.with(f(payload, nextPast(past)));
+    return (k) => makeHandler(key, k, onOp) as never;
   };
 };
 
-interface State<St> {
-  initial?: St;
-  create?: () => St;
-  fork?: HandlerHooks["fork"];
-}
-
-interface OpHooks<P, A, St, C extends Row, ROp extends AnyKyoot> extends State<St> {
-  onOp: (payload: P, resume: Resume<A, St, C>, state: St) => ROp;
-}
-
-interface TailHooks<P, A, St> extends State<St> {
-  tail: (payload: P, state: St) => NoInfer<A>;
-}
-
-type Hooks<P, A, St, C extends Row, ROp extends AnyKyoot> =
-  | OpHooks<P, A, St, C, ROp>
-  | TailHooks<P, A, St>;
-
-type Nothing = Kyoot<never, {}>;
+export type Handle<K extends string, P, A, ROp> = <B, S extends Row & { [k in K]?: Op<P, A> }>(
+  k: Kyoot<B, S>,
+) => Kyoot<B | ValueOf<ROp>, MergeAll<Omit<S, K> | RowsOf<ROp>>>;
 
 export const effect =
   <P, A, C extends Row = {}>() =>
   <const K extends string>(key: K) => {
     const perform = (payload: P) => makeOp(key, payload) as Performed<K, P, A, C>;
     const handle =
-      <St = undefined, ROp extends AnyKyoot = Nothing>(hooks: Hooks<P, A, St, C, ROp>) =>
-      <B, S extends Row & { [k in K]?: Op<P, A> }>(k: Kyoot<B, S>) =>
-        makeHandler<K, B, S, St, P, A, C, ROp>(key, k, hooks);
-    return Object.assign(perform, { key, handle, intercept: makeIntercept<K, P, A, C>(key) });
+      <ROp extends AnyKyoot>(
+        onOp: (payload: P, resume: Resume<A, C>) => ROp,
+      ): Handle<K, P, A, ROp> =>
+      (k) =>
+        makeHandler(key, k, onOp as never) as never;
+    const handleWith =
+      <ROp extends AnyKyoot>(
+        make: () => (payload: P, resume: Resume<A, C>) => ROp,
+      ): Handle<K, P, A, ROp> =>
+      (k) =>
+        unit.flatMap(() => makeHandler(key, k, make() as never)) as never;
+    return Object.assign(perform, {
+      key,
+      handle,
+      handleWith,
+      intercept: makeIntercept<K, P, A, C>(key),
+    });
   };
-
-const handler = (key: PropertyKey, self: AnyKyoot, hooks: HandlerHooks): AnyKyoot =>
-  new KyootImpl("handler", self, key, hooks);
-
-export function makeHandler<
-  K extends PropertyKey,
-  A,
-  S extends Row,
-  St = undefined,
-  P = Payload<S, K>,
-  R = Answer<S, K>,
-  C extends Row = Row,
-  ROp extends AnyKyoot = Nothing,
-  RReturn extends AnyKyoot = Kyoot<A, {}>,
->(
-  effectKey: K,
-  self: Kyoot<A, S>,
-  hooks: Hooks<P, R, St, C, ROp> & {
-    onReturn?: (a: A, state: St) => RReturn;
-  },
-): Kyoot<ValueOf<RReturn> | ValueOf<ROp>, MergeAll<Omit<S, K> | RowsOf<ROp> | RowsOf<RReturn>>> {
-  return handler(effectKey, self, hooks as unknown as HandlerHooks);
-}
 
 export const collect =
   <const K extends string>(key: K) =>
   <A, S extends Row & { [k in K]?: Op<unknown, void> }>(
     k: Kyoot<A, S>,
   ): Kyoot<readonly [A, Array<Payload<S, K>>], MergeAll<Omit<S, K>>> =>
-    handler(key, k, {
-      create: () => [],
-      tail: (payload, payloads) => void payloads.push(payload),
-      onReturn: withState,
-    });
+    gen(function* () {
+      const payloads: unknown[] = [];
+      const a = yield* makeHandler(key, k, (payload, resume) => {
+        payloads.push(payload);
+        return resume(undefined);
+      });
+      return [a, payloads] as const;
+    }) as never;
 
 export const forEach =
   <const K extends string, P, R>(key: K, f: (payload: P) => R) =>
   <A, S extends Row & { [k in K]?: Op<P, void> }>(
     k: Kyoot<A, S>,
   ): Kyoot<A, MergeAll<Omit<S, K> | RowsOf<R>>> =>
-    handler(key, k, {
-      onOp: (payload, resume) => {
-        const r = f(payload);
-        return isKyoot(r) ? r.flatMap(() => resume(undefined)) : resume(undefined);
-      },
-    });
+    makeHandler(key, k, (payload, resume) => {
+      const r = f(payload);
+      return isKyoot(r) ? r.flatMap(() => resume(undefined)) : resume(undefined);
+    }) as never;

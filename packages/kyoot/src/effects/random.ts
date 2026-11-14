@@ -1,4 +1,4 @@
-import { effect } from "../core.ts";
+import { effect, answering } from "../core.ts";
 
 const random = effect<void, number>()("random");
 
@@ -8,11 +8,13 @@ export const next = () => nextOp;
 
 export const handle = random.handle;
 
+export const handleWith = random.handleWith;
+
 export const intercept = random.intercept;
 
 export const int = (max: number) => next().map((x) => Math.floor(x * max));
 
-export const live = random.handle({ tail: () => Math.random() });
+export const live = answering("random", (_: void) => Math.random());
 
 const step = (seed: number) => {
   let t = (seed + 0x6d2b79f5) | 0;
@@ -22,10 +24,11 @@ const step = (seed: number) => {
 };
 
 export const seeded = (seed: number) =>
-  random.handle({
-    initial: seed,
-    onOp: (_, resume, s) => {
+  random.handleWith(() => {
+    let s = seed;
+    return (_, resume) => {
       const [x, s2] = step(s);
-      return resume(x, s2);
-    },
+      s = s2;
+      return resume(x);
+    };
   });

@@ -1,4 +1,7 @@
-import { effect, Emit, Fail, Kyoot, Var } from "../src/index.ts";
+import { effect, Kyoot } from "../src/index.ts";
+import * as Emit from "../src/effects/emit.ts";
+import * as Fail from "../src/effects/fail.ts";
+import * as Var from "../src/effects/var.ts";
 
 export class OutOfStock {
   readonly _tag = "OutOfStock";
@@ -55,21 +58,24 @@ export const checkout = (order: Order, card: string) =>
     return { orderId: order.id, chargeId, totalCents };
   }).pipe(Total.run(0));
 
+export const inMemoryInventory = (stock: Record<string, number>) =>
+  Inventory.handleWith(() => {
+    const left = new Map(Object.entries(stock));
+    return ({ sku, qty }, resume) => {
+      const have = left.get(sku) ?? 0;
+      if (have < qty) return resume(false);
+      left.set(sku, have - qty);
+      return resume(true);
+    };
+  });
+
 if (import.meta.main) {
   const result = checkout(
     { id: "o-1", items: [{ sku: "book", qty: 2, priceCents: 1200 }] },
     "4242",
   ).pipe(
-    Inventory.handle({
-      initial: new Map([["book", 3]]),
-      onOp: ({ sku, qty }, resume, stock) => {
-        const have = stock.get(sku) ?? 0;
-        return have >= qty ? resume(true, new Map(stock).set(sku, have - qty)) : resume(false);
-      },
-    }),
-    Payments.handle({
-      onOp: ({ totalCents }, resume) => resume(`ch_${totalCents}`),
-    }),
+    inMemoryInventory({ book: 3 }),
+    Payments.handle(({ totalCents }, resume) => resume(`ch_${totalCents}`)),
     Emit.forEach(console.log),
     Fail.run,
     Kyoot.runSync,

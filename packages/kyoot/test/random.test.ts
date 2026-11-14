@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Kyoot, Random } from "../src/index.ts";
+import { Kyoot } from "../src/index.ts";
+import * as Random from "../src/effects/random.ts";
 
 const three = Kyoot.gen(function* () {
   return [yield* Random.next(), yield* Random.next(), yield* Random.int(10)];

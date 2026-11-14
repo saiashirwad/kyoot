@@ -1,8 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { catchDefect, makeHandler, makeOp, op, succeed } from "../src/core.ts";
-import { effect, Emit, Env, Fail, Kyoot, Log, Random, Resource, Sync, Var } from "../src/index.ts";
-import type { Op } from "../src/index.ts";
+import { effect, Kyoot } from "../src/index.ts";
+import * as Emit from "../src/effects/emit.ts";
+import * as Env from "../src/effects/env.ts";
+import * as Fail from "../src/effects/fail.ts";
+import * as Log from "../src/effects/log.ts";
+import * as Random from "../src/effects/random.ts";
+import * as Resource from "../src/effects/resource.ts";
+import * as Sync from "../src/effects/sync.ts";
+import * as Var from "../src/effects/var.ts";
+import type { Op, Row } from "../src/index.ts";
 import { Async, Clock, runPromise } from "../src/async/index.ts";
 
 const Count = Var.tag<number>()("Count");
@@ -110,11 +118,9 @@ test("a continuation dropped by its handler cannot be resumed later", () => {
   const k = Kyoot.gen(function* () {
     return yield* Ask("n");
   }).pipe(
-    Ask.handle({
-      onOp: (_p, resume) => {
-        saved = resume;
-        return Kyoot.succeed("dropped");
-      },
+    Ask.handle((_p, resume) => {
+      saved = resume;
+      return Kyoot.succeed("dropped");
     }),
   );
   assert.equal(Kyoot.runSync(k), "dropped");
@@ -130,11 +136,9 @@ test("a resume token discarded by its handler cannot be run later", () => {
   const k = Kyoot.gen(function* () {
     return yield* Ask("n");
   }).pipe(
-    Ask.handle({
-      onOp: (_p, resume) => {
-        token = resume(1) as Kyoot<never>;
-        return Kyoot.succeed("discarded");
-      },
+    Ask.handle((_p, resume) => {
+      token = resume(1) as Kyoot<never>;
+      return Kyoot.succeed("discarded");
     }),
   );
   assert.equal(Kyoot.runSync(k), "discarded");
@@ -148,11 +152,9 @@ test("resuming ends the handler's program: code after a resume never runs", () =
       const v = yield* op<number>()("myfx", undefined);
       return v * 10;
     }),
-    {
-      onOp: (_p, resume) => {
-        const first = resume(1);
-        return first.flatMap(() => resume(2));
-      },
+    (_p, resume) => {
+      const first = resume(1);
+      return first.flatMap(() => resume(2));
     },
   );
   assert.equal(Kyoot.runSync(k as never), 10);
@@ -165,14 +167,12 @@ test("a resume saved from one operation cannot answer a later operation", () => 
   const k = Kyoot.gen(function* () {
     return [yield* Ask("first"), yield* Ask("second")];
   }).pipe(
-    Ask.handle({
-      onOp: (_p, resume) => {
-        if (++calls === 1) {
-          saved = resume;
-          return resume(1);
-        }
-        return saved!(99);
-      },
+    Ask.handle((_p, resume) => {
+      if (++calls === 1) {
+        saved = resume;
+        return resume(1);
+      }
+      return saved!(99);
     }),
   );
   assert.throws(() => Kyoot.runSync(k), /resume used outside the operation it answers/);
@@ -185,14 +185,12 @@ test("a resume.with saved from one operation cannot answer a later operation", (
   const k = Kyoot.gen(function* () {
     return [yield* Ask("first"), yield* Ask("second")];
   }).pipe(
-    Ask.handle({
-      onOp: (_p, resume) => {
-        if (++calls === 1) {
-          saved = resume;
-          return resume(1);
-        }
-        return saved!.with(Kyoot.succeed(99));
-      },
+    Ask.handle((_p, resume) => {
+      if (++calls === 1) {
+        saved = resume;
+        return resume(1);
+      }
+      return saved!.with(Kyoot.succeed(99));
     }),
   );
   assert.throws(() => Kyoot.runSync(k), /resume used outside the operation it answers/);
@@ -205,14 +203,12 @@ test("a resume token saved from one operation cannot answer a later operation", 
   const k = Kyoot.gen(function* () {
     return [yield* Ask("first"), yield* Ask("second")];
   }).pipe(
-    Ask.handle({
-      onOp: (_p, resume) => {
-        if (++calls === 1) {
-          token = resume(1);
-          return token;
-        }
-        return token!;
-      },
+    Ask.handle((_p, resume) => {
+      if (++calls === 1) {
+        token = resume(1);
+        return token;
+      }
+      return token!;
     }),
   );
   assert.throws(() => Kyoot.runSync(k), /resume used outside the operation it answers/);
@@ -225,14 +221,12 @@ test("a resume.with token saved from one operation cannot answer a later operati
   const k = Kyoot.gen(function* () {
     return [yield* Ask("first"), yield* Ask("second")];
   }).pipe(
-    Ask.handle({
-      onOp: (_p, resume) => {
-        if (++calls === 1) {
-          token = resume.with(Kyoot.succeed(1));
-          return token;
-        }
-        return token!;
-      },
+    Ask.handle((_p, resume) => {
+      if (++calls === 1) {
+        token = resume.with(Kyoot.succeed(1));
+        return token;
+      }
+      return token!;
     }),
   );
   assert.throws(() => Kyoot.runSync(k), /resume used outside the operation it answers/);
@@ -243,11 +237,7 @@ test("a continuation held past its op still answers that op", () => {
   let calls = 0;
   const k = Kyoot.gen(function* () {
     return [yield* Ask("a"), yield* Ask("b")];
-  }).pipe(
-    Ask.handle({
-      onOp: (_p, resume) => Kyoot.succeed(++calls).flatMap((n) => resume(n)),
-    }),
-  );
+  }).pipe(Ask.handle((_p, resume) => Kyoot.succeed(++calls).flatMap((n) => resume(n))));
   assert.deepEqual(Kyoot.runSync(k), [1, 2]);
 });
 
@@ -258,20 +248,18 @@ test("a handler that resumes zero times short-circuits", () => {
       yield* makeOp("myfx", undefined);
       return "unreachable";
     }).map(() => "also unreachable"),
-    { onOp: () => succeed("short") },
+    () => succeed("short"),
   );
   assert.equal(Kyoot.runSync(k as never), "short");
 });
 
 test("an op escaping a yielded handler node keeps the outer continuation", () => {
-  const inner = makeHandler("inner", op<string>()("outer", undefined), {
-    onOp: () => succeed("nope"),
-  });
+  const inner = makeHandler("inner", op<string>()("outer", undefined), () => succeed("nope"));
   const prog = Kyoot.gen(function* () {
     const v = yield* inner;
     return `${v} continued`;
   });
-  const k = makeHandler("outer", prog, { onOp: (_p, resume) => resume("handled") });
+  const k = makeHandler("outer", prog, (_p, resume) => resume("handled"));
   assert.equal(Kyoot.runSync(k as never), "handled continued");
 });
 
@@ -287,10 +275,8 @@ test("a throw inside onOp is a defect raised where the handler is installed", ()
       events.push("finally");
     }
   });
-  const handled = makeHandler("myfx", body as never, {
-    onOp: () => {
-      throw boom;
-    },
+  const handled = makeHandler("myfx", body as never, () => {
+    throw boom;
   });
   const k = catchDefect(handled, (d) => succeed(d === boom ? "caught" : "wrong"));
   assert.equal(Kyoot.runSync(k as never), "caught");
@@ -300,7 +286,7 @@ test("a throw inside onOp is a defect raised where the handler is installed", ()
 test("resume.with continues the program at the op, where its own handlers see it", () => {
   const Fetch = effect<string, string, { fail: Op<string, never> }>()("fetch");
   const program = Fetch("a").pipe(Fail.catchAll((e: string) => Kyoot.succeed(`caught ${e}`)));
-  const failing = Fetch.handle({ onOp: (url, resume) => resume.with(Fail.fail(`no ${url}`)) });
+  const failing = Fetch.handle((url, resume) => resume.with(Fail.fail(`no ${url}`)));
   assert.equal(Kyoot.runSync(program.pipe(failing)), "caught no a");
 });
 
@@ -309,7 +295,7 @@ test("intercept answers some ops and performs the rest for the handler outside",
   const cache = Fetch.intercept((url, next) =>
     url === "hot" ? Kyoot.succeed("cached") : next(url),
   );
-  const live = Fetch.handle({ onOp: (url, resume) => resume(`fetched ${url}`) });
+  const live = Fetch.handle((url, resume) => resume(`fetched ${url}`));
   const program = Kyoot.gen(function* () {
     return [yield* Fetch("hot"), yield* Fetch("cold")];
   });
@@ -324,20 +310,28 @@ test("stacked intercepts each see the op once, innermost first", () => {
     tag("inner"),
     tag("middle"),
     tag("outer"),
-    Ask.handle({ onOp: (q, resume) => resume(q) }),
+    Ask.handle((q, resume) => resume(q)),
   );
   assert.equal(Kyoot.runSync(k), "q>inner>middle>outer");
   assert.deepEqual(seen, ["inner", "middle", "outer"]);
 });
 
-test("intercept with a cell: state per run, fresh each run", () => {
+test("an intercept keeps its state in a closure made per run", () => {
   const Fetch = effect<string, string>()("fetch");
-  const memo = Fetch.intercept({ create: () => new Map<string, string>() }, (url, next, cache) => {
-    const hit = cache.get(url);
-    return hit !== undefined ? Kyoot.succeed(hit) : next(url).map((a) => (cache.set(url, a), a));
-  });
+  const memo = <A, S extends Row & { fetch?: Op<string, string> }>(k: Kyoot<A, S>) =>
+    Kyoot.gen(function* () {
+      const cache = new Map<string, string>();
+      return yield* k.pipe(
+        Fetch.intercept((url, next) => {
+          const hit = cache.get(url);
+          return hit !== undefined
+            ? Kyoot.succeed(hit)
+            : next(url).map((a) => (cache.set(url, a), a));
+        }),
+      );
+    });
   let calls = 0;
-  const live = Fetch.handle({ onOp: (url, resume) => resume(`${url}#${++calls}`) });
+  const live = Fetch.handle((url, resume) => resume(`${url}#${++calls}`));
   const program = Kyoot.gen(function* () {
     return [yield* Fetch("a"), yield* Fetch("a"), yield* Fetch("b")];
   });
@@ -373,7 +367,7 @@ test("Clock, Log, and Random intercept: scale time, redact, fix the dice", () =>
 test("Clock.intercept caps real sleeps under runPromise", async () => {
   const capped = Clock.intercept((ms, next) => next(Math.min(ms, 1)));
   const start = Date.now();
-  await runPromise(Clock.sleep(10_000).pipe(capped));
+  await runPromise(Clock.sleep(10_000).pipe(capped, Clock.live));
   assert.ok(Date.now() - start < 1000);
 });
 
@@ -448,25 +442,18 @@ test("Resource intercept sees each acquire", () => {
   assert.deepEqual(opened, ["conn"]);
 });
 
-test("Async intercept sees every async op; a fiber forked through it keeps the frames inside", async () => {
+test("Async intercept sees every async op, fork and join included", async () => {
   let ops = 0;
   const count = Async.intercept((op, next) => (ops++, next(op)));
   const program = Kyoot.gen(function* () {
-    const fiber = yield* Async.fork(Log.info("from fiber").map(() => 1));
-    const v = yield* fiber.join;
-    yield* Log.info("from parent");
-    return v;
+    const fiber = yield* Async.fork(Kyoot.succeed(1));
+    return yield* fiber.join;
   });
-  const [v, logs] = await runPromise(program.pipe(Log.collect, count));
-  assert.equal(v, 1);
-  assert.deepEqual(
-    logs.map((l) => l.message),
-    ["from fiber", "from parent"],
-  );
-  assert.ok(ops >= 2, `fork and join were intercepted (${ops})`);
+  assert.equal(await runPromise(program.pipe(count)), 1);
+  assert.equal(ops, 2);
 });
 
-test("a tail handler answers at the op, so a throw lands where the op was performed", () => {
+test("resume.with computes the answer at the op, so a throw lands where the op was performed", () => {
   const Parse = effect<string, number>()("parse");
   const events: string[] = [];
   const program = Kyoot.gen(function* () {
@@ -477,13 +464,15 @@ test("a tail handler answers at the op, so a throw lands where the op was perfor
       return -1;
     }
   });
-  const parse = Parse.handle({
-    tail: (s) => {
-      const n = Number(s);
-      if (Number.isNaN(n)) throw new Error(`bad number: ${s}`);
-      return n;
-    },
-  });
+  const parse = Parse.handle((s, resume) =>
+    resume.with(
+      Kyoot.succeed(s).map((s) => {
+        const n = Number(s);
+        if (Number.isNaN(n)) throw new Error(`bad number: ${s}`);
+        return n;
+      }),
+    ),
+  );
   assert.equal(Kyoot.runSync(program.pipe(parse)), -1);
   assert.deepEqual(events, ["bad number: not a number"]);
   assert.equal(Kyoot.runSync(Parse("42").pipe(parse)), 42);

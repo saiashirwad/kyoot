@@ -1,26 +1,26 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { effect, Fail, Kyoot } from "../src/index.ts";
+import { effect, Kyoot } from "../src/index.ts";
+import * as Fail from "../src/effects/fail.ts";
 import { Async, runPromise } from "../src/async/index.ts";
 
 const Ask = effect<string, string>()("ask");
 const Other = effect<string, string>()("other");
 const Poke = effect<void, string>()("poke");
 
-const answer = (name: string) => Ask.handle({ onOp: (q, resume) => resume(`${q}@${name}`) });
+const answer = (name: string) => Ask.handle((q, resume) => resume(`${q}@${name}`));
 
 test("an op from handler code skips every handler between that handler and the op", () => {
   const program = Poke().pipe(
-    Ask.handle({ onOp: (q, resume) => resume(`${q}@masked`) }),
-    Other.handle({ onOp: (q, resume) => resume(`${q}@masked`) }),
-    Poke.handle({
-      onOp: (_, resume) =>
-        Kyoot.gen(function* () {
-          return yield* resume(`${yield* Ask("a")} ${yield* Other("o")}`);
-        }),
-    }),
+    Ask.handle((q, resume) => resume(`${q}@masked`)),
+    Other.handle((q, resume) => resume(`${q}@masked`)),
+    Poke.handle((_, resume) =>
+      Kyoot.gen(function* () {
+        return yield* resume(`${yield* Ask("a")} ${yield* Other("o")}`);
+      }),
+    ),
     answer("outer"),
-    Other.handle({ onOp: (q, resume) => resume(`${q}@outer`) }),
+    Other.handle((q, resume) => resume(`${q}@outer`)),
   );
   assert.equal(Kyoot.runSync(program), "a@outer o@outer");
 });
@@ -28,9 +28,9 @@ test("an op from handler code skips every handler between that handler and the o
 test("handler code nested in handler code skips both masked regions", () => {
   const program = Poke().pipe(
     answer("inner"),
-    Poke.handle({ onOp: (_, resume) => Other("o").flatMap(resume) }),
+    Poke.handle((_, resume) => Other("o").flatMap(resume)),
     answer("middle"),
-    Other.handle({ onOp: (_, resume) => Ask("a").flatMap(resume) }),
+    Other.handle((_, resume) => Ask("a").flatMap(resume)),
     answer("outer"),
   );
   assert.equal(Kyoot.runSync(program), "a@outer");
@@ -41,7 +41,7 @@ test("next from an intercept counts only handlers it can see", () => {
   const tag = (name: string) => Ask.intercept((q, next) => (seen.push(name), next(`${q}>${name}`)));
   const program = Poke().pipe(
     tag("hidden"),
-    Poke.handle({ onOp: (_, resume) => Ask("p").flatMap(resume) }),
+    Poke.handle((_, resume) => Ask("p").flatMap(resume)),
     tag("visible"),
     answer("outer"),
   );
@@ -63,13 +63,12 @@ test("resuming after the handler's own nested handlers unwound reaches the origi
     const first = yield* Poke();
     return [first, yield* Ask("after")];
   }).pipe(
-    Poke.handle({
-      onOp: (_, resume) =>
-        Kyoot.gen(function* () {
-          const scratch = yield* Ask("scratch").pipe(answer("scratch"));
-          return yield* resume(scratch);
-        }),
-    }),
+    Poke.handle((_, resume) =>
+      Kyoot.gen(function* () {
+        const scratch = yield* Ask("scratch").pipe(answer("scratch"));
+        return yield* resume(scratch);
+      }),
+    ),
     answer("outer"),
   );
   assert.deepEqual(Kyoot.runSync(program), ["scratch@scratch", "after@outer"]);
@@ -110,17 +109,16 @@ test("cancel mid-stack: cleanup sees only the handlers still below it", () => {
   assert.deepEqual(seen, ["inner cleanup@inner", "outer cleanup@outer"]);
 });
 
-test("a fiber forked from handler code inherits only the handlers below the mask", async () => {
+test("a fiber forked from handler code is handled by its own handlers", async () => {
   const program = Poke().pipe(
     answer("masked"),
-    Poke.handle({
-      onOp: (_, resume) =>
-        Kyoot.gen(function* () {
-          const fiber = yield* Async.fork(Ask("fiber"));
-          return yield* resume(yield* fiber.join);
-        }),
-    }),
+    Poke.handle((_, resume) =>
+      Kyoot.gen(function* () {
+        const fiber = yield* Async.fork(Ask("fiber").pipe(answer("fiber")));
+        return yield* resume(yield* fiber.join);
+      }),
+    ),
     answer("outer"),
   );
-  assert.equal(await runPromise(program), "fiber@outer");
+  assert.equal(await runPromise(program), "fiber@fiber");
 });

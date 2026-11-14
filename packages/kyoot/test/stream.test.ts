@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Emit, Kyoot } from "../src/index.ts";
+import { Kyoot } from "../src/index.ts";
+import * as Emit from "../src/effects/emit.ts";
 import { Async, Clock, InterruptedError, runFiber } from "../src/async/index.ts";
 
 test("Emit.fromIterable + map + run", () => {

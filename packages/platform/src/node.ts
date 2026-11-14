@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import * as fsp from "node:fs/promises";
-import { Fail } from "kyoot";
+import * as Fail from "kyoot/fail";
 import type { Kyoot as K, Row } from "kyoot";
 import * as Command from "./command.ts";
 import * as FileSystem from "./fs.ts";
@@ -16,57 +16,79 @@ const codes: Record<string, FileSystem.Code> = {
   ENOTEMPTY: "NotEmpty",
 };
 
-const fsError = (op: FileSystem.Op, e: unknown) => {
-  const { code = "", message } = e as { code?: string; message: string };
-  return new FileSystem.FsError(op.kind, op.path, codes[code] ?? "Other", message);
-};
-
-const performFs = (op: FileSystem.Op): Promise<unknown> => {
-  switch (op.kind) {
-    case "readFile":
-      return fsp.readFile(op.path, "utf8");
-    case "writeFile":
-      return fsp.writeFile(op.path, op.data);
-    case "appendFile":
-      return fsp.appendFile(op.path, op.data);
-    case "readDir":
-      return fsp.readdir(op.path);
-    case "stat":
-      return fsp.stat(op.path).then((s) => ({
-        type: s.isFile() ? "file" : s.isDirectory() ? "directory" : "other",
-        size: s.size,
-        mtime: s.mtime,
-      }));
-    case "exists":
-      return fsp.access(op.path).then(
-        () => true,
-        (e: unknown) => {
-          const code = (e as { code?: string }).code;
-          if (code === "ENOENT" || code === "ENOTDIR") return false;
-          throw e;
-        },
-      );
-    case "mkdir":
-      return fsp.mkdir(op.path, { recursive: op.recursive });
-    case "remove":
-      return op.recursive
-        ? fsp.rm(op.path, { recursive: true })
-        : fsp
-            .stat(op.path)
-            .then((s) => (s.isDirectory() ? fsp.rmdir(op.path) : fsp.unlink(op.path)));
-    case "rename":
-      return fsp.rename(op.path, op.to);
-  }
-};
+const attempt = <A>(name: FileSystem.Name, path: string, run: () => Promise<A>) =>
+  Async.tryPromise(run, (e) => {
+    const { code = "", message } = e as { code?: string; message: string };
+    return new FileSystem.FsError(name, path, codes[code] ?? "Other", message);
+  });
 
 export const fs = FileSystem.handle({
-  onOp: (op, resume) =>
+  readFile: ({ path }, resume) =>
     Fail.resumeOrFail(
       resume,
-      Async.tryPromise(
-        () => performFs(op),
-        (e) => fsError(op, e),
+      attempt("readFile", path, () => fsp.readFile(path, "utf8")),
+    ),
+  writeFile: ({ path, data }, resume) =>
+    Fail.resumeOrFail(
+      resume,
+      attempt("writeFile", path, () => fsp.writeFile(path, data)),
+    ),
+  appendFile: ({ path, data }, resume) =>
+    Fail.resumeOrFail(
+      resume,
+      attempt("appendFile", path, () => fsp.appendFile(path, data)),
+    ),
+  readDir: ({ path }, resume) =>
+    Fail.resumeOrFail(
+      resume,
+      attempt("readDir", path, () => fsp.readdir(path)),
+    ),
+  stat: ({ path }, resume) =>
+    Fail.resumeOrFail(
+      resume,
+      attempt("stat", path, async (): Promise<FileSystem.Stat> => {
+        const s = await fsp.stat(path);
+        return {
+          type: s.isFile() ? "file" : s.isDirectory() ? "directory" : "other",
+          size: s.size,
+          mtime: s.mtime,
+        };
+      }),
+    ),
+  exists: ({ path }, resume) =>
+    Fail.resumeOrFail(
+      resume,
+      attempt("exists", path, () =>
+        fsp.access(path).then(
+          () => true,
+          (e: unknown) => {
+            const code = (e as { code?: string }).code;
+            if (code === "ENOENT" || code === "ENOTDIR") return false;
+            throw e;
+          },
+        ),
       ),
+    ),
+  mkdir: ({ path, recursive }, resume) =>
+    Fail.resumeOrFail(
+      resume,
+      attempt("mkdir", path, async () => {
+        await fsp.mkdir(path, { recursive });
+      }),
+    ),
+  remove: ({ path, recursive }, resume) =>
+    Fail.resumeOrFail(
+      resume,
+      attempt("remove", path, async () => {
+        if (recursive) return fsp.rm(path, { recursive: true });
+        const s = await fsp.stat(path);
+        return s.isDirectory() ? fsp.rmdir(path) : fsp.unlink(path);
+      }),
+    ),
+  rename: ({ path, to }, resume) =>
+    Fail.resumeOrFail(
+      resume,
+      attempt("rename", path, () => fsp.rename(path, to)),
     ),
 });
 
@@ -85,16 +107,15 @@ const exec = (op: Command.Op, signal: AbortSignal) =>
     child.stdin?.end(op.stdin ?? "");
   });
 
-export const command = Command.handle({
-  onOp: (op, resume) =>
-    Fail.resumeOrFail(
-      resume,
-      Async.tryPromise(
-        (signal) => exec(op, signal),
-        (e) => new Command.CommandError(op.command, (e as Error).message),
-      ),
+export const command = Command.handle((op, resume) =>
+  Fail.resumeOrFail(
+    resume,
+    Async.tryPromise(
+      (signal) => exec(op, signal),
+      (e) => new Command.CommandError(op.command, (e as Error).message),
     ),
-});
+  ),
+);
 
 export const provide = <A, S extends Row & Partial<FileSystem.FsRow & Command.CommandRow>>(
   k: K<A, S>,

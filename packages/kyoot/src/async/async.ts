@@ -1,26 +1,21 @@
 import { gen, makeHandler, makeIntercept, makeOp, succeed } from "../core.ts";
 import { forEach, value } from "../effects/emit.ts";
-import { fail, fromResult } from "../effects/fail.ts";
-import type { AnyKyoot, Kyoot, Snapshot } from "../model.ts";
-import { Result, type Err } from "../result.ts";
-import type { FailRow, MergeAll, Only, Op, Payload, Row } from "../types.ts";
-import { sleep } from "./clock.ts";
+import { fail, fromResult, Result, type Err, type FailRow } from "../effects/fail.ts";
+import type { AnyKyoot, Kyoot } from "../model.ts";
+import type { MergeAll, Only, Op, Payload, Row } from "../types.ts";
+import { live, sleep } from "./clock.ts";
 import {
   InterruptedError,
   runFiber,
   type AsyncOp,
   type AsyncRuntime,
   type FiberHandle,
-  type Served,
 } from "./runtime.ts";
 
 export type AsyncRow = { async: Op<AsyncOp, unknown> };
 
 const asyncOp = <A>(execute: (rt: AsyncRuntime) => Promise<A>) =>
   makeOp("async", { execute } satisfies AsyncOp) as Kyoot<A, AsyncRow>;
-
-const spawning = <A>(execute: (rt: AsyncRuntime) => Promise<A>) =>
-  makeOp("async", { execute, inherits: true } satisfies AsyncOp) as Kyoot<A, AsyncRow>;
 
 export const intercept = makeIntercept<"async", AsyncOp, unknown>("async");
 
@@ -100,8 +95,6 @@ export const reducePromise = <A, B>(
 
 type FailOf<S> = Payload<S, "fail">;
 
-type Leftover<S extends Row> = Omit<S, Served | "fail">;
-
 export type InterruptedCause = { readonly _tag: "Interrupted" };
 
 export type Exit<E, A> = Result<E, A> | Err<InterruptedCause>;
@@ -119,38 +112,20 @@ interface Spawned<A, E> {
   readonly interrupt: () => void;
 }
 
-const inherit = (k: AnyKyoot, snapshots: readonly Snapshot[] = []): AnyKyoot => {
-  for (const { key, hooks, state } of snapshots) {
-    const fork = hooks.fork;
-    if (fork === false) continue;
-    k =
-      typeof fork === "function"
-        ? fork(k)
-        : makeHandler(key, k, { initial: state, onOp: hooks.onOp, tail: hooks.tail } as never);
-  }
-  return k;
-};
-
 const spawn = <A, E>(rt: AsyncRuntime, k: AnyKyoot): Spawned<A, E> => {
   let exit: Result<E, A> | undefined;
   const record = (r: Result<E, A>) => ((exit = r), succeed(undefined));
   const failed = (e: E) => record(Result.fail(e));
-  const inner = makeHandler("fail", k, {
-    fork: false,
-    onOp: failed,
-    onReturn: (a: A) => record(Result.ok(a)),
-  });
-  const outer = makeHandler("fail", inherit(inner, rt.handlers), { fork: false, onOp: failed });
-  const h: FiberHandle = rt.spawn(outer);
+  const h: FiberHandle = rt.spawn(
+    makeHandler(
+      "fail",
+      k.flatMap((a) => record(Result.ok(a))),
+      failed,
+    ),
+  );
   return {
     promise: h.promise.then(
-      () =>
-        exit ??
-        Result.defect(
-          new Error(
-            "a handler copied into a fiber returned a value instead of resuming; give it fork: false",
-          ),
-        ),
+      () => exit!,
       (e: unknown) => (e instanceof InterruptedError ? interrupted : Result.defect(e)),
     ),
     interrupt: h.interrupt,
@@ -174,43 +149,77 @@ const fiber = <A, E>(h: Spawned<A, E>): Fiber<A, E> => {
 const settle = (fibers: ReadonlyArray<Spawned<unknown, unknown>>) =>
   Promise.allSettled(fibers.map((f) => (f.interrupt(), f.promise)));
 
-export const fork = <A, S extends Row>(
-  k: Kyoot<A, S>,
-): Kyoot<Fiber<A, FailOf<S>>, MergeAll<AsyncRow | Leftover<S>>> =>
-  spawning((rt) => Promise.resolve(fiber(spawn(rt, k)))) as never;
+// Forks inherit no handlers. `provide` installs them in the child, e.g. `{ provide: (k) => k.pipe(clock.handler) }`.
+// With it the child may perform anything; after it only async/fail may remain.
+type Provide<A, S extends Row, B, S2 extends Row> = {
+  readonly provide: (k: Kyoot<A, S>) => Kyoot<B, S2> & Only<S2, "async" | "fail">;
+};
 
-export const race = <A, B, S1 extends Row, S2 extends Row>(
+const provided = (k: AnyKyoot, options?: { readonly provide?: (k: any) => AnyKyoot }): AnyKyoot =>
+  options?.provide ? options.provide(k) : k;
+
+export function fork<A, S extends Row>(
+  k: Kyoot<A, S> & Only<S, "async" | "fail">,
+): Kyoot<Fiber<A, FailOf<S>>, AsyncRow>;
+export function fork<A, S extends Row, B, S2 extends Row>(
+  k: Kyoot<A, S>,
+  options: Provide<A, S, B, S2>,
+): Kyoot<Fiber<B, FailOf<S2>>, AsyncRow>;
+export function fork(k: AnyKyoot, options?: { readonly provide?: (k: any) => AnyKyoot }) {
+  return asyncOp((rt) => Promise.resolve(fiber(spawn(rt, provided(k, options)))));
+}
+
+export function race<A, B, S1 extends Row, S2 extends Row>(
+  a: Kyoot<A, S1> & Only<S1, "async" | "fail">,
+  b: Kyoot<B, S2> & Only<S2, "async" | "fail">,
+): Kyoot<A | B, MergeAll<AsyncRow | FailRow<FailOf<S1> | FailOf<S2>>>>;
+export function race<A, B, S1 extends Row, S2 extends Row, C, S3 extends Row>(
   a: Kyoot<A, S1>,
   b: Kyoot<B, S2>,
-): Kyoot<
-  A | B,
-  MergeAll<AsyncRow | Leftover<S1> | Leftover<S2> | FailRow<FailOf<S1> | FailOf<S2>>>
-> =>
-  spawning((rt) => {
-    const fibers = [spawn<A | B, unknown>(rt, a), spawn<A | B, unknown>(rt, b)];
+  options: Provide<A | B, MergeAll<S1 | S2>, C, S3>,
+): Kyoot<C, MergeAll<AsyncRow | FailRow<FailOf<S3>>>>;
+export function race(
+  a: AnyKyoot,
+  b: AnyKyoot,
+  options?: { readonly provide?: (k: any) => AnyKyoot },
+) {
+  return asyncOp((rt) => {
+    const fibers = [
+      spawn<unknown, unknown>(rt, provided(a, options)),
+      spawn<unknown, unknown>(rt, provided(b, options)),
+    ];
     return Promise.race(fibers.map((f) => f.promise))
       .finally(() => settle(fibers))
       .then(land);
-  }).flatMap(fromResult) as never;
+  }).flatMap(fromResult);
+}
 
-export const all = <A, S extends Row = {}>(
+export function all<A, S extends Row = {}>(
+  ks: ReadonlyArray<Kyoot<A, S> & Only<S, "async" | "fail">>,
+  options?: { readonly concurrency?: number },
+): Kyoot<A[], MergeAll<AsyncRow | FailRow<FailOf<S>>>>;
+export function all<A, S extends Row, B, S2 extends Row>(
   ks: ReadonlyArray<Kyoot<A, S>>,
-  options: { readonly concurrency?: number } = {},
-): Kyoot<A[], MergeAll<AsyncRow | Leftover<S> | FailRow<FailOf<S>>>> =>
-  spawning(async (rt): Promise<Result<unknown, A[]>> => {
+  options: { readonly concurrency?: number } & Provide<A, S, B, S2>,
+): Kyoot<B[], MergeAll<AsyncRow | FailRow<FailOf<S2>>>>;
+export function all(
+  ks: ReadonlyArray<AnyKyoot>,
+  options: { readonly concurrency?: number; readonly provide?: (k: any) => AnyKyoot } = {},
+) {
+  return asyncOp(async (rt): Promise<Result<unknown, unknown[]>> => {
     const concurrency = options.concurrency ?? ks.length;
     const workers = Math.min(
       ks.length,
       Math.max(1, Number.isNaN(concurrency) ? ks.length : Math.floor(concurrency)),
     );
-    const results: A[] = new Array(ks.length);
-    const fibers: Spawned<A, unknown>[] = [];
+    const results: unknown[] = new Array(ks.length);
+    const fibers: Spawned<unknown, unknown>[] = [];
     let next = 0;
-    let stopped: Exit<unknown, A[]> | undefined;
+    let stopped: Exit<unknown, unknown[]> | undefined;
     const worker = async () => {
       while (stopped === undefined && next < ks.length) {
         const i = next++;
-        const f = spawn<A, unknown>(rt, ks[i]!);
+        const f = spawn<unknown, unknown>(rt, provided(ks[i]!, options));
         fibers.push(f);
         const r = await f.promise;
         if (r.ok) {
@@ -227,7 +236,8 @@ export const all = <A, S extends Row = {}>(
     if (stopped === undefined) return Result.ok(results);
     await settle(fibers);
     return land(stopped);
-  }).flatMap(fromResult) as never;
+  }).flatMap(fromResult);
+}
 
 export class Timeout {
   readonly _tag = "Timeout";
@@ -237,11 +247,27 @@ export class Timeout {
   }
 }
 
-export const timeout = <A, S extends Row>(ms: number, k: Kyoot<A, S>) =>
-  race(
-    k,
-    sleep(ms).flatMap(() => fail(new Timeout(ms))),
-  );
+type ClockRow = { clock: Op<number, void> };
+
+// Without `provide` the sleep runs on Clock.live (k must already be handled). With it, `provide`
+// wraps both k and the sleep, so a clock handler (live, Clock.test(), an intercept) is required.
+export function timeout<A, S extends Row>(
+  ms: number,
+  k: Kyoot<A, S> & Only<S, "async" | "fail">,
+): Kyoot<A, MergeAll<AsyncRow | FailRow<FailOf<S> | Timeout>>>;
+export function timeout<A, S extends Row, C, S2 extends Row>(
+  ms: number,
+  k: Kyoot<A, S>,
+  options: Provide<A, MergeAll<S | ClockRow | FailRow<Timeout>>, C, S2>,
+): Kyoot<C, MergeAll<AsyncRow | FailRow<FailOf<S2>>>>;
+export function timeout(
+  ms: number,
+  k: AnyKyoot,
+  options?: { readonly provide?: (k: any) => AnyKyoot },
+) {
+  const sleeper = sleep(ms).flatMap(() => fail(new Timeout(ms)));
+  return options ? race(k, sleeper, options as never) : race(k as never, sleeper.pipe(live));
+}
 
 export const fromAsyncIterable = <E>(items: AsyncIterable<E>) =>
   gen(function* () {
@@ -254,7 +280,7 @@ export const fromAsyncIterable = <E>(items: AsyncIterable<E>) =>
   });
 
 export const toAsyncIterable = <S extends Row & { emit?: Op<unknown, void> }>(
-  k: Kyoot<unknown, S> & Only<S, "emit" | Served>,
+  k: Kyoot<unknown, S> & Only<S, "emit" | "async">,
   options: { readonly buffer?: number } = {},
 ): AsyncIterable<Payload<S, "emit">> => ({
   [Symbol.asyncIterator]() {
@@ -277,7 +303,7 @@ export const toAsyncIterable = <S extends Row & { emit?: Op<unknown, void> }>(
           wake();
           return fromPromise(() => parked);
         }),
-      ),
+      ) as never,
     );
     fiber.promise.then(
       () => ((finished = true), wake()),

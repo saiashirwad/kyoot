@@ -1,4 +1,7 @@
-import { Env, Fail, Kyoot, Var, type Kyoot as Program, type Result } from "kyoot";
+import { Kyoot, type Kyoot as Program } from "kyoot";
+import * as Env from "kyoot/env";
+import * as Fail from "kyoot/fail";
+import * as Var from "kyoot/var";
 import { Async, runPromise } from "kyoot/async";
 import { size, type Library } from "./cases.ts";
 
@@ -78,7 +81,7 @@ export default {
   state: { run: runSync(state), read: ([result]: readonly [number, number]) => result },
   failing: {
     run: runSync(failing),
-    read: (result: Result<string, number>) =>
+    read: (result: Fail.Result<string, number>) =>
       result.ok ? result.value : result.cause._tag === "Fail" ? result.cause.error : result.cause,
   },
   asynchronous: { run: () => runPromise(asynchronous) },

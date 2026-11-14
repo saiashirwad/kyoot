@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Kyoot, Log } from "../src/index.ts";
+import { Kyoot } from "../src/index.ts";
+import * as Log from "../src/effects/log.ts";
 
 const prog = Kyoot.gen(function* () {
   yield* Log.info("start");

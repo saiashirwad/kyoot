@@ -1,24 +1,35 @@
 import { catchDefect, makeHandler, makeIntercept, op, succeed, type Resume } from "../core.ts";
 import type { AnyKyoot, Kyoot } from "../model.ts";
-import { Result } from "../result.ts";
-import type { FailRow, MergeAll, Op, Payload, Row } from "../types.ts";
+import type { MergeAll, Op, Payload, Row } from "../types.ts";
+import { Result } from "./result.ts";
+
+export { Result } from "./result.ts";
+export type { Cause, DefectCause, Err, FailCause, Ok } from "./result.ts";
+
+export type FailRow<E> = [E] extends [never] ? {} : { fail: Op<E, never> };
 
 export const fail = <E>(e: E) => op<never>()("fail", e);
 
 export const intercept = <E = unknown>() => makeIntercept<"fail", E, never>("fail");
 
+type FailHandled<A, S extends Row, B, S2 extends Row> = Kyoot<
+  A | B,
+  MergeAll<Omit<S, "fail"> | S2>
+>;
+
+const handleFail = <A, S extends Row, B, S2 extends Row>(
+  k: Kyoot<A, S>,
+  onFail: (e: any) => Kyoot<B, S2>,
+) => makeHandler("fail", k, onFail) as FailHandled<A, S, B, S2>;
+
 export const run = <A, S extends Row & { fail?: Op<unknown, never> }>(k: Kyoot<A, S>) =>
   catchDefect(
-    makeHandler("fail", k, {
-      fork: false,
-      onOp: (e) => succeed(Result.fail(e)),
-      onReturn: (a) => succeed(Result.ok(a)),
-    }),
+    handleFail(k.map(Result.ok), (e) => succeed(Result.fail(e))),
     (d) => succeed(Result.defect(d)),
   );
 
 export const resumeOrFail = <A, E, S extends Row & { fail?: Op<E, never> }>(
-  resume: Resume<A, any, { fail: Op<E, never> }>,
+  resume: Resume<A, { fail: Op<E, never> }>,
   program: Kyoot<A, S>,
 ) => program.pipe(catchAll((e: E) => resume.with(fail(e)))).flatMap((a) => resume(a));
 
@@ -35,14 +46,11 @@ export const fromResult = <E, A = never>(r: Result<E, A>): Kyoot<A, FailRow<E>> 
 export const catchAll =
   <E, A2, S2 extends Row>(f: (e: E) => Kyoot<A2, S2>) =>
   <A, S extends Row & { fail?: Op<E, never> }>(k: Kyoot<A, S>) =>
-    makeHandler("fail", k, { fork: false, onOp: (e: E) => f(e) });
+    handleFail(k, (e: E) => f(e));
 
 export const orThrow = <A, S extends Row & { fail?: Op<unknown, never> }>(k: Kyoot<A, S>) =>
-  makeHandler("fail", k, {
-    fork: false,
-    onOp: (e) => {
-      throw e;
-    },
+  handleFail(k, (e): Kyoot<never> => {
+    throw e;
   });
 
 type Tagged = { readonly _tag: string };

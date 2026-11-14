@@ -1,7 +1,12 @@
-import { Emit, Fail, Kyoot, Log, Random, Var } from "kyoot";
+import { Kyoot } from "kyoot";
+import * as Emit from "kyoot/emit";
+import * as Fail from "kyoot/fail";
+import * as Log from "kyoot/log";
+import * as Random from "kyoot/random";
+import * as Var from "kyoot/var";
 import { AI, Deepseek, Events, Mode } from "@kyoot/ai";
 import { z } from "zod";
-import { Async, runPromise } from "kyoot/async";
+import { Async, Clock, runPromise } from "kyoot/async";
 
 const motions = [
   "Tabs are better than spaces",
@@ -11,7 +16,7 @@ const motions = [
 ];
 
 const debater = (name: string, stance: string) =>
-  AI.make({
+  AI.chat({
     prompt: `You are ${name}, debating ${stance} the motion. Two punchy sentences per turn. Rebut your opponent and never concede.`,
   });
 
@@ -23,7 +28,7 @@ const Verdict = z.object({
 const judge = (transcript: string) =>
   AI.gen(Verdict, `Who won this exchange?\n\n${transcript}`, {
     prompt: "You are a strict debate judge.",
-  }).pipe(Mode.config({ temperature: 1.3 }), Deepseek(), Emit.discard, Fail.orThrow);
+  }).pipe(Mode.config({ temperature: 1.3 }), Deepseek(), Emit.discard, Fail.orThrow, Clock.live);
 
 const Score = Var.tag<Record<"Ada" | "Linus", number>>()("score");
 
@@ -59,6 +64,7 @@ const [, score] = await debate.pipe(
   Log.print,
   Random.live,
   Fail.orThrow,
+  Clock.live,
   runPromise,
 );
 

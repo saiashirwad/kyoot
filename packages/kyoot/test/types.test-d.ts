@@ -1,18 +1,12 @@
-import {
-  effect,
-  Emit,
-  ensuring,
-  Env,
-  Fail,
-  forEach,
-  Kyoot,
-  makeHandler,
-  op,
-  Resource,
-  Sync,
-  Var,
-} from "../src/index.ts";
-import type { Kyoot as KyootT, Op, Payload, Result, RowsOf } from "../src/index.ts";
+import { effect, ensuring, Kyoot } from "../src/index.ts";
+import * as Emit from "../src/effects/emit.ts";
+import * as Env from "../src/effects/env.ts";
+import * as Fail from "../src/effects/fail.ts";
+import * as Resource from "../src/effects/resource.ts";
+import * as Sync from "../src/effects/sync.ts";
+import * as Var from "../src/effects/var.ts";
+import type { Kyoot as KyootT, Op, Payload, Resume, RowsOf } from "../src/index.ts";
+import { op } from "../src/core.ts";
 
 type Expect<T extends true> = T;
 type Equal<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
@@ -43,9 +37,11 @@ type _mixedSync = Expect<Equal<MixedRows["sync"], Op<() => unknown, unknown>>>;
 type _mixedClock = Expect<Equal<MixedRows["clock"], Op<number, void>>>;
 type _mixedValue = Expect<Equal<typeof mixed extends KyootT<infer A, any> ? A : never, string>>;
 
-// @ts-expect-error runSync rejects clock rows; runPromise serves them
+// @ts-expect-error runSync rejects clock rows
 Kyoot.runSync(Clock.sleep(1));
-const slept: Promise<void> = runPromise(Clock.sleep(1));
+// @ts-expect-error runPromise serves only async
+runPromise(Clock.sleep(1));
+const slept: Promise<void> = runPromise(Clock.sleep(1).pipe(Clock.live));
 
 // @ts-expect-error runSync names every unhandled key: Unhandled<"fail" | "async" | "clock" | "sync">
 Kyoot.runSync(mixed);
@@ -72,9 +68,17 @@ const batched = Kyoot.gen(function* () {
 type _batchedKeys = Expect<Equal<keyof RowsOf<typeof batched>, "async">>;
 type _batchedValue = Expect<Equal<typeof batched extends KyootT<infer A, any> ? A : never, string>>;
 
-const timed = Async.timeout(100, Clock.sleep(1));
+const timed = Async.timeout(100, Clock.sleep(1).pipe(Clock.live));
 type _timedKeys = Expect<Equal<keyof RowsOf<typeof timed>, "async" | "fail">>;
 type _timedFail = Expect<Equal<Payload<RowsOf<typeof timed>, "fail">, Async.Timeout>>;
+
+const testClock = Clock.test();
+const timedTest = Async.timeout(100, Clock.sleep(1), { provide: (k) => k.pipe(testClock.handler) });
+type _timedTestKeys = Expect<Equal<keyof RowsOf<typeof timedTest>, "async" | "fail">>;
+// @ts-expect-error provide must handle the sleep's clock
+Async.timeout(100, Clock.sleep(1), { provide: (k) => k });
+// @ts-expect-error provide must leave only async/fail
+Async.fork(Clock.sleep(1), { provide: (k) => k });
 
 const greeted = Kyoot.gen(function* () {
   const g = yield* Greeter;
@@ -88,7 +92,7 @@ const handled = Kyoot.gen(function* () {
   yield* Fail.fail(new FetchFailed());
   return 1;
 }).pipe(Fail.run);
-const f1: Result<FetchFailed, number> = Kyoot.runSync(handled);
+const f1: Fail.Result<FetchFailed, number> = Kyoot.runSync(handled);
 
 const counted = Kyoot.gen(function* () {
   yield* Total.update((t) => t + 1);
@@ -112,16 +116,16 @@ const Ask = effect<{ q: string }, number>()("ask");
 const asked = Ask({ q: "n?" }).map((n) => n + 1);
 type _askRow = Expect<Equal<RowsOf<typeof asked>, { ask: Op<{ q: string }, number> }>>;
 const answered: number = asked.pipe(
-  Ask.handle({ onOp: ({ q }, resume) => resume(q.length) }),
+  Ask.handle(({ q }, resume) => resume(q.length)),
   Kyoot.runSync,
 );
 // @ts-expect-error resume is typed to the answer
-Ask.handle({ onOp: (_p, resume) => resume("no") });
+Ask.handle((_p, resume) => resume("no"));
 // @ts-expect-error the payload is typed by the declaration
-Ask.handle({ onOp: ({ nope }, resume) => resume(1) });
-const refused = asked.pipe(Ask.handle({ onOp: () => Fail.fail("refused" as const) }));
+Ask.handle(({ nope }, resume) => resume(1));
+const refused = asked.pipe(Ask.handle(() => Fail.fail("refused" as const)));
 type _refusedRow = Expect<Equal<keyof RowsOf<typeof refused>, "fail">>;
-const cached = asked.pipe(Ask.handle({ onOp: () => Kyoot.succeed("cached" as const) }));
+const cached = asked.pipe(Ask.handle(() => Kyoot.succeed("cached" as const)));
 type _cachedValue = Expect<Equal<ValueOf<typeof cached>, number | "cached">>;
 
 const clockProg = Clock.sleep(5).pipe(Clock.virtual);
@@ -152,13 +156,15 @@ const flatMapped = Kyoot.succeed(1).flatMap((n) => Fail.fail(String(n)));
 type _flatKeys = Expect<Equal<keyof RowsOf<typeof flatMapped>, "fail">>;
 type _flatFail = Expect<Equal<RowsOf<typeof flatMapped>["fail"], Op<string, never>>>;
 
-import type { DefectCause, Err, FailCause, Ok } from "../src/result.ts";
 import { Async, Clock, Retry, runPromise } from "../src/async/index.ts";
 import type { AsyncOp, Exit } from "../src/async/index.ts";
 type ValueOf<K> = K extends KyootT<infer A, any> ? A : never;
 
 type _failRunValue = Expect<
-  Equal<ValueOf<typeof handled>, Ok<number> | Err<FailCause<FetchFailed>> | Err<DefectCause>>
+  Equal<
+    ValueOf<typeof handled>,
+    Fail.Ok<number> | Fail.Err<Fail.FailCause<FetchFailed>> | Fail.Err<Fail.DefectCause>
+  >
 >;
 type _failRunKeys = Expect<Equal<keyof RowsOf<typeof handled>, never>>;
 
@@ -171,9 +177,7 @@ type _catchAllKeys = Expect<Equal<keyof RowsOf<typeof recovered>, "clock">>;
 
 const slowSync = Sync.defer(() => 1).pipe((k) =>
   ensuring(
-    makeHandler("sync", k, {
-      onOp: (f, resume) => Clock.sleep(1).flatMap(() => resume(f())),
-    }),
+    k.pipe(Sync.handle((f, resume) => Clock.sleep(1).flatMap(() => resume(f())))),
     Async.fromPromise(() => Promise.resolve()),
   ),
 );
@@ -223,9 +227,15 @@ const needsGreeter = Kyoot.gen(function* () {
   yield* Clock.sleep(1);
   return 1;
 });
-const forkedNeedy = Async.fork(needsGreeter);
-type _forkNeedyKeys = Expect<Equal<keyof RowsOf<typeof forkedNeedy>, "async" | "env/greeter">>;
-type NeedyFiber = ValueOf<typeof forkedNeedy>;
+// @ts-expect-error a forked program must handle everything but async and fail
+Async.fork(needsGreeter);
+// @ts-expect-error the same holds for race, all, and timeout
+Async.all([needsGreeter]);
+
+const ready = needsGreeter.pipe(Greeter.provide({ greet: (n) => n }), Clock.live);
+const forkedReady = Async.fork(ready);
+type _forkReadyKeys = Expect<Equal<keyof RowsOf<typeof forkedReady>, "async">>;
+type NeedyFiber = ValueOf<typeof forkedReady>;
 type _joinKeys = Expect<Equal<keyof RowsOf<NeedyFiber["join"]>, "async" | "fail">>;
 type _joinFail = Expect<Equal<Payload<RowsOf<NeedyFiber["join"]>, "fail">, FetchFailed>>;
 type _joinValue = Expect<Equal<ValueOf<NeedyFiber["join"]>, number>>;
@@ -235,29 +245,19 @@ type PureFiber = ValueOf<typeof forked>;
 type _pureJoinKeys = Expect<Equal<keyof RowsOf<PureFiber["join"]>, "async">>;
 
 const joined = Kyoot.gen(function* () {
-  const fiber = yield* Async.fork(needsGreeter);
+  const fiber = yield* Async.fork(ready);
   return yield* fiber.join;
-}).pipe(Greeter.provide({ greet: (n) => n }), Fail.run);
-const j1: Promise<Result<FetchFailed, number>> = runPromise(joined);
+}).pipe(Fail.run);
+const j1: Promise<Fail.Result<FetchFailed, number>> = runPromise(joined);
 
-const raced = Async.race(needsGreeter, Fail.fail("other" as const));
-type _raceKeys = Expect<Equal<keyof RowsOf<typeof raced>, "async" | "env/greeter" | "fail">>;
+const raced = Async.race(ready, Fail.fail("other" as const));
+type _raceKeys = Expect<Equal<keyof RowsOf<typeof raced>, "async" | "fail">>;
 type _raceFail = Expect<Equal<RowsOf<typeof raced>["fail"], Op<FetchFailed | "other", never>>>;
-const allOf = Async.all([needsGreeter, needsGreeter]);
-type _allKeys = Expect<Equal<keyof RowsOf<typeof allOf>, "async" | "env/greeter" | "fail">>;
+const allOf = Async.all([ready, ready]);
+type _allKeys = Expect<Equal<keyof RowsOf<typeof allOf>, "async" | "fail">>;
 type _allValue = Expect<Equal<ValueOf<typeof allOf>, number[]>>;
 const none = Async.all([]);
 type _noneKeys = Expect<Equal<keyof RowsOf<typeof none>, "async">>;
-
-const Ask2 = effect<string, number>()("ask2");
-Ask2.handle({ fork: false, onOp: (_q, resume) => resume(1) });
-Ask2.handle({
-  fork: (k) => k,
-  create: () => [] as string[],
-  onOp: (q, resume, seen) => resume(seen.push(q)),
-});
-// @ts-expect-error fork is false or a function that installs the fiber's own handler
-Ask2.handle({ fork: "none", onOp: (_q, resume) => resume(1) });
 
 const Config = Env.tag<{ url: string }>()("config");
 const Db = Env.tag<{ query(sql: string): KyootT<string, { async: Op<AsyncOp, unknown> }> }>()("db");
@@ -287,15 +287,15 @@ class Declined {
 }
 const Pay = effect<number, string, { fail: Op<Declined, never> }>()("pay");
 type _payRow = Expect<Equal<keyof RowsOf<ReturnType<typeof Pay>>, "pay" | "fail">>;
-Pay.handle({ onOp: (_, resume) => resume.with(Fail.fail(new Declined())) });
-Pay.handle({ onOp: (_, resume) => resume.with(Kyoot.succeed("ok")) });
+Pay.handle((_, resume) => resume.with(Fail.fail(new Declined())));
+Pay.handle((_, resume) => resume.with(Kyoot.succeed("ok")));
 // @ts-expect-error a failure outside the contract
-Pay.handle({ onOp: (_, resume) => resume.with(Fail.fail("wrong type")) });
+Pay.handle((_, resume) => resume.with(Fail.fail("wrong type")));
 // @ts-expect-error an effect the op site was not told about
-Pay.handle({ onOp: (_, resume) => resume.with(Log.info("x").map(() => "ok")) });
+Pay.handle((_, resume) => resume.with(Log.info("x").map(() => "ok")));
 const Plain = effect<number, string>()("plain");
 // @ts-expect-error no contract: nothing may be handed back but a value
-Plain.handle({ onOp: (_, resume) => resume.with(Fail.fail(new Declined())) });
+Plain.handle((_, resume) => resume.with(Fail.fail(new Declined())));
 
 const Recv = effect<{ readonly from: string }, number>()("recv");
 const stepped = Kyoot.step(
@@ -346,13 +346,18 @@ if (!askStep.done) {
   askStep.resume("one");
 }
 
-const rawAnswered = makeHandler("ask", asked, { onOp: ({ q }, resume) => resume(q.length) });
-type _rawAnsweredRow = Expect<Equal<keyof RowsOf<typeof rawAnswered>, never>>;
-const rawTail: number = Kyoot.runSync(makeHandler("ask", asked, { tail: ({ q }) => q.length }));
-// @ts-expect-error makeHandler types resume from the row
-makeHandler("ask", asked, { onOp: (_p, resume) => resume("no") });
-// @ts-expect-error makeHandler types a tail answer from the row
-makeHandler("ask", asked, { tail: () => "no" });
+const answeredRow = asked.pipe(Ask.handle(({ q }, resume) => resume(q.length)));
+type _answeredRow = Expect<Equal<keyof RowsOf<typeof answeredRow>, never>>;
+// @ts-expect-error handle types resume from the declaration
+asked.pipe(Ask.handle((_p, resume) => resume("no")));
+
+const Echo = effect<string, string>()("echo");
+// @ts-expect-error annotated params must match the declaration (#50)
+Echo.handle((_p: number, resume: Resume<number>) => resume(42));
+// @ts-expect-error an annotated payload must match the declaration
+Echo.handle((_p: number, resume) => resume("x"));
+// @ts-expect-error an annotated resume must match the declaration
+Echo.handle((_p, resume: Resume<number>) => resume(1));
 
 declare const first: boolean;
 const twoAsks = Kyoot.gen(function* () {
@@ -364,9 +369,6 @@ type _twoAsksRow = Expect<Equal<RowsOf<typeof twoAsks>, { pick: Op<"low" | "high
 const loose: KyootT<number, { fail: Op<FetchFailed | Declined, never> }> = Kyoot.succeed(1);
 // @ts-expect-error a row cannot hold a bare payload
 type _bareRow = KyootT<number, { fail: FetchFailed }>;
-
-// @ts-expect-error forEach answers undefined, so it cannot serve an effect that expects a number
-asked.pipe(forEach("ask", (_: { q: string }) => {}));
 
 const handledStep = Kyoot.step(Kyoot.succeed(1));
 type _handledStep = Expect<

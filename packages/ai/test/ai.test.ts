@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { effect, Emit, Fail, Kyoot } from "kyoot";
+import { effect, Kyoot } from "kyoot";
+import * as Emit from "kyoot/emit";
+import * as Fail from "kyoot/fail";
 import type { Op } from "kyoot";
 import { z } from "zod";
 import {
   AI,
   Approve,
   Events,
-  generate,
   Mode,
   Model,
   needsApproval,
@@ -27,9 +28,7 @@ const emitting = Tool("emitting", "emits numbers", z.object({}), () => Emit.valu
 type _emittingRow = Expect<
   Equal<Requires<typeof emitting>["emit"], Op<Events.Event | number, void>>
 >;
-const evaluate = Calc.handle({
-  onOp: ({ expression }, resume) => resume(expression === "2+2" ? 4 : NaN),
-});
+const evaluate = Calc.handle(({ expression }, resume) => resume(expression === "2+2" ? 4 : NaN));
 
 const call = (name: string, args: object): Completion => ({
   text: "",
@@ -42,12 +41,12 @@ const say = (text: string, usage?: Completion["usage"]): Completion => ({
 });
 
 const scripted = (script: readonly Completion[], seen: Request[] = []) =>
-  Model.handle({
-    initial: 0,
-    onOp: (req, resume, i) => {
+  Model.handleWith(() => {
+    let i = 0;
+    return (req, resume) => {
       seen.push(req);
-      return resume(script[Math.min(i, script.length - 1)]!, i + 1);
-    },
+      return resume(script[Math.min(i++, script.length - 1)]!);
+    };
   });
 
 test("ask: runs tool calls as effects and feeds results back", () => {
@@ -95,24 +94,12 @@ test("ask: gives up with TooManyRounds", () => {
   assert.ok(!r.ok && r.cause._tag === "Fail" && r.cause.error instanceof TooManyRounds);
 });
 
-test("generate: one shot, returns the new messages", () => {
-  const [value, added] = Kyoot.runSync(
-    generate([{ role: "user", content: "hi" }]).pipe(
-      scripted([say("hey")]),
-      Emit.discard,
-      Fail.orThrow,
-    ),
-  );
-  assert.equal(value, "hey");
-  assert.deepEqual(added, [{ role: "assistant", content: "hey" }]);
-});
-
 test("instances keep history; agents compose as tools with their own model", () => {
-  const critic = AI.make({ prompt: "You critique." });
+  const critic = AI.chat({ prompt: "You critique." });
   const consult = Tool("critic", "ask the critic", z.object({ draft: z.string() }), ({ draft }) =>
     critic.ask(draft).pipe(scripted([say("too long")])),
   );
-  const writer = AI.make({ tools: [consult] });
+  const writer = AI.chat({ tools: [consult] });
   const seen: Request[] = [];
   const [answer, usage] = Kyoot.runSync(
     Kyoot.gen(function* () {
@@ -157,12 +144,12 @@ test("events: text from the provider, calls and results from the loop", () => {
   const events: Events.Event[] = [];
   Kyoot.runSync(
     AI.ask("2+2?", { tools: [calc] }).pipe(
-      Model.handle({
-        initial: 0,
-        onOp: (_req, resume, i) =>
+      Model.handleWith(() => {
+        let i = 0;
+        return (_req, resume) =>
           Emit.value<Events.Event>({ type: "text", text: "hm" }).flatMap(() =>
-            resume(i === 0 ? call("calc", { expression: "2+2" }) : say("4"), i + 1),
-          ),
+            resume(i++ === 0 ? call("calc", { expression: "2+2" }) : say("4")),
+          );
       }),
       evaluate,
       Emit.forEach((e: Events.Event) => events.push(e)),
@@ -184,11 +171,9 @@ test("approval is an effect the tool performs", () => {
     Fail.orThrow,
   );
   const result = (content: string) => ({ role: "tool", toolCallId: "1", content });
-  Kyoot.runSync(program.pipe(Approve.handle({ onOp: (_, resume) => resume(false) })));
+  Kyoot.runSync(program.pipe(Approve.handle((_, resume) => resume(false))));
   assert.deepEqual(seen[1]!.messages.at(-1), result('{"denied":true}'));
-  Kyoot.runSync(
-    program.pipe(Approve.handle({ onOp: ({ tool }, resume) => resume(tool === "calc") })),
-  );
+  Kyoot.runSync(program.pipe(Approve.handle(({ tool }, resume) => resume(tool === "calc"))));
   assert.deepEqual(seen[3]!.messages.at(-1), result("4"));
 });
 

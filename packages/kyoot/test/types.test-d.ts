@@ -72,6 +72,14 @@ const timed = Async.timeout(100, Clock.sleep(1).pipe(Clock.live));
 type _timedKeys = Expect<Equal<keyof RowsOf<typeof timed>, "async" | "fail">>;
 type _timedFail = Expect<Equal<Payload<RowsOf<typeof timed>, "fail">, Async.Timeout>>;
 
+const testClock = Clock.test();
+const timedTest = Async.timeout(100, Clock.sleep(1), { provide: (k) => k.pipe(testClock.handler) });
+type _timedTestKeys = Expect<Equal<keyof RowsOf<typeof timedTest>, "async" | "fail">>;
+// @ts-expect-error provide must handle the sleep's clock
+Async.timeout(100, Clock.sleep(1), { provide: (k) => k });
+// @ts-expect-error provide must leave only async/fail
+Async.fork(Clock.sleep(1), { provide: (k) => k });
+
 const greeted = Kyoot.gen(function* () {
   const g = yield* Greeter;
   return g.greet("kyoot");
